@@ -1,5 +1,12 @@
 
 
+# Claude setup source of truth
+
+My skills, this CLAUDE.md, settings.json, statusline.js, and writing corpus are the canonical copies in the git repo at `C:\code2\joey-claude-setup`, symlinked into `~/.claude`. Editing any of these files edits the repo copy directly (that is what the symlink gives me), so to update: change the file in place, then commit and push from `C:\code2\joey-claude-setup`.
+
+- Don't drop a real file into `~/.claude` for a path the repo owns; that replaces the symlink and breaks the sync. If it happens, re-run `bootstrap.ps1` from the repo.
+- New machine: clone the repo and run `bootstrap.ps1` to recreate the links.
+
 # Git
 
 - Branch new work off the latest remote base: `git fetch origin` then `git checkout -b <branch> --no-track origin/main` (or `origin/develop`) — never off a stale local checkout. The `--no-track` matters: without it the new branch inherits `origin/develop` as upstream, and `git push` then fails with an upstream/branch name mismatch under `push.default=simple`.

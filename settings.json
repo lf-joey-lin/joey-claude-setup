@@ -1,6 +1,6 @@
 {
   "env": {
-    "NPM_CONFIG_USERCONFIG": "C:\\Users\\joey.lin\\.npmrc"
+    "NPM_CONFIG_USERCONFIG": "${USERPROFILE}\\.npmrc"
   },
   "attribution": {
     "commit": "",
@@ -23,7 +23,7 @@
   },
   "statusLine": {
     "type": "command",
-    "command": "node C:/Users/joey.lin/.claude/statusline.js",
+    "command": "node ${USERPROFILE}/.claude/statusline.js",
     "padding": 0
   },
   "enabledPlugins": {
