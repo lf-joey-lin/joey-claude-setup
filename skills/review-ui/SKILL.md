@@ -18,10 +18,12 @@ The mode is fixed by the input (Step 0 routes it):
 
 - **Fix mode (default, local scope).** For your own change - the current branch
   diff against latest `origin/main`, or a named page/component in full. Discovery
-  produces the ranked findings; then each finding is worked in its own turn on the
-  shared turn-by-turn loop - a subagent applies the minimal fix and the human
-  decides accept / revise / skip / wont-fix. Accepted fixes land in the working
-  tree (never committed by this skill). Steps 3, then 5 through 7.
+  produces the ranked findings, each with a priority, summary, quick before/after,
+  and recommendation; the human gates the whole list in one pass (the shared loop's
+  section 1 - must-fix and recommended default to accept, minor to skip, flip any).
+  Then each accepted finding is worked in its own turn - a subagent applies the
+  minimal fix and runs tests, and the human keeps or reverts it and chooses whether
+  to commit. Steps 3, then 5 through 7.
 
 - **Report-only mode.** For a **remote GitHub PR** (a PR link or number - reviewing
   someone else's work), or whenever the user asks to review the local scope
@@ -261,8 +263,9 @@ changed `src/ui-app/` files, and the diff). Tell it to:
   import) into one finding rather than many headlines. For each finding return:
   `location` (`path:line`), a one-sentence `finding` (what and why it matters), and a
   concrete `proposal` grounded in the verified API (name the Nuxt UI
-  component/prop/composable or show the reduced code shape, with a short before/after
-  where it helps).
+  component/prop/composable or show the reduced code shape) with a short
+  before/after so the human can judge it at the gate, and a `priority` (must-fix /
+  recommended / minor) that sets the finding's default at that gate.
 - **In report-only mode, also return per finding the CODE CONTEXT block:** the
   current code the finding concerns, as a fenced, language-tagged block (```vue
   etc.), enough surrounding lines to be self-contained (the whole component / block /
@@ -272,9 +275,11 @@ changed `src/ui-app/` files, and the diff). Tell it to:
   test / a11y observations, each pointing at the owning skill.
 
 Then branch on mode: **report-only -> Step 4** (present and stop). **Fix mode ->**
-relay the ranked list and get a go-ahead per the shared loop's section 1 (how many
-findings, ranked, plus the out-of-scope notes), then **Steps 5 through 7**. If
-discovery finds nothing actionable, say so and stop.
+run the shared loop's section 1 bulk gate over the whole ranked list - each finding
+shown with its priority, summary, before/after, and recommendation; must-fix and
+recommended default to accept, minor to skip, and the human flips any - plus the
+out-of-scope notes, then **Steps 5 through 7**. If discovery finds nothing
+actionable, say so and stop.
 
 ## Step 4 - Present the report (report-only mode, terminal)
 
@@ -309,7 +314,8 @@ src/ui-app/logs/feature-review.md
 ```
 
 Follow the shared loop's state-file template and resume rules; seed the `## Items`
-list from the ranked discovery findings (most impactful first). Add these
+list from the ranked discovery findings (most impactful first), each with its
+`Priority` from discovery (it sets the section 1 gate default). Add these
 review-specific fields to each item entry: `Proposal` (the concrete alternative
 discovery returned) and `Dimension` (which review dimension it came from). Keep the
 "Out of scope but worth noting" list in a trailing section of the same file.
@@ -358,17 +364,18 @@ the shared loop calls for, seeded with only this finding:
 > ```diff), verification result, and (if applicable) the open question.
 
 Relay the report and drive the disposition exactly as the shared loop's section 3
-describes (show code context + verdict + diff + verify, then accept / revise /
-skip / wont-fix), and record the outcome per section 4. On skip/wont-fix, revert
-any applied change with `git checkout -- <files>` so the working tree only carries
-accepted fixes.
+describes (show code context + verdict + applied diff + verify, then revise / keep
+/ revert, and the commit offer), and record the outcome per section 4. On revert,
+undo the applied change with `git checkout -- <files>` so the working tree only
+carries kept fixes.
 
 ## Step 7 - Wrap up (fix mode)
 
-Follow the shared loop's wrap-up (section 5): summarize from the state file
-(accepted / skipped / wont-fix, one line each), and leave the accepted fixes as
-uncommitted working-tree changes - **do not commit or push unless the user asks**
-(per the global git rules). Then:
+Follow the shared loop's wrap-up (section 5): summarize from the state file (kept /
+skipped / wont-fix, one line each, with commit hashes where the user committed), and
+make the final commit offer for any still-bundled fixes. Fixes the user leaves
+uncommitted stay as working-tree changes; **never push** (per the global git
+rules). Then:
 
 - Give a short **verdict**: is the change gate-ready, or are there must-fix items
   still open (separate must-fix from nice-to-have).
@@ -378,8 +385,8 @@ uncommitted working-tree changes - **do not commit or push unless the user asks*
 - Note that fixes touching a full gate (build / 100% coverage / a11y) should run
   through `prepare-to-ship-ui` before the PR.
 
-The only side effects of fix mode are the accepted working-tree fixes and the
-gitignored state file.
+The side effects of fix mode are the kept fixes - as working-tree changes, or local
+commits the user chose - and the gitignored state file. It never pushes.
 
 ## Conventions
 
