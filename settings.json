@@ -1,0 +1,46 @@
+{
+  "env": {
+    "NPM_CONFIG_USERCONFIG": "C:\\Users\\joey.lin\\.npmrc"
+  },
+  "attribution": {
+    "commit": "",
+    "pr": "",
+    "sessionUrl": false
+  },
+  "includeCoAuthoredBy": false,
+  "permissions": {
+    "deny": [
+      "mcp__notion__notion-create-pages",
+      "mcp__notion__notion-update-page",
+      "mcp__notion__notion-move-pages",
+      "mcp__notion__notion-duplicate-page",
+      "mcp__notion__notion-create-database",
+      "mcp__notion__notion-update-data-source",
+      "mcp__notion__notion-create-comment",
+      "mcp__notion__notion-create-view",
+      "mcp__notion__notion-update-view"
+    ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "node C:/Users/joey.lin/.claude/statusline.js",
+    "padding": 0
+  },
+  "enabledPlugins": {
+    "chrome-devtools-mcp@claude-plugins-official": true,
+    "typescript-lsp@claude-plugins-official": true,
+    "figma@claude-plugins-official": true,
+    "pr-review-toolkit@claude-plugins-official": true
+  },
+  "effortLevel": "high",
+  "autoUpdatesChannel": "latest",
+  "tui": "fullscreen",
+  "voice": {
+    "enabled": true,
+    "mode": "hold"
+  },
+  "skipWorkflowUsageWarning": true,
+  "theme": "dark",
+  "skipAutoPermissionPrompt": true,
+  "voiceEnabled": true
+}

@@ -1,0 +1,7 @@
+# Never commit local credentials or machine state
+.credentials.json
+
+# OS / editor cruft
+Thumbs.db
+.DS_Store
+*.swp
