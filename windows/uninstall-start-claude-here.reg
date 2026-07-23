@@ -1,0 +1,8 @@
+Windows Registry Editor Version 5.00
+
+; Removes the "Start claude here" context-menu entry added by start-claude-here.reg.
+; The leading "-" on a key path deletes that key and everything under it.
+
+[-HKEY_CURRENT_USER\Software\Classes\Directory\shell\StartClaude]
+
+[-HKEY_CURRENT_USER\Software\Classes\Directory\Background\shell\StartClaude]

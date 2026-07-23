@@ -1,0 +1,21 @@
+Windows Registry Editor Version 5.00
+
+; "Start claude here" Explorer context-menu entry (per-user, no admin required).
+; %V = the folder path (the selected folder, or an open folder's background path).
+; See windows/README.md for install/uninstall steps.
+
+; --- Right-click ON a folder ---
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StartClaude]
+@="Start claude here"
+"Icon"="C:\\Users\\joey.lin\\.local\\bin\\claude.exe,0"
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\shell\StartClaude\command]
+@="\"C:\\Windows\\System32\\cmd.exe\" /c start \"\" wt.exe -d \"%V\" claude"
+
+; --- Right-click on the EMPTY BACKGROUND inside an open folder ---
+[HKEY_CURRENT_USER\Software\Classes\Directory\Background\shell\StartClaude]
+@="Start claude here"
+"Icon"="C:\\Users\\joey.lin\\.local\\bin\\claude.exe,0"
+
+[HKEY_CURRENT_USER\Software\Classes\Directory\Background\shell\StartClaude\command]
+@="\"C:\\Windows\\System32\\cmd.exe\" /c start \"\" wt.exe -d \"%V\" claude"
