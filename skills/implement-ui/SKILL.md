@@ -170,6 +170,27 @@ why, compile/lint results, any deviation from the design (or from what the
 freeform request asked for) and the reason, and the concrete manual checks the
 human should run (routes, states, breakpoints, a11y).
 
+## Autonomous mode (headless, under joey-bot)
+
+When the invocation says you are running in autonomous mode (see
+[`../shared/autonomous-pipeline.md`](../shared/autonomous-pipeline.md)), there is
+no human to exercise the feature. Replace the Step 4 gate:
+
+- Do NOT stop and hand control to the human at Step 4. After Step 3 (compile +
+  lint) passes, go straight to Step 5. Manual UI verification (dev server,
+  breakpoints, states, a11y) cannot be auto-asserted here, so it is not skipped -
+  it is **deferred**: list the concrete manual checks in the Step 5 summary so the
+  final joey-bot review gate carries them to the human.
+- Resolve any ambiguity in the design or freeform request with the most-reasonable
+  interpretation and record it as a deviation in the Step 5 summary, rather than
+  asking. Only a contradiction with no reasonable default is a blocker to surface.
+- You are already the dispatched subagent (joey-bot spawned you), so run the steps
+  inline; do not dispatch a further subagent.
+
+Do not commit here - commit policy for the run belongs to joey-bot. Everything
+else (SOLID, theming, mobile-first, a11y, test hooks, the real compile/lint
+verification) is unchanged.
+
 ## Handoff folder & format (standard)
 
 The three UI skills hand off through files in the gitignored folder

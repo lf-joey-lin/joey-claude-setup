@@ -109,142 +109,34 @@ on - do not read every changed file into the orchestrator's own context.
 
 ## Step 1 - Establish ground truth (do not review from memory)
 
-The API is the source of truth, not your recollection. Before asserting that a
-Nuxt UI component exists, covers a use case, or takes a given prop - or before a
-fix subagent swaps one in - verify it:
+The API is the source of truth, not your recollection. Follow the shared
+**Ground truth first** section in
+[`../shared/ui-quality-dimensions.md`](../shared/ui-quality-dimensions.md):
+verify every Nuxt UI component / prop / composable against the nuxt-ui and nuxt
+MCP servers and the installed types before asserting it exists or before a fix
+subagent swaps one in, and read the repo's own rules (`src/ui-app/CLAUDE.md`, root
+`CLAUDE.md`). Never propose or apply a Nuxt UI component or prop you have not
+confirmed - a wrong "just use `UFoo`" is worse than no finding.
 
-- **nuxt-ui MCP** - the primary authority for the component library:
-  `search-components` / `get-component` / `get-component-metadata` for exact
-  props, slots, and emits; `get-example` and `list-examples` for idiomatic usage;
-  `search-composables` for `@nuxt/ui` composables (e.g. `useToast`, `useOverlay`);
-  `search-icons` for icon names; `search-documentation` / `get-documentation-page`
-  for patterns.
-- **nuxt MCP** - for framework-level questions (auto-imports, composables,
-  data-fetching, config, SSR): `get-documentation-page`, `list-documentation-pages`,
-  `search-documentation`, `get-module`.
-- **The installed types** (offline, version-pinned - authoritative over any doc):
-  `src/ui-app/node_modules/@nuxt/ui/dist/runtime/components/*.vue(.d.ts)` and
-  `.../composables/`. If the MCP and the installed `.d.ts` disagree, the installed
-  types win (the repo may be pinned to a different version). When reviewing a remote
-  PR, the local `node_modules` is still valid ground truth unless that PR changes
-  the `@nuxt/ui` version - if it does, verify against the version the PR pins.
-- **The repo's own rules** - read `src/ui-app/CLAUDE.md` (component organization,
-  theming tokens, i18n, code style) and the root `CLAUDE.md` (code standards).
-  Match the app's existing patterns (`app/app.config.ts`, existing components and
-  pages) over generic advice.
-
-Never propose or apply a Nuxt UI component or prop you have not confirmed exists in
-the installed API. A wrong "just use `UFoo`" is worse than no finding.
+Review-specific: when reviewing a **remote PR**, the local `node_modules` is still
+valid ground truth unless that PR changes the `@nuxt/ui` version - if it does,
+verify against the version the PR pins.
 
 ## Step 2 - Review dimensions
 
-Go through each dimension against every changed/added file. For each issue,
-capture: file and line, what the problem is, and a concrete proposed fix grounded
-in the API you verified in Step 1.
+Run every dimension in
+[`../shared/ui-quality-dimensions.md`](../shared/ui-quality-dimensions.md)
+("The dimensions", 1 through 10) against every changed/added file - or, for a named
+target, against that file in full. Read each dimension as "what to flag": prefer
+Nuxt UI over custom, minimal code, simplify complicated patterns, minimal exposed
+API, i18n (no hardcoded strings), theming tokens (no hardcoded hex), code standards
+/ SOLID, coupled constants, theme-override merge semantics, and shared-unit blast
+radius.
 
-1. **Prefer Nuxt UI over custom (headline check).** For every hand-rolled
-   component, wrapper, or block of template + CSS, ask whether an installed
-   `@nuxt/ui` component already does it (card, badge, button, input, modal/slideover,
-   dropdown, table, tabs, accordion, tooltip, avatar, etc.). If yes, propose
-   replacing the custom code with it, citing the component and a verified example.
-   Custom is justified only when no component fits or the design genuinely requires
-   it - say which when you accept a custom component.
-
-2. **Minimal code.** Flag dead code, unused imports/props/refs/emits, commented-out
-   blocks, redundant wrappers, needless intermediate variables, and abstraction that
-   earns nothing (a composable/component used once with no reuse or testability
-   gain). The smallest diff that meets the acceptance criteria wins.
-
-3. **Simplify complicated patterns.** Where a pattern is more complex than the
-   problem needs - manual state a composable/component already provides,
-   hand-managed reactivity that `computed`/`v-model` handles, deep prop-drilling,
-   an over-engineered generic - explore and propose the simpler implementation
-   concretely (not "consider simplifying"; show the shape).
-
-4. **Minimal exposed API.** For each composable and component, check the public
-   surface: does it expose only what consumers actually need for the acceptance
-   criteria? Flag returned refs/methods that no caller uses, props that are never
-   read, and mutable state exposed where a readonly/computed value would do. Prefer
-   the narrowest contract (props down, events up; `readonly()` for exposed state).
-
-5. **i18n - no hardcoded strings** (`src/ui-app/CLAUDE.md` Localization). Every
-   user-facing string must go through `t()` / `$t()` and live in
-   `i18n/locales/en.json` (English only; other catalogs are generated). Flag any
-   hardcoded literal in a template or script that renders to the user. If the diff
-   adds keys to `en.json`, remind that the PR needs the `to-be-translated` label
-   (the parity CI gate fails otherwise). Dynamic dates/numbers are formatted with
-   `Intl` via `$formatLocale`/`$timeZone`, not translated - flag string-built dates.
-
-6. **Theming tokens - no hardcoded hex** (`src/ui-app/CLAUDE.md` Conventions).
-   Colors come from the theme palette tokens (`primary-800`, `gray-600`, ...), never
-   arbitrary values like `bg-[#01426a]`. When you flag a hex, look it up in the
-   palette and name the token it maps to. A genuinely token-less design color is a
-   palette-gap to raise, not a one-off to keep.
-
-7. **Code standards / SOLID** (root + `ui-app` `CLAUDE.md`).
-   - TypeScript throughout; SFCs use `<script setup lang="ts">`. Explicit types, no
-     `var`. Nullable- and globalization-aware.
-   - Idiomatic Vue/Nuxt: rely on auto-imports and composables, `computed` over
-     watchers where it fits, no SSR-unsafe access, no needless client-only.
-   - SOLID for non-trivial logic: single responsibility per component/composable;
-     depend on typed contracts, not concrete internals.
-   - No em dash, emojis, arrows, or box-drawing characters in code or comments.
-   - Comments only for non-obvious "why"; delete narrating comments.
-
-8. **Coupled constants / implicit invariants (single source of truth).** A literal
-   whose correctness depends on it matching another value elsewhere is a cleanliness
-   defect even when it is not a color - the two copies drift the moment one changes.
-   The hex-vs-token rule in dimension 6 is just the color-specific case of this;
-   generalize it. Flag a spacing/size/offset that must equal a sibling's padding or a
-   layout number (e.g. a brand inset hardcoded to match a nav link's `px-*`), a
-   per-variant value that duplicates another variant's, or any magic number that
-   encodes a relationship rather than a standalone constant. Propose one source of
-   truth: derive it, or name it once (a shared const / a single token) so the copies
-   cannot diverge. Two traps make these easy to miss, so check for both:
-   - **Trace changed values out of the hunk.** The value a changed literal must agree
-     with often lives on an unchanged line, so judging the diff in isolation never
-     catches it. For each changed constant, find what it is implicitly coupled to and
-     confirm they still agree.
-   - **Re-check every variant, not just the default.** For a shared or variant-driven
-     component (a `variant` prop, a theme map, slotted skins), run every dimension
-     above against each configuration it produces - a change that is correct for the
-     default path can be silently wrong for another variant.
-
-9. **Theme-override merge semantics.** A `:ui` slot override or a `class` on a Nuxt UI
-   component merges with the component's default classes through tailwind-variants and
-   tailwind-merge; it does not replace them. Judge the merged result, not the string in
-   the diff - utilities you did not set survive from the default, and a conflict only
-   resolves in your favor when tailwind-merge recognizes both sides as the same group.
-   This is the framework-idiom prerequisite that makes dimension 8's "trace out of the
-   hunk" work for `@nuxt/ui`: the value a changed override is coupled to usually lives
-   in the library theme, not the repo. Two silent failure modes to check for:
-   - A default utility you meant to drop is still winning, because your override set a
-     different property and left the one you cared about untouched (the NavRail brand
-     inset had to equal the link's `px-2.5`, which was never written in NavRail - it
-     rode through from `UNavigationMenu`'s default `link` slot).
-   - An override you expect to win a conflict is not de-duped, so both it and the
-     default end up in the class list and cascade order decides - common with arbitrary
-     values (`before:bg-[...]`), `before:` / `data-[active]:` pseudo-variants, and
-     custom classes tailwind-merge does not group.
-   Detection: for each `:ui`, `class`, or `app.config.ts` override on a changed line,
-   look up that slot's default string in the installed theme
-   (`node_modules/@nuxt/ui/dist/shared/ui.*.mjs`, or `get-component-metadata`) and
-   compute the merged class list before judging the restyle.
-
-10. **Shared-unit blast radius.** When the change touches a shared unit - a component
-    under `components/common/`, a composable, a `useState` / `useCookie` key, a theme
-    token, an `en.json` key - review every consumer of that unit, not just the file in
-    the diff. A change correct at the definition and correct for the consumer in the
-    hunk can be silently wrong for a sibling consumer that never appears in the diff, or
-    for the `app.config.ts` default path. Detection: grep the call sites (`<NavRail`,
-    `useSidebarOpen(`, the token name, the i18n key) and open each consumer, including
-    any layout that renders the component; confirm the change holds for all of them.
-    This is the cross-file widening of dimension 8's "re-check every variant": that
-    check stays within one variant-driven component's own output, this follows the
-    coupling into the separate files that import or render the unit or share its state
-    key (e.g. `useSidebarOpen`'s cookie backs both the desktop rail and the mobile
-    overlay). It also gives dimension 2 its counterpart - a prop or return value no
-    consumer reads, visible only once every consumer is open.
+For each issue, capture: file and line, what the problem is, and a concrete proposed
+fix grounded in the API you verified in Step 1. The shared file's "Out of scope for
+this bar" note matches this skill's Scope section - hand those observations to the
+owning skill rather than fixing them here.
 
 ## Step 3 - Discover the ranked findings (both modes)
 
@@ -257,7 +149,10 @@ changed `src/ui-app/` files, and the diff). Tell it to:
 
 - Follow Step 1 (establish ground truth against the MCP servers / installed types)
   and Step 2 (run every review dimension against every changed/added file, or the
-  named target in full).
+  named target in full). The subagent will not have this skill or the shared file
+  loaded, so the orchestrator embeds the shared dimensions verbatim in this seed:
+  read [`../shared/ui-quality-dimensions.md`](../shared/ui-quality-dimensions.md)
+  ("The dimensions" and "Ground truth first") and paste that text into the prompt.
 - Return a **ranked findings list**, most to least impactful, and make **no code
   changes** - discovery is read-only in both modes. Group trivia (a lone unused
   import) into one finding rather than many headlines. For each finding return:
@@ -387,6 +282,33 @@ rules). Then:
 
 The side effects of fix mode are the kept fixes - as working-tree changes, or local
 commits the user chose - and the gitignored state file. It never pushes.
+
+## Autonomous mode (headless, under joey-bot)
+
+When the invocation says you are running in autonomous mode (see
+[`../shared/autonomous-pipeline.md`](../shared/autonomous-pipeline.md)), run in
+**fix mode on the local scope** with no human at the gate. Replace the human
+decision points:
+
+- **No section 1 bulk gate.** Auto-accept every must-fix and recommended finding;
+  defer minor findings (record them in the state file as `[-]` skipped with a
+  one-line note) rather than applying speculative polish.
+- **No per-finding keep/revert/commit disposition.** For each accepted finding,
+  apply the minimal fix and verify it as Step 6 describes. Keep it if it is VALID
+  and verification passes; if the fix subagent reports INVALID or a JUDGEMENT
+  CALL, make no change and record it as wont-fix with the reasoning. Do not wait
+  for a human to choose.
+- **Handle findings inline - do not fan out a subagent per finding.** You are
+  already running inside a joey-bot stage subagent; adding the shared loop's
+  per-finding subagent would be a third nesting level. Do the read/fix/verify for
+  each finding inline in this context instead, keeping the same rigor (re-verify
+  the API before applying, capture the diff, run the real checks).
+- **Make no commit** - commit policy for the run belongs to joey-bot. Leave kept
+  fixes as working-tree changes and record them in the state file.
+- Still write `feature-review.md` and keep the "Out of scope but worth noting"
+  list; the orchestrator carries bugs/security/a11y notes to the human.
+
+Report-only mode is not used under joey-bot.
 
 ## Conventions
 

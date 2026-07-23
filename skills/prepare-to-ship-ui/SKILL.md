@@ -113,6 +113,18 @@ that the user can act without opening the run themselves. Point each failure at
 the skill that owns the fix (`implement-ui` for build/a11y code, `testing-ui` for
 tests and coverage), and stop - do not attempt the fix here.
 
+## Autonomous mode (headless, under joey-bot)
+
+This gate is already non-interactive, so autonomous mode changes almost nothing
+(see [`../shared/autonomous-pipeline.md`](../shared/autonomous-pipeline.md)):
+
+- You are already the dispatched subagent (joey-bot spawned you); run the three
+  gates inline, do not dispatch again.
+- Run all three gates, return the scorecard, the verdict, and the actual failing
+  output for any gate that fails - exactly as in interactive mode. Still edit
+  nothing: on a failure you report NOT READY and stop. The orchestrator, not this
+  skill, decides whether to loop back through implement-ui / testing-ui to fix.
+
 ## Conventions
 
 - Run every gate; report the real exit code for each. Do not short-circuit after

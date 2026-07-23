@@ -1,6 +1,6 @@
 ---
 name: design-ui
-description: Turn a list of specs and UI requirements into a Nuxt UI design and architecture plan for ui-app - DESIGN ONLY, no implementation. Grounds itself in the live Nuxt UI API installed in the repo (local node_modules types, plus the free ui.nuxt.com llms docs for prose/patterns), maps each requirement to Nuxt UI components/composables, calls out where a custom Vue component is genuinely needed, and outlines the layout/composition tree, theming, and open questions. After the human approves the blueprint, it writes a design.md handoff document that implement-ui consumes. Invoke when the user asks to "design", "plan", "architect", "spec out", or "figure out the components for" a UI feature/page/screen in the ui-app, or hands over UI requirements and wants a component/architecture blueprint before any code is written.
+description: Turn a list of specs and UI requirements into a Nuxt UI design and architecture plan for ui-app - DESIGN ONLY, no implementation. Grounds itself in the live Nuxt UI API installed in the repo (local node_modules types, plus the free ui.nuxt.com llms docs for prose/patterns), maps each requirement to Nuxt UI components/composables, calls out where a custom Vue component is genuinely needed, and outlines the layout/composition tree, theming, and open questions. It designs against the same shared ui-app quality dimensions that review-ui gates on, so the blueprint it produces passes review with nothing to flag. After the human approves the blueprint, it writes a design.md handoff document that implement-ui consumes. Invoke when the user asks to "design", "plan", "architect", "spec out", or "figure out the components for" a UI feature/page/screen in the ui-app, or hands over UI requirements and wants a component/architecture blueprint before any code is written.
 ---
 
 # design-ui Skill
@@ -14,7 +14,7 @@ plus a clear, justified call on what has to be custom.
 `app.config.ts` edits, no SFCs, no runnable code. Component "contracts" you
 describe are prose/tables (props, emits, slots, states), not source. The only
 file this skill ever writes is the final `design.md`, and only after the human
-approves (Step 8).
+approves (Step 9).
 
 The value of this skill is choosing the *most idiomatic* Nuxt UI solution and
 resisting the urge to hand-roll what the library already provides. Custom Vue
@@ -22,10 +22,14 @@ components are a last resort, justified in writing.
 
 ## Step 0 - Ground yourself in the LIVE installed Nuxt UI API (required)
 
-Do NOT design from memory. `@nuxt/ui` v4 differs substantially from v2/v3
-(component names, `app.config.ts` theming, Tailwind v4, Reka UI primitives).
-**Always use the version installed in the repo as the source of truth** - it is
-exact, version-pinned, and offline:
+Follow the shared **Ground truth first** section in
+[`../shared/ui-quality-dimensions.md`](../shared/ui-quality-dimensions.md) - the
+same discipline review-ui gates on. Do NOT design from memory. `@nuxt/ui` v4
+differs substantially from v2/v3 (component names, `app.config.ts` theming,
+Tailwind v4, Reka UI primitives). **Always use the version installed in the repo
+as the source of truth** - it is exact, version-pinned, and offline. This skill
+reaches ground truth through the local install and the free llms docs below (the
+nuxt-ui / nuxt MCP servers are an option too when available):
 
 1. **Local install (primary).** The installed package is what this app actually
    ships.
@@ -137,7 +141,48 @@ State the theming approach: which `app.config.ts` `ui` keys / component slots /
 Tailwind v4 tokens to set (colors, radius, variants), reusing existing overrides.
 Keep it to what the design needs; do not restyle globally without cause.
 
-## Step 8 - Review, approve, then write design.md
+## Step 8 - Design to pass review (self-check against the shared dimensions)
+
+The blueprint is what `implement-ui` builds from, so a design decision that violates
+a quality dimension becomes a review-ui finding on the eventual PR. Head that off:
+walk the blueprint against every dimension in
+[`../shared/ui-quality-dimensions.md`](../shared/ui-quality-dimensions.md)
+("The dimensions", 1 through 10) and confirm the design pre-satisfies each. Read
+each as "the decision that would not be flagged":
+
+1. **Prefer Nuxt UI over custom** - every custom component in the Step 2 map carries
+   a written justification; nothing hand-rolled that a stock component covers.
+2. **Minimal code** - the fewest components/layers that meet the spec; no
+   abstraction introduced without a second consumer or a real testability gain.
+3. **Simplify** - the composition is the simplest that works; no manual state a
+   composable / `computed` / `v-model` already gives.
+4. **Minimal exposed API** - each custom contract (Step 6) exposes only the
+   props/emits/slots consumers need; exposed state is readonly/computed, not mutable.
+5. **i18n** - every user-facing string in the contracts is a `t()` key, none
+   hardcoded; note the `en.json` keys the feature adds (they need the
+   `to-be-translated` label).
+6. **Theming tokens** - the theming plan (Step 7) names palette tokens and
+   `app.config.ts` / `ui` keys, never hex.
+7. **Code standards / SOLID** - contracts are typed, single-responsibility,
+   props-down / events-up.
+8. **Coupled constants** - any value shared between pieces (an inset that must match
+   a padding, a repeated size) is named once (a token / const) in the design, not
+   left as a duplicated magic number for implement-ui to copy twice.
+9. **Theme-override merge semantics** - where the design specifies a `:ui` / `class`
+   override, it names the default slot class it layers on and accounts for
+   merge-with-default behavior, so implement-ui does not fight tailwind-merge.
+10. **Shared-unit blast radius** - when the design introduces or reuses a shared unit
+    (a `components/common/` component, a composable, a `useState` / `useCookie` key,
+    a theme token, an `en.json` key), it lists the consumers and holds for all of
+    them.
+
+Anything you cannot satisfy at design time goes into the Open questions / risks
+section (Step 9, item 9) so implement-ui and review-ui see it, rather than being
+silently deferred. Same "Out of scope" boundary as the shared file: correctness,
+security, tests, and a11y are owned elsewhere (see Step 5 for the a11y plan this
+skill does own).
+
+## Step 9 - Review, approve, then write design.md
 
 First present the full blueprint **in the conversation** (all sections below) and
 ask the human to review. Iterate until they explicitly approve. Do NOT write any
@@ -166,6 +211,25 @@ Structure the document (after the header) with these sections:
 After writing, tell the user the path and state that this is a design only, no
 implementation was written. Offer implement-ui as the explicit next step (run in
 a fresh context - it reads this same `logs/feature-design.md`).
+
+## Autonomous mode (headless, under joey-bot)
+
+When the invocation says you are running in autonomous mode (see
+[`../shared/autonomous-pipeline.md`](../shared/autonomous-pipeline.md)), there is
+no human to approve the blueprint. Fold the Step 1/Step 2 clarifying questions and
+the Step 9 approval gate into a headless pass:
+
+- Do not ask clarifying questions and do not wait for the Step 9 approval. Resolve
+  every open architectural choice with the most-idiomatic Nuxt UI option, still
+  grounded in the live installed API (Step 0 is not optional in autonomous mode).
+- Record each resolved choice and the alternative you did not take, with a one-line
+  reason, in the "Open questions / risks" section so implement-ui and review-ui see
+  it. Do not fork or produce multiple designs for a close call - decide and document.
+- Write `feature-design.md` directly once the blueprint is complete, then return
+  your summary.
+
+Everything else (the DESIGN-ONLY boundary, the ground-truth discipline, the Step 8
+self-check against the quality dimensions) is unchanged.
 
 ## Handoff folder & format (standard)
 

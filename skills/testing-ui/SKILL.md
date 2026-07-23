@@ -60,6 +60,30 @@ result (with numbers), any missing test hooks you had to flag back to the
 component, and anything a human should still verify manually (visual/responsive
 nuance that unit/component tests cannot assert).
 
+## Autonomous mode (headless, under joey-bot)
+
+When the invocation says you are running in autonomous mode (see
+[`../shared/autonomous-pipeline.md`](../shared/autonomous-pipeline.md)), the
+"manually tested and approved by a human" precondition has not happened yet - the
+human review comes later, at the final joey-bot gate. Proceed anyway:
+
+- Write the suite against the design handoff and the implemented code as usual,
+  and hold the 100% statement/branch coverage gate.
+- Since no human will click through the feature by hand, **warrant Playwright E2E
+  more readily than usual**: any real multi-step or cross-component flow gets an
+  E2E test, not a note to test it manually. You own rungs 2 and 4 of the
+  autonomous testing ladder (unit/coverage and E2E); live browser verification is
+  a separate joey-bot stage, so you do not drive a live browser here.
+- Because behavior has not been human-confirmed, be conservative: test the
+  behavior the design specifies and the code implements; do not invent
+  requirements. In the summary, note that the suite locks in behavior that is
+  still pending manual verification, and list the visual/responsive nuances the
+  human should still check.
+- If a branch is genuinely unreachable, justify it rather than forcing coverage
+  with a contrived test - same as interactive mode.
+
+Do not commit here - commit policy for the run belongs to joey-bot.
+
 ## Conventions
 
 - TypeScript for all test code (including Playwright). `<script setup lang="ts">`

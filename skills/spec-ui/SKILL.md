@@ -91,6 +91,24 @@ After writing, tell the user the path, confirm this is a spec only (no design or
 code was produced), and offer **design-ui** as the explicit next step (run it in
 a fresh context - it reads this same `logs/feature-spec.md`).
 
+## Autonomous mode (headless, under joey-bot)
+
+When the invocation says you are running in autonomous mode (see
+[`../shared/autonomous-pipeline.md`](../shared/autonomous-pipeline.md)), there is
+no human to review the spec. Fold Steps 3 and 4 into a headless pass:
+
+- Do not ask the Step 3 questions and do not wait for the Step 4 approval. For
+  every gap you would have asked about, take the house default or the
+  most-recommended answer and proceed.
+- Mark each such decision in "Conventions & deviations": the choice you made and,
+  in one line, the alternative you did not take and why. A reader must be able to
+  see what was assumed versus stated.
+- Write `feature-spec.md` directly (Step 5) and return your summary. Do not fork
+  or produce multiple spec variants for a close call - decide and document.
+
+Everything else (the hard SPEC-ONLY boundary, the template, the text rules) is
+unchanged.
+
 ## Handoff folder & format (standard)
 
 The three UI skills hand off through files in the gitignored folder
