@@ -36,13 +36,14 @@ Workflow for the `momentum` GitHub repo (org `Laserfiche`).
 - Match the repo's existing style over my personal preference.
 - Comments: add only for very non-obvious code (the "why", not the "what"); keep as short as possible. Don't comment self-explanatory code. When I do write one, apply the writing rules below (see Writing).
 - Ask before adding a dependency or library.
-- Verify before claiming something works — don't assert unchecked success.
+- Verify before claiming something works — don't assert unchecked success. What
+  "verify" means per edit is compile/lint, not the test suite (see Testing).
 
 # Writing
 
-Any human-facing prose I author or edit — code comments, commit messages, PR
-titles/descriptions, TFS work item text, docs, READMEs — must read like a person
-wrote it, not an LLM.
+Any outward-facing prose I author or edit — code comments, commit messages, PR
+titles/descriptions, TFS work item text — must read like a person wrote it, not
+an LLM. Internal skill, doc, and config files are out of scope.
 
 - Auto-invoke the **`avoid-ai-writing`** skill on that prose before I present or
   commit it. I don't need to be asked; treat this as standing instruction for the
@@ -55,8 +56,23 @@ wrote it, not an LLM.
 
 # Testing
 
-Match verification to risk; state which level you chose and why.
+Testing is its own phase, not part of every edit. **Default: edit only.** Don't write
+or run the test suite after each change. A session is usually edit + edit + edit, then
+test once at the end — many of those edits are experimental and get reworked or thrown
+away, so tests written per-edit are wasted and get rewritten anyway.
 
-- **Unit** for pure logic, parsing, calculations, edge cases, clear-IO bug fixes — write a failing test first.
+Start the testing pass when I ask for it ("add tests", "cover this", "run the tests"),
+or when I say I'm ready to commit or open a PR. Cover everything the session changed in
+one pass at that point.
+
+After an individual edit, do the cheap checks only: compile / typecheck / lint on what
+you touched, so the code I'm reading is known to build. Those are not tests. Then stop
+and hand back — don't volunteer the next step.
+
+When the testing pass does run, match verification to risk and say which level you chose
+and why:
+
+- **Unit** for pure logic, parsing, calculations, edge cases, clear-IO bug fixes. For a
+  bug fix, start from a test that reproduces the bug and fails.
 - **Integration** when crossing boundaries (DB, API, services); prefer real integrations over heavy mocking.
 - **Human verification** (call out what to check) for UI/UX, layout, rendering quirks, third-party auth, anything not deterministically assertable. If a fix can't be auto-tested, say so and explain the manual check.
