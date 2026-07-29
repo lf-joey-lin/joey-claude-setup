@@ -10,19 +10,24 @@ specific voice on top of the general "don't sound like AI" rules.
 
 ## The voice in one line
 
-Terse, lowercase, evidence-first. State the change or finding, say why in plain
+Terse, plain, evidence-first. State the change or finding, say why in plain
 words, then paste the proof (log line, link, before/after). Leave small typos in
 rather than over-polishing.
+
+Capitalization is normal: sentences and bullets start with a capital letter, and
+so do proper nouns. Terse does not mean all-lowercase. The one carve-out is
+casual technical terms mid-sentence (see Register and grammar below).
 
 ## PR descriptions
 
 Structure, in order of how often he uses it:
 
 1. Restate the title as the first line, often verbatim, then stop or add bullets.
-   - "dispose HttpResponseMessage after each retry attempts."
-   - "read recaptcha keys from vpc=all since it's the same key for all envs"
-2. Hyphen bullets for the list of changes. Fragments, not sentences.
-   - "- upgrade moment-timezone to 0.6.2\n- move moment install to package.json\n- remove hardcoded moment libraries"
+   - "Dispose HttpResponseMessage after each retry attempts."
+   - "Read recaptcha keys from vpc=all since it's the same key for all envs"
+2. Hyphen bullets for the list of changes. Fragments, not sentences, but still
+   capitalized at the start.
+   - "- Upgrade moment-timezone to 0.6.2\n- Move moment install to package.json\n- Remove hardcoded moment libraries"
 3. A short plain-language "why", often with a hedge or an aside.
    - "Otherwise a connection is tied up and unable to be used within this internal retry cycle, which is ~31s for 6x retries."
    - "Really should be using lf-toggle to be consistent with the rest of app, but upgrade anyway."
@@ -34,9 +39,10 @@ Structure, in order of how often he uses it:
 6. Trailing references: `#657457` for a work item, `!171251` for a cherry-picked PR,
    "Cherry picked from !172881".
 
-Titles are lowercase imperative fragments: "add null check for orphaned formulas",
-"dont apply page break on last page", "tweak svc-app-pdf-rasterization pod scaling
-up and down behavior". Bug-fix titles sometimes carry the full bug name in brackets.
+Titles are imperative fragments, capitalized at the start: "Add null check for
+orphaned formulas", "Dont apply page break on last page", "Tweak
+svc-app-pdf-rasterization pod scaling up and down behavior". Bug-fix titles
+sometimes carry the full bug name in brackets.
 
 ## Comments, status updates, QA notes
 
@@ -64,9 +70,12 @@ He does write at length, but it still reads like him, not like a report:
 
 ## Register and grammar
 
-- Lowercase casual technical terms: wsl, sca scan, cpu spike, npmrc, windows box,
-  bpmserver, renode, mdc. Don't title-case them.
-- Fragments and dropped subjects/articles are fine: "download contains full 20k rows",
+- Normal capitalization otherwise: start every sentence and bullet with a capital
+  letter, capitalize proper nouns and product names. Don't write in all-lowercase.
+- Lowercase casual technical terms mid-sentence: wsl, sca scan, cpu spike, npmrc,
+  windows box, bpmserver, renode, mdc. Don't title-case them. If one of those
+  starts a sentence, capitalize it there like any other word.
+- Fragments and dropped subjects/articles are fine: "Download contains full 20k rows",
   "Merge develop to production for 2026.4.4", "Docs only; no code or build changes.".
 - Specific numbers and ranges, not vague words: "around 15-25%", "~31s for 6x retries",
   "8 fails/ ~1.1k success in US", "91 mobile images".
@@ -90,12 +99,14 @@ recent AI-generated Veracode/npm security-fix writeups gave him away:
 
 ## Calibration: same author, two voices
 
+Real PR text, with capitalization normalized to the rule above.
+
 Authentic Joey (write like this):
-> retry serviceunavailable when talking to rasterization service
+> Retry serviceunavailable when talking to rasterization service
 > -  Retry on System.Exception with ServiceUnavailable string
 > #672414
 
-> add log for different Contentlength to see why some attachment files are still
+> Add log for different Contentlength to see why some attachment files are still
 > being rasterized locally in bpmserver.
 > Likely what happened is the real file size is > the 25mb limit, so shouldrasterize
 > = false in the first check. ... Those are supposed to be the same, but not sure
