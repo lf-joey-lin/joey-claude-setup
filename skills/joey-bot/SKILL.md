@@ -152,7 +152,31 @@ Stages:
 4. **Test** (testing-ui, sonnet) -> writes co-located specs; holds the 100%
    coverage gate. Seed: the design handoff and the implemented code, and tell it
    this is an unattended run, so it should warrant Playwright E2E for any real
-   multi-step or cross-component flow rather than leaning on manual exercise.
+   multi-step or cross-component flow rather than leaning on manual exercise. Tell
+   it to end its summary with an explicit `## Handbacks` list, `none` if it has no
+   items.
+   - **Handbacks are the code changes testing-ui cannot make itself.** It owns
+     tests, not components, so three things it legitimately finds fall outside its
+     scope: an element it cannot locate without a **missing `data-testid`**, a
+     **genuinely dead branch** that should be removed rather than covered by a
+     contrived test, and code that **contradicts the design** it is testing
+     against. Implement (stage 3) is finished by the time these surface, so
+     without this loop the tester either files the flag into a void or reaches for
+     the fragile selector it was told not to use, and a dead branch becomes a
+     stage-6 coverage failure with no owner.
+   - On a non-empty list: spawn **one** implement-ui subagent (opus) seeded with
+     the handback items verbatim, the files they name, and the instruction to make
+     the smallest change that resolves each and nothing else. This is a freeform
+     minimal-change pass, not a re-implementation - it does not revisit the design.
+     Then re-run testing-ui **once**, seeded with the original inputs plus what
+     changed. Record both passes and each item's resolution in the state file.
+   - Bound it there. If testing-ui still cannot hold the coverage gate after that
+     one round trip, stop the run and return a NOT READY report naming the
+     unresolved handbacks and the real coverage output. Do not loop a third time
+     and do not let it paper over the gap with a contrived test.
+   - A design contradiction that implement-ui cannot resolve without changing
+     intent is a blocker, not a fix: record it and stop the run, per the
+     autonomous-pipeline contract's "surface, do not swallow a genuine blocker".
 5. **Review** (review-ui, per profile) -> fix mode, local scope, headless; applies
    quality fixes and writes `logs/feature-review.md`.
 6. **Ship gate** (prepare-to-ship-ui, haiku) -> runs build + unit/100% + a11y,
@@ -254,6 +278,9 @@ never in a batch at the end.
 - Result:  Handoff: logs/feature-spec.md  Commit: -
 - Decisions: (choices made, alternatives not taken + one-line why)
 ### 3. design - [ ]
+### 4. test - [ ]
+- Result:  Handoff: -  Commit: -
+- Handbacks: (none, or one line per item and how each was resolved)
 ...through self-review and live verification...
 
 ## Ship-gate scorecard

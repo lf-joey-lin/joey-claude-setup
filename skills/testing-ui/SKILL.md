@@ -81,6 +81,15 @@ human review comes later, at the final joey-bot gate. Proceed anyway:
   human should still check.
 - If a branch is genuinely unreachable, justify it rather than forcing coverage
   with a contrived test - same as interactive mode.
+- **End your summary with an explicit `## Handbacks` list.** Three things you
+  legitimately find are code changes outside your scope: an element you cannot
+  locate without a missing `data-testid`, a dead branch that should be removed
+  rather than covered, and code that contradicts the design you are testing
+  against. Interactively you flag these to the human; headless there is no human,
+  so list them here instead - one line per item naming the file and what needs to
+  change, or `none`. joey-bot runs one implement-ui pass over the list and re-runs
+  you once. Never resolve one yourself with a fragile selector or a contrived
+  test, and never leave one only in prose where the orchestrator can miss it.
 
 Do not commit here - commit policy for the run belongs to joey-bot.
 
