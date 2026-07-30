@@ -25,7 +25,8 @@
   "statusLine": {
     "type": "command",
     "command": "node ${USERPROFILE}/.claude/statusline.js",
-    "padding": 0
+    "padding": 0,
+    "refreshInterval": 2
   },
   "enabledPlugins": {
     "chrome-devtools-mcp@claude-plugins-official": true,

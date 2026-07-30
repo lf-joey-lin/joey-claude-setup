@@ -1,9 +1,11 @@
 #!/usr/bin/env node
-// Claude Code custom status line. Reads the status JSON on stdin, prints one line.
+// Claude Code custom status line. Reads the status JSON on stdin, prints the segments
+// packed into as many lines as the terminal is wide enough for.
 // Docs: https://code.claude.com/docs/en/statusline.md
 // Each segment is independent — delete a `push(...)` block to remove that segment.
 
 const { execSync } = require("child_process");
+const fs = require("fs");
 const path = require("path");
 
 // --- ANSI helpers -----------------------------------------------------------
@@ -17,6 +19,36 @@ const cyan = (s) => c("36", s);
 const blue = (s) => c("34", s);
 const magenta = (s) => c("35", s);
 const SEP = dim("  │  ");
+
+// --- width -------------------------------------------------------------------
+// Claude Code renders every status line with ink's wrap="truncate", so an
+// over-long line is clipped, never wrapped. It hands us the live terminal size
+// in COLUMNS (stdout is a pipe here, so process.stdout.columns is undefined).
+const ANSI = /\x1b\[[\d;]*m/g;
+const vlen = (s) => s.replace(ANSI, "").length;
+
+function usableWidth() {
+  const cols = parseInt(process.env.COLUMNS, 10);
+  if (!Number.isFinite(cols) || cols <= 0) return Infinity; // run outside Claude Code
+  const padding = 0; // keep in sync with statusLine.padding in settings.json
+  return Math.max(20, cols - padding * 2 - 1);
+}
+
+// Greedily pack segments into lines that fit. Every segment ends in a reset, so
+// the color state Claude Code carries across lines stays neutral.
+function pack(parts, width) {
+  const lines = [];
+  let line = null;
+  let used = 0;
+  for (const p of parts) {
+    const w = vlen(p);
+    if (line === null) { line = p; used = w; continue; }
+    if (used + vlen(SEP) + w <= width) { line += SEP + p; used += vlen(SEP) + w; }
+    else { lines.push(line); line = p; used = w; }
+  }
+  if (line !== null) lines.push(line);
+  return lines.join("\n");
+}
 
 // --- read stdin -------------------------------------------------------------
 let raw = "";
@@ -58,7 +90,31 @@ function render(j) {
   const rl = rateLimits(j?.rate_limits);
   if (rl) parts.push(rl);
 
-  return parts.join(SEP);
+  // 6) System memory
+  const mem = memInfo();
+  if (mem) parts.push(mem);
+
+  return pack(parts, usableWidth());
+}
+
+// Under WSL this is the WSL2 VM's own budget (~50% of Windows RAM by default),
+// not the machine's. MemAvailable, not MemFree: Node's os.freemem() maps to
+// MemFree, which reads as near-empty whenever the page cache is warm.
+function memInfo() {
+  let text;
+  try { text = fs.readFileSync("/proc/meminfo", "utf8"); }
+  catch { return null; } // not Linux
+  const kb = (key) => {
+    const m = text.match(new RegExp("^" + key + ":\\s+(\\d+) kB", "m"));
+    return m ? parseInt(m[1], 10) : null;
+  };
+  const total = kb("MemTotal");
+  const avail = kb("MemAvailable");
+  if (!total || avail == null) return null;
+  const usedPct = ((total - avail) / total) * 100;
+  const gib = (x) => (x / 1048576).toFixed(1);
+  const color = usedPct >= 85 ? red : usedPct >= 65 ? yellow : green;
+  return dim("mem ") + color(usedPct.toFixed(0) + "%") + dim(" · " + gib(avail) + "G free");
 }
 
 function contextBar(cw) {
