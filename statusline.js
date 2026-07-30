@@ -10,7 +10,10 @@ const path = require("path");
 
 // --- ANSI helpers -----------------------------------------------------------
 const c = (code, s) => `\x1b[${code}m${s}\x1b[0m`;
-const dim = (s) => c("2", s);
+// ANSI 2 (faint) is unreadable on a dark theme, so label text is bright white and
+// only the separator is toned down, to grey rather than faint.
+const label = (s) => c("97", s);
+const grey = (s) => c("90", s);
 const bold = (s) => c("1", s);
 const green = (s) => c("32", s);
 const yellow = (s) => c("33", s);
@@ -18,7 +21,7 @@ const red = (s) => c("31", s);
 const cyan = (s) => c("36", s);
 const blue = (s) => c("34", s);
 const magenta = (s) => c("35", s);
-const SEP = dim("  │  ");
+const SEP = grey("  │  ");
 
 // --- width -------------------------------------------------------------------
 // Claude Code renders every status line with ink's wrap="truncate", so an
@@ -58,7 +61,7 @@ process.stdin.on("end", () => {
   let j = {};
   try { j = JSON.parse(raw); } catch { /* print what we can */ }
   try { process.stdout.write(render(j)); }
-  catch (e) { process.stdout.write(dim("statusline error: " + e.message)); }
+  catch (e) { process.stdout.write(red("statusline error: " + e.message)); }
 });
 
 // --- render -----------------------------------------------------------------
@@ -78,7 +81,7 @@ function render(j) {
   if (model) {
     let m = bold(model);
     const effort = j?.effort?.level;
-    if (effort) m += dim(" ·" + effort);
+    if (effort) m += label(" ·" + effort);
     parts.push(m);
   }
 
@@ -114,7 +117,7 @@ function memInfo() {
   const usedPct = ((total - avail) / total) * 100;
   const gib = (x) => (x / 1048576).toFixed(1);
   const color = usedPct >= 85 ? red : usedPct >= 65 ? yellow : green;
-  return dim("mem ") + color(usedPct.toFixed(0) + "%") + dim(" · " + gib(avail) + "G free");
+  return label("mem ") + color(usedPct.toFixed(0) + "%") + label(" · " + gib(avail) + "G free");
 }
 
 function contextBar(cw) {
@@ -133,7 +136,7 @@ function contextBar(cw) {
   const filled = Math.round((pct / 100) * width);
   const bar = "▓".repeat(filled) + "░".repeat(width - filled);
   const color = pct >= 80 ? red : pct >= 50 ? yellow : green;
-  return color(bar) + " " + color(pct.toFixed(0) + "%") + dim(" ctx");
+  return color(bar) + " " + color(pct.toFixed(0) + "%") + label(" ctx");
 }
 
 function rateLimits(rl) {
@@ -143,7 +146,7 @@ function rateLimits(rl) {
     segs.push("5h " + pctColor(rl.five_hour.used_percentage));
   if (rl.seven_day?.used_percentage != null)
     segs.push("7d " + pctColor(rl.seven_day.used_percentage));
-  return segs.length ? dim("⏱ ") + segs.join(" ") : null;
+  return segs.length ? label("⏱ ") + segs.join(" ") : null;
 }
 
 function pctColor(p) {
