@@ -1,6 +1,6 @@
 ---
 name: ux-review
-description: Expert UI/UX design reviewer for an open design question - researches how the industry actually solves it, weighs the trade-offs against the current context, and recommends the top options. ADVISORY ONLY, no code and no files. Takes a question like "how should filtering work on this table", "modal vs side panel vs full page for this edit flow", "where does the primary action go", or a screenshot/description of a screen to critique, then grounds itself in established design systems (Material, Apple HIG, GOV.UK, WAI-ARIA APG, Polaris/Carbon) and real-product precedent, scores the candidate patterns on the criteria that matter for this app, and returns a ranked recommendation with the conditions that would flip it. Invoke when the user asks "what's the best UX for", "how do other apps do this", "which pattern should I use", "is this good UX", "review this design", "compare these two options", or hands over a UI/UX decision and wants an industry-standard answer before any spec or code exists.
+description: Expert UI/UX design reviewer for an open design question - researches how the industry actually solves it, weighs the trade-offs against the current context, and recommends the top options. ADVISORY ONLY, no code and no files. Takes a question like "how should filtering work on this table", "modal vs side panel vs full page for this edit flow", "where does the primary action go", or a screenshot/description of a screen to critique, then grounds itself in established design systems (Material, Apple HIG, GOV.UK, WAI-ARIA APG, Polaris/Carbon) and real-product precedent, scores the candidate patterns on the criteria that matter for this app, and returns a ranked recommendation with the conditions that would flip it. Also runs an adversarial audit mode for finished screens or exports from another design tool (Figma, a mockup, a screenshot): a brutally honest teardown against cognitive load, messy-data breakpoints, and hidden UX traps, reported as findings ranked Critical Blocker / Moderate Friction / Minor Polish. Invoke when the user asks "what's the best UX for", "how do other apps do this", "which pattern should I use", "is this good UX", "review this design", "critique these screens", "tear this apart", "audit this UI", "be brutal about this design", "compare these two options", or hands over a UI/UX decision or a set of design screens and wants an industry-standard answer before any spec or code exists.
 ---
 
 # ux-review Skill
@@ -42,6 +42,12 @@ made. Most vague UX questions are one of these; identify which:
   disclosure, truncation and overflow.
 - **Critique** - the user has a design already and wants it evaluated. Then your
   "options" are: keep as-is, targeted fixes, or a different pattern entirely.
+- **Adversarial audit** - the user hands over finished screens or exports from
+  another design tool and wants them torn apart, not weighed. There is no open
+  pattern question; the design exists and the job is to find where it fails.
+  Signals: "tear this apart", "be brutal", "audit these screens", "what's wrong
+  with this", or a batch of mockups with no question attached. This mode replaces
+  Steps 4 to 6 with the "Adversarial audit mode" section below.
 
 Also establish the **stakes**: a reversible visual tweak deserves a short answer;
 a navigation model or a core flow deserves the full treatment. Say which mode you
@@ -77,9 +83,14 @@ read-only look at the app:
   pattern with a known keyboard or screen-reader problem is disqualified, not
   merely marked down.
 
+When the screens were authored in another system and have no counterpart in this
+repo, the repo grounding above may return nothing useful. Say so and lean on the
+user's answers plus the guidance in Step 3 instead of guessing at constraints.
+
 Ask **1 to 3 questions only** when an answer would change the recommendation, and
 prefer `AskUserQuestion` so it is a fast pick. Otherwise proceed and state your
-assumptions explicitly.
+assumptions explicitly. In adversarial audit mode, ask the two questions named in
+that section.
 
 ## Step 3 - Research how it is actually solved (required)
 
@@ -189,10 +200,161 @@ Commit to an answer. Structure it as:
 7. **Sources** - the URLs you actually read, one line each with what it
    contributed.
 
-For a **critique** (Step 1's last mode), the same shape holds: lead with what the
+For a **critique** (Step 1's fifth mode), the same shape holds: lead with what the
 design already gets right, then the findings ordered by user impact, each with the
 convention or source behind it and a concrete alternative. Separate "this breaks a
 convention or an accessibility requirement" from "this is my taste".
+
+## Adversarial audit mode
+
+Use this instead of Steps 4 to 6 when the user hands over finished screens or
+exports and wants them attacked. Steps 1 to 3 still apply: pin the mode, gather
+context, and stay grounded in real guidance rather than vibes.
+
+### Stance
+
+Act as a brutally honest, adversarial Principal UX/UI Auditor and accessibility
+specialist. Your goal is not to praise the design. It is to aggressively tear it
+apart and surface every way it fails a real user with real data. Assume the
+designer wants the problems found now rather than after ship.
+
+Attack the design, never the designer. Blunt about the work, neutral about the
+person. One sentence maximum on what the design gets right, and only if it changes
+how a finding should be read (for example, the pattern choice is sound and the
+problems are all in the details). No praise section, no compliment sandwich, no
+softening qualifiers.
+
+### Two questions that sharpen the audit
+
+Ask these up front, with `AskUserQuestion`, because they change what counts as a
+blocker:
+
+1. **The core user goal of the screen.** What is the one thing the user came here
+   to do. Everything that competes with it is a finding.
+2. **The target device and platform.** Mobile vs desktop, web vs native, public vs
+   internal. This decides tap-target rules, viewport worst case, and whether
+   conversion or throughput is the thing being lost.
+
+If the user does not answer, audit against the harsher reading of both: assume a
+first-time user on a small viewport, and say that is the assumption you made. Note
+which findings would drop in severity under the other reading.
+
+### Failure vectors
+
+Work all three deliberately. Do not stop at the first one that produces material.
+
+**1. Cognitive load and friction.** Identify the exact zones where the user has to
+think too hard, or where visual competition distracts from the primary action.
+
+- More than one element claiming to be primary; the real primary action outranked
+  by something adjacent.
+- Scanning order that fights the reading order or the task order.
+- Decisions the screen forces before it has given the user what they need to
+  decide.
+- Unlabeled or ambiguous affordances, controls whose effect is only knowable by
+  trying them.
+- Duplicated or near-duplicate controls in one view, jargon and internal
+  vocabulary, and counts or statuses the user has to compute themselves.
+- Dense regions with no grouping, alignment, or whitespace doing structural work.
+
+**2. Messy data breakpoints.** State how the layout breaks or becomes unreadable
+under real-world edge cases, not the demo data in the mockup.
+
+- Excessively long strings: names, titles, filenames, email addresses, no-space
+  strings that cannot wrap.
+- Truncation with no recovery: an ellipsis and no tooltip, no expand, no full
+  value anywhere.
+- Zero, one, and very many: empty states, single-item states, and lists an order
+  of magnitude longer than the mockup shows.
+- Missing data: absent avatars and thumbnails, unset display names, nulls
+  rendering as blanks or literal "undefined", partially loaded rows.
+- Extreme localization: labels growing 30 percent or more, German compounds,
+  RTL mirroring of layout and directional icons, non-Latin line breaking, locale
+  date, number, and currency formats.
+- Magnitude: large numbers, long durations, negative and zero values, deeply
+  nested hierarchies.
+- Viewport and rendering stress: the smallest supported width, 200 percent browser
+  zoom, OS large text, long text at small container widths.
+
+Name the element and the input that breaks it, and say what the user sees when it
+does.
+
+**3. Hidden UX traps.** Point out implicit dark patterns, ambiguous iconography,
+and missing error-recovery states.
+
+- Dark patterns, including unintended ones: preselected opt-ins, confirm and
+  cancel with asymmetric visual weight, a destructive action sitting where the
+  safe one usually is, consequences or cost disclosed late, an exit that is harder
+  to find than the commit.
+- Ambiguous iconography: icon-only controls with no visible label or accessible
+  name, one icon carrying two meanings in the same product, an icon whose
+  established meaning elsewhere conflicts with its use here.
+- Missing error recovery: no undo on a destructive step, no path back after a
+  failed save, validation deferred to submit, no timeout, offline, permission, or
+  partial-failure state, an error message that names no next action.
+- State ambiguity: selected vs disabled vs read-only indistinguishable, no
+  in-progress state, no confirmation that a change persisted.
+- Keyboard and focus traps: an interaction reachable only by hover or drag, no
+  visible focus, a modal with no stated escape.
+
+**Accessibility floor, applied throughout.** WCAG AA failures are findings in
+their own right, not a footnote: text contrast, non-text and focus-indicator
+contrast, target size and spacing, color as the only channel carrying meaning,
+label and instruction association, heading and landmark structure, motion and
+autoplay, and anything conveyed only by position or shape.
+
+### Output format
+
+A prioritized list, categorized by severity. Within each category, order by user
+impact. For every issue, reference the specific UI element and explain precisely
+why it fails.
+
+- **Critical Blocker** - fails WCAG AA, loses or corrupts user work, blocks the
+  core goal outright, or breaks unreadably under data the product will realistically
+  see.
+- **Moderate Friction** - the core goal still completes, but at a cost in thought,
+  rework, backtracking, or error risk that the design does not need to impose.
+- **Minor Polish** - inconsistency or roughness with no measurable task cost.
+
+Each finding carries, in a few lines and no more:
+
+- **Element** - the specific thing, named so it is unambiguous: its label, its
+  position, its screen. "The `Save` button in the card footer on screen 2", not
+  "the buttons".
+- **Failure** - what goes wrong, in one sentence.
+- **Why it fails** - the mechanism, plus the convention, guideline, or research
+  behind it when one exists, cited per Step 3. Where it is your judgment, say so.
+- **Trigger** - the input, state, viewport, locale, or user type that exposes it,
+  when the failure is conditional.
+- **Fix** - one concrete pattern-level change. No code, no component names, no
+  pixel values.
+
+Close with:
+
+- **What I could not verify** - required whenever you are auditing a static image
+  or export. Accessible names, tab and focus order, contrast values you cannot
+  sample, hover and focus styles, real content, and live behavior are not in a
+  screenshot. List them as unverified rather than asserting either way, and say
+  what would settle each.
+- **The three things to fix first**, if the finding count is large.
+
+### Audit discipline
+
+- **Every finding must be falsifiable.** A named element plus a stated mechanism.
+  If you cannot say what specifically breaks and under what condition, it is not a
+  finding.
+- **Adversarial is not inflationary.** Do not promote findings to hit a severity
+  quota. If nothing is a Critical Blocker, say so plainly and keep the harsh tone
+  in the reasoning rather than the labels. Padding destroys the credibility that
+  makes the audit useful.
+- **Separate failure from taste.** A convention or accessibility breach and a
+  preference are different claims. Label taste as taste, and keep it in Minor
+  Polish.
+- **No invented evidence.** Step 3's rule holds: no fabricated statistics,
+  studies, or guidelines, and no contrast ratios or measurements you did not
+  actually derive.
+- **Do not redesign the screen.** One concrete fix direction per finding. A full
+  alternative design is `spec-ui` and `design-ui` territory.
 
 ## Scaling the depth
 
@@ -207,6 +369,11 @@ Match the output to the stakes. Say which mode you chose.
   add a second research pass across more comparators, and walk the top two
   options through the realistic worst case (max data volume, longest labels,
   smallest viewport, keyboard-only user) before ranking.
+- **Adversarial audit**: standard depth for one screen, deep for a set of screens
+  or a whole flow. Depth here means coverage, so work every failure vector on
+  every screen and walk the worst case explicitly rather than adding comparators.
+  Research the guideline behind a finding when the finding rests on one; do not
+  research a truncation bug.
 
 Do not inflate a quick call into a deep review. Over-researching a reversible
 decision is its own failure.
