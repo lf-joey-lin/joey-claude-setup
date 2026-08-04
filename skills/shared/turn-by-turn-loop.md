@@ -30,9 +30,13 @@ explicit confirmation every time.
 2. **The state-file path** - the per-scope markdown file's location under the
    gitignored `logs` folder, the descriptive slug its name is built from, and how
    each item is titled.
-3. **The per-item subagent task** - the fix prompt (read the code, apply the fix,
-   run verification) and the report sections it returns.
-4. **Wrap-up and outward actions** - what "done" means and which optional
+3. **The per-item subagent task** - the fix prompt (read the code, apply the fix)
+   and the report sections it returns.
+4. **The verification commands** - the cheap file-scoped check a fix subagent may
+   run per item, and the full typecheck / lint / test commands the orchestrator
+   runs once at wrap-up (section 3a). Name the exact commands; a subagent that has
+   to discover them re-pays that cost on every item.
+5. **Wrap-up and outward actions** - what "done" means and which optional
    outward-facing offers apply (reply to a thread, resolve, etc.).
 
 Everything below is the same regardless of host skill.
@@ -101,38 +105,59 @@ State-file template (the host skill may add fields, but keep this spine):
 ### 2. ...
 ```
 
-## 3. Process one item at a time
+## 3. Process the accepted items, grouped by file
 
-Work the accepted list in order. Handle one item fully before starting the next -
-never fan out subagents across items, since parallel edits to the same files
-collide.
+Work the accepted list in order. The unit of work is **one file, not one item**:
+group the accepted items by the file they touch, and give each file a single
+subagent that handles every accepted item on it. Files are independent, so those
+subagents may run **concurrently** - the collision risk is two agents editing the
+same file, which grouping already rules out. Items that touch no file (a general
+comment, a cross-cutting note) group together into one more subagent.
 
-1. Mark it `[~] in progress`. Spawn a single `general-purpose` subagent, run
-   synchronously, scoped to just this item. Hand it the host-defined fix prompt and
-   nothing about the other items. It reads the code, applies the fix, runs the
-   host-defined verification (build / lint / tests as applicable), and returns the
-   actual applied diff and the real pass/fail result.
+The human still decides **one item at a time** - grouping changes who does the
+work, not the pace of the gate.
 
-2. Relay the applied diff and verification result to the human in full - do not
-   summarize the code away. If verification fails or the change looks wrong, ask
-   with `AskUserQuestion`:
-   - **revise** - send follow-up direction; spawn a fresh fix subagent with the
-     item plus that direction, then relay again.
-   - **keep** - accept the change as applied.
+1. Mark the group's items `[~] in progress`. Spawn one `general-purpose` subagent
+   per file group, seeded with the host-defined fix prompt and only that file's
+   items. Each reads the code, applies its fixes, and returns per item: the
+   verdict, the code context, and the actual applied diff.
+
+2. Relay each item's applied diff to the human in full, in list order - do not
+   summarize the code away. Ask the disposition with a **single**
+   `AskUserQuestion` per item that settles the change and the commit together:
+   - **keep** (default) - accept the change; leave it bundled with the run's other
+     kept changes for the wrap-up commit offer.
+   - **keep and commit now** - accept it and commit this item plus any earlier
+     bundled items. Follow the git rules for the message (short imperative
+     subject, no trailers, writing rules applied), record the hash, clear the
+     bundle.
+   - **revise** - send follow-up direction; respawn a fix subagent for that file
+     with the item plus the direction, then relay again.
    - **revert** - undo it; record as skipped or wont-fix.
 
-   Free-text via "Other" is a **revise** with that text. On a clean pass, proceed
-   to the commit offer; the human can still ask to revise or revert there.
+   Free-text via "Other" is a **revise** with that text. Do not ask a separate
+   commit question - bundling is the default and the wrap-up offer catches
+   anything left.
 
 3. Record the outcome in the state file immediately (section 4).
 
-4. **Offer to commit** - only when a change was kept, confirmed each time, local
-   commit only. Ask with `AskUserQuestion`:
-   - **commit now**: one commit for this item plus any earlier bundled items.
-     Follow the git rules for the message (short imperative subject, no trailers,
-     writing rules applied), record the hash, and clear the bundle.
-   - **bundle**: leave uncommitted and carry forward to ride with the next
-     `commit now`. Mark the item `bundled` and keep it in the running bundle.
+## 3a. Verification runs once, not per item
+
+Per-item subagents do **not** run typecheck, the test suite, or a build. Those are
+whole-project commands in most repos: running them per item multiplies the run's
+wall clock by the item count and re-pays the toolchain's startup every time, for a
+signal that only matters once all the changes are in.
+
+- **Per item**, the subagent runs only what is genuinely cheap and file-scoped -
+  a linter invoked on the touched paths, nothing more. It reports the command and
+  its real output.
+- **Once, at wrap-up** (section 5), after the last item is dispositioned, the
+  orchestrator runs the host-defined full verification over everything that landed
+  and reports the real pass/fail. If it fails, surface the failing output and work
+  the fix as a new item rather than declaring the run done.
+
+A subagent must never claim a check passed that it did not run. "Deferred to the
+wrap-up verification" is the correct thing to report per item.
 
 ## 4. Update the state file after each item
 
@@ -151,6 +176,11 @@ After the human decides, edit that item's entry:
 
 When nothing is left `[ ]`/`[~]`:
 
+- **Run the full verification once** (section 3a) over everything that landed:
+  the host-defined typecheck / lint / test commands, on the whole set of changes
+  rather than per item. Report the real commands and their real pass/fail output.
+  On a failure, show the failing output and offer to work it as a new item; do not
+  report the run as clean.
 - Report a summary from the state file: accepted / skipped / wont-fix counts, one
   line per item.
 - Point out anything deferred: skipped items, or work needing a follow-up gate.
@@ -162,11 +192,18 @@ When nothing is left `[ ]`/`[~]`:
 
 ## Invariants
 
-- Human-paced and opt-in. One item per subagent, one scope at a time.
+- Human-paced and opt-in. One subagent per file, one scope at a time, and the
+  human still dispositions one item at a time.
 - Every human decision point is an `AskUserQuestion` call, never a plain-text
   prompt - the section 1 bulk gate (accept-all by default, toggle to drop noise)
-  and each per-item disposition alike.
+  and each per-item disposition alike. One question per decision: the disposition
+  and the commit choice are the same question, not two.
 - The orchestrator never does the per-item analysis itself - always delegate.
-- Verdicts and verification come from the subagent actually reading code and
-  running checks, not from restating the item.
+  Applying a diff a subagent already produced is mechanical, and the orchestrator
+  may do that directly.
+- Verdicts come from the subagent actually reading code, not from restating the
+  item. Verification results come from commands actually run - per item only the
+  cheap file-scoped check, and the full suite once at wrap-up (section 3a).
+- Do the same work once. If an earlier pass already read the code and produced the
+  context or a proposed change, carry that forward instead of re-deriving it.
 - No em dash, emojis, arrows, or box-drawing characters in anything written here.

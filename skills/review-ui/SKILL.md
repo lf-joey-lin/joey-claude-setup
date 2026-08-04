@@ -217,8 +217,11 @@ discovery returned) and `Dimension` (which review dimension it came from). Keep 
 
 ## Step 6 - Per-finding subagent task (fix mode, apply the fix on accept)
 
-For each pending finding, spawn the single synchronous `general-purpose` subagent
-the shared loop calls for, seeded with only this finding:
+Group the accepted findings by file and spawn one `general-purpose` subagent per
+file, as the shared loop's section 3 calls for - concurrently across files, since
+each owns a distinct file. Seed each with only its file's findings. Where a file
+has several, repeat the per-finding block below for each and have the subagent
+report per finding.
 
 > You are resolving ONE code-quality finding from a review of the momentum
 > `src/ui-app`. Do not touch anything this finding does not concern.
@@ -247,10 +250,11 @@ the shared loop calls for, seeded with only this finding:
 >    data-testid conventions, SOLID). Apply it to the working tree.
 > 4. Show the exact fix as a fenced ```diff block from `git diff -- <files>`
 >    (unified diff, `-`/`+` lines intact). If nothing changed, say so explicitly.
-> 5. Verify the change in scope: typecheck/lint the touched files and run the most
->    relevant existing unit test if there is one. Report the commands and their
->    real pass/fail output - do not claim success you did not observe. Note if a
->    full `npm run build` / coverage / a11y gate should run later before shipping.
+> 5. Run ONLY `npx eslint --fix <path>` on the touched files and report its real
+>    output. Do NOT run typecheck, the test suite, or a build - the orchestrator
+>    runs those once at wrap-up (the shared loop's section 3a). Reporting
+>    "deferred to wrap-up verification" is correct here; never claim a check you
+>    did not run.
 > 6. If INVALID or a JUDGEMENT CALL, make NO code change; still provide the code
 >    context from step 2 and explain what the human should weigh in on.
 >
@@ -259,14 +263,28 @@ the shared loop calls for, seeded with only this finding:
 > ```diff), verification result, and (if applicable) the open question.
 
 Relay the report and drive the disposition exactly as the shared loop's section 3
-describes (show code context + verdict + applied diff + verify, then revise / keep
-/ revert, and the commit offer), and record the outcome per section 4. On revert,
-undo the applied change with `git checkout -- <files>` so the working tree only
-carries kept fixes.
+describes: show code context + verdict + the applied diff, then the single combined
+question (keep / keep and commit now / revise / revert), and record the outcome per
+section 4. On revert, undo the applied change with `git checkout -- <files>` so the
+working tree only carries kept fixes.
 
 ## Step 7 - Wrap up (fix mode)
 
-Follow the shared loop's wrap-up (section 5): summarize from the state file (kept /
+Follow the shared loop's wrap-up (section 5). **Run the full verification once**,
+over everything that landed, from `src/ui-app`, and report the real output:
+
+```bash
+npx nuxt typecheck          # ~13s; typescript.typeCheck is already on in nuxt.config.ts
+npm run lint                # ~5s, whole app
+npx vitest run --project=unit   # ~36s
+```
+
+There is no `typecheck` npm script - `npx nuxt typecheck` is the working
+invocation. The coverage and a11y gates belong to `prepare-to-ship-ui`, not here.
+If anything fails, show the failing output and offer to work it as a new finding
+rather than reporting the gate as passed.
+
+Then summarize from the state file (kept /
 skipped / wont-fix, one line each, with commit hashes where the user committed), and
 make the final commit offer for any still-bundled fixes. Fixes the user leaves
 uncommitted stay as working-tree changes; **never push** (per the global git
