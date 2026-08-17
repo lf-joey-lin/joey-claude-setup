@@ -18,6 +18,31 @@ Capitalization is normal: sentences and bullets start with a capital letter, and
 so do proper nouns. Terse does not mean all-lowercase. The one carve-out is
 casual technical terms mid-sentence (see Register and grammar below).
 
+## Compact by default
+
+This applies to every genre below, not just PR descriptions. Write the shortest
+version that still carries the point, then stop. Length is the failure mode:
+something that covers everything gets skimmed and nothing lands.
+
+Rough targets, by genre:
+
+- PR description: under ten lines of body, even for a big change. Sections a
+  template forces (risk, impact) are bullets, a line or two each.
+- Code comment: one line. Two if the "why" genuinely needs it.
+- TFS description: a short paragraph. Acceptance criteria: one line each.
+- Commit subject: one imperative fragment, no body unless there's a gotcha.
+- Review reply, status update, QA note: a sentence or two, or paste the evidence.
+
+Four cuts that do most of the work:
+
+- Anything the diff, a CI check, or the linked work item already says.
+- A paragraph that restates a bullet next to it. Keep the bullet.
+- Defending a decision the code comment already carries. One line, and let the
+  reviewer ask for the rest.
+- Repeated openers. If two passages start the same way, one is padding.
+
+Short sentences, short words, ordinary grammar. Say what a reader needs and stop.
+
 ## PR descriptions
 
 **Write it for a busy human, not for completeness.** A reviewer should get the whole
@@ -61,11 +86,62 @@ Leave out:
 - A file-by-file or hunk-by-hunk walkthrough. The diff already is one.
 - Prose that restates a bullet just above it, or a summary paragraph at the end.
 - Background the team already has, and any restatement of the linked work item.
+- A gate you already know will fail, and its known fix. "en.json changed, so
+  pr-i18n-parity fails until the to-be-translated label goes on" is the green-check
+  rule again: the check reports itself, on the PR, before anyone reads the body.
+- Instructions on what to look at. "Needs eyes on the circle's optical centering,
+  the caret weight, and a long name in the panel" just tells a reviewer to review.
+  On a UI change they open it and look. Paste a screenshot or a link instead; a
+  checklist of what to notice isn't worth a line.
+- The reasoning behind a decision the code comment already carries. If a choice
+  needs defending, one line, and let the reviewer ask for the rest.
+- A "Gotchas:" label, or any label over a couple of bullets. If a line is worth
+  writing it goes in with the other bullets. Scaffolding over three lines reads as
+  generated even when every line is right.
 
 Titles are imperative fragments, capitalized at the start: "Add null check for
 orphaned formulas", "Dont apply page break on last page", "Tweak
 svc-app-pdf-rasterization pod scaling up and down behavior". Bug-fix titles
 sometimes carry the full bug name in brackets.
+
+## TFS work items (stories, bugs)
+
+Two fields carry the content: Description (what and why) and Acceptance Criteria
+(what someone checks to call it done). Keep them doing different jobs.
+
+**Description.** A short paragraph on what the story changes and why. For a
+wiring story, name the endpoints or contracts involved so a reader knows what
+talks to what. Then a "Not in scope" list if anything obvious is deliberately
+left out, with the one-line reason. Skip the reason only when it's obvious.
+
+**Acceptance criteria.** A numbered list, so people can say "AC 3 fails".
+Roughly ten items, one line each, plain language.
+
+Every item has to be something a person can check by sitting in front of the
+feature. That is the filter. If the only way to hit it is forcing a backend
+failure, inspecting a request payload, or feeding in a malformed response, cut
+it. Those are unit tested and belong in the code, not on the board.
+
+Cut too:
+
+- "Unit tests pass", coverage numbers, test names. Same rule as PR descriptions.
+- Implementation reasoning. AC says what a tester sees, not why the code does it
+  that way. "Save only sends what changed" is a payload rule; "saving a new
+  display name doesn't change the stored repository" is what someone can check.
+- Grouping headers over the list. Ten flat numbered items beat four headed
+  sections of three.
+- Edge cases that are real but nobody will manually exercise. Being accurate
+  isn't enough to earn a line.
+
+Write each one as the observable behavior, not the mechanism:
+
+> 4. The Groups table lists the account's real ACS groups, sorted alphabetically.
+> 7. Save persists to ACS: reload the page and the change is still there.
+
+not
+
+> - Group memberships are mapped from the trustee's `Groups` array, dropping
+>   entries with no usable `Name`, and sorted client-side before render.
 
 ## Comments, status updates, QA notes
 

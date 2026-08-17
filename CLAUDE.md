@@ -21,6 +21,8 @@ Workflow for the `momentum` GitHub repo (org `Laserfiche`).
 
 - **Session start, before modifying any code:** confirm the working tree is clean and on a branch pulled fresh from `origin/main` (see Git above — `git fetch origin` then a new `--no-track` branch off `origin/main`). Don't start editing on a stale or dirty checkout.
 - **Concurrent work / dirty default worktree:** if the default worktree at `C:\code2\momentum` has modified content or another branch's in-progress work, don't disturb it — create a new worktree under `C:\code2` (i.e. `C:\code2\momentum-<feature>`) and work there instead.
+- **Localized strings: edit `en.json` and nothing else.** `fr.json`, `es.json`, `en-XA.json` and the XLIFF memory are pipeline output. Never hand-edit them, never hand-prune keys a change removed, and never reach for `translate.ts --pseudo` to quiet a check — that writes fake accented text into real catalogs.
+- **`pr-i18n-parity` is mine to clear, not yours.** It fails on any branch that changed an `en.json`, which is the point: I add the **`to-be-translated`** label to the PR and the pipeline commits the regenerated catalogs back to the branch. It needs `MTRANS_*` credentials, so it cannot run locally anyway. Don't run `check-parity.ts` in a pre-push check, don't report it as a failure, and don't let it block a "ready to push" verdict — just remind me the label is still needed. A pre-push check earns its keep on unit tests, the 100% coverage gates, lint, build and a11y.
 - **On creating a PR — link both directions:** (write the PR title/body per Writing below)
   - PR -> work item: the PR body carries a `## Related` hyperlink to the TFS work item.
   - work item -> PR: add the GitHub PR as a **Hyperlink relation in the work item's Links tab** — not a comment. The ADO `wit_link_work_item_to_pull_request` MCP tool only links ADO-hosted PRs, so it can't be used for a GitHub PR. The `wit_update_work_item` MCP tool can't add it either (it only accepts string field values, not a relation object). Add it via the TFS REST API with Windows integrated auth:
@@ -35,6 +37,9 @@ Workflow for the `momentum` GitHub repo (org `Laserfiche`).
 - Smallest useful diff; tightly scoped to the request.
 - Match the repo's existing style over my personal preference.
 - Comments: add only for very non-obvious code (the "why", not the "what"); keep as short as possible. Don't comment self-explanatory code. When I do write one, apply the writing rules below (see Writing).
+- Comment wording: plain, simple, direct. Short words, short sentences, ordinary
+  grammar. Say what a reader needs to know and stop. Leave out the deep technical
+  detail, the background story, and the hedging.
 - Ask before adding a dependency or library.
 - Verify before claiming something works — don't assert unchecked success. What
   "verify" means per edit is compile/lint, not the test suite (see Testing).
@@ -45,9 +50,19 @@ Any outward-facing prose I author or edit — code comments, commit messages, PR
 titles/descriptions, TFS work item text — must read like a person wrote it, not
 an LLM. Internal skill, doc, and config files are out of scope.
 
+- **Compact by default, in every genre.** PR bodies, code comments, TFS story and
+  bug descriptions, acceptance criteria, commit messages, review replies, status
+  updates. Write the shortest version that still carries the point: what changed,
+  plus whatever a reader would not guess from the diff. Then stop. Long is a
+  failure mode, not thoroughness — a dense description gets skimmed and nothing
+  lands. Rules of thumb: cut anything the diff, a CI check, or the linked work
+  item already says; if a paragraph and a bullet cover the same ground, keep the
+  bullet; drop a line rather than defend a decision the code comment already
+  carries. Short sentences, short words, plain grammar.
 - Auto-invoke the **`avoid-ai-writing`** skill on that prose before I present or
   commit it. I don't need to be asked; treat this as standing instruction for the
-  writing types above.
+  writing types above. It loads `joey-writing-style.md`, which carries the
+  per-genre length targets.
 - For a short fragment (one comment, a commit subject) apply the skill's rules
   inline rather than spinning up a full pass; for anything longer (a PR body, a
   doc section) run the skill's edit/rewrite pass.
