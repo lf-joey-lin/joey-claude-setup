@@ -48,7 +48,7 @@ In scope (the review dimensions in Step 2):
 Out of scope - hand these to their owners so this gate stays focused:
 - **Functional bugs / correctness / security** -> `/code-review`,
   `/security-review`.
-- **Automated tests and coverage** -> the `testing-ui` skill (it owns the specs
+- **Automated tests and coverage** -> the `update-tests` skill (it owns the specs
   and the 100% branch gate). This gate may *note* that a test hook is missing if
   it blocks testability, but it does not write or evaluate tests.
 - **Accessibility and test-hook/component-placement audits** are owned by
@@ -193,7 +193,7 @@ For each finding, show in this order:
 
 End with a short **verdict** (must-fix vs nice-to-have) and the **"Out of scope but
 worth noting"** list, each item pointing at the owning skill (`/code-review`,
-`/security-review`, `testing-ui`).
+`/security-review`, `update-tests`).
 
 For a remote PR, the deliverable is this inline report. **Optional, outward-facing -
 confirm each time, never automatic:** offer to post the review to the GitHub PR (a
@@ -280,7 +280,7 @@ npx vitest run --project=unit   # ~36s
 ```
 
 There is no `typecheck` npm script - `npx nuxt typecheck` is the working
-invocation. The coverage and a11y gates belong to `prepare-to-ship-ui`, not here.
+invocation. The coverage and a11y gates belong to `prepare-to-ship`, not here.
 If anything fails, show the failing output and offer to work it as a new finding
 rather than reporting the gate as passed.
 
@@ -294,9 +294,9 @@ rules). Then:
   still open (separate must-fix from nice-to-have).
 - Surface the **"Out of scope but worth noting"** list - any bug / security / test
   / a11y observations, each pointing at the owning skill (`/code-review`,
-  `/security-review`, `testing-ui`).
+  `/security-review`, `update-tests`).
 - Note that fixes touching a full gate (build / 100% coverage / a11y) should run
-  through `prepare-to-ship-ui` before the PR.
+  through `prepare-to-ship` before the PR.
 
 The side effects of fix mode are the kept fixes - as working-tree changes, or local
 commits the user chose - and the gitignored state file. It never pushes.

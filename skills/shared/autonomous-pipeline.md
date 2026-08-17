@@ -1,7 +1,7 @@
 # Autonomous pipeline mode (shared)
 
 The contract that lets the interactive `ui-app` pipeline skills (`spec-ui`,
-`design-ui`, `implement-ui`, `testing-ui`, `review-ui`, `prepare-to-ship-ui`) run
+`design-ui`, `implement-ui`, `update-tests`, `review-ui`, `prepare-to-ship`) run
 **headless** under the `joey-bot` orchestrator, with no human available to answer
 their gates. Each of those skills carries an `## Autonomous mode` section that
 points here for the shared rules and states only its own gate replacements.
@@ -72,9 +72,9 @@ summary the orchestrator relies on.
 | spec-ui | Step 3 questions + Step 4 iterate-to-approval | answer each open question with the house default / most-recommended option, mark the choice and the alternative in "Conventions & deviations", write `feature-spec.md` without stopping |
 | design-ui | Step 1/2 clarifying questions + Step 9 approve-then-write | resolve open questions most-recommended, record alternatives in "Open questions / risks", write `feature-design.md` without stopping |
 | implement-ui | Step 4 hand off to human to test and iterate | after compile + lint pass, do not stop for manual testing; list the manual checks for the final review gate and return |
-| testing-ui | (assumes prior human approval) | run immediately after implement; enforce the 100% coverage gate; note that manual verification was deferred |
+| update-tests | Step 4's end-to-end approval question (assumes prior human approval of the code) | run immediately after implement; enforce the component's real coverage gate; decide the end-to-end question yourself under the same "one thin happy path per new integration point no existing spec crosses, nothing if the branch added no seam" rule, resolving a borderline seam toward writing it since nobody clicks through; note that manual verification was deferred |
 | review-ui | section 1 bulk gate + per-finding keep/revert/commit | auto-accept must-fix + recommended, apply and verify each, record; defer minor findings with a note; handle findings **inline** (no extra subagent layer) to cap nesting depth; make no commit here |
-| prepare-to-ship-ui | (already non-interactive) | unchanged; run the three gates, return the scorecard and verdict |
+| prepare-to-ship | (already non-interactive) | unchanged; run the local checks the changed components trigger (no Docker, no PR-level checks), fix test/coverage/lint failures in place within its own bound, return the scorecard and verdict |
 
 ## Nesting note
 
@@ -87,7 +87,8 @@ keeps the depth at orchestrator -> stage subagent, not a third level.
 ## What autonomous mode does NOT change
 
 - The skill's scope boundaries (spec-ui writes no code, design-ui writes no code,
-  review-ui fixes only quality findings, prepare-to-ship edits nothing).
+  review-ui fixes only quality findings, prepare-to-ship edits only tests, lint
+  and coverage).
 - The verification commands and the requirement to report real results.
 - The handoff file names and formats.
 - Commits and pushes: an individual skill still never pushes. Commit policy for

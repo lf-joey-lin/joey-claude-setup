@@ -255,7 +255,7 @@ npx vitest run --project=unit   # ~36s, 69 files / 417 tests
 These are named here so no subagent has to discover them. Note there is no
 `typecheck` npm script - `npx nuxt typecheck` is the working invocation. The
 coverage and a11y gates (`npm run test:ci`, `npm run test:a11y`) are **not** run
-here; they belong to `prepare-to-ship-ui`.
+here; they belong to `prepare-to-ship`.
 
 ## 5. Wrap up (GitHub outward actions)
 
@@ -276,4 +276,4 @@ automatic**:
 
 Only send text the user has seen and approved. Do neither without an explicit go.
 Point out that fixes needing a full gate (build / 100% coverage / a11y) before the
-PR ships should run through `prepare-to-ship-ui`.
+PR ships should run through `prepare-to-ship`.

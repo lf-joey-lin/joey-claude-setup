@@ -1,6 +1,6 @@
 ---
 name: joey-bot
-description: Run a full round of ui-app dev work autonomously, the way Joey (a senior engineer) would - from a brief spec through to a tested, ready-to-PR branch on its own worktree, then hand to a human to review and ship. joey-bot is a pure orchestrator: it owns a markdown state file and spawns one subagent per pipeline stage (new-work, spec-ui, design-ui, implement-ui, testing-ui, review-ui, prepare-to-ship-ui, a self-review), driving each headless via the shared autonomous-pipeline contract, and never does the work itself. Two modes - default pauses once after the spec, `auto` runs end to end with a single final review gate (this is the mode to spawn several of in parallel). Invoke when the user types /joey-bot, or asks to "have joey-bot build/implement <feature>", "do an autonomous dev run on <feature>", or "run the whole pipeline on <feature>" for the ui-app.
+description: Run a full round of ui-app dev work autonomously, the way Joey (a senior engineer) would - from a brief spec through to a tested, ready-to-PR branch on its own worktree, then hand to a human to review and ship. joey-bot is a pure orchestrator: it owns a markdown state file and spawns one subagent per pipeline stage (new-work, spec-ui, design-ui, implement-ui, update-tests, review-ui, prepare-to-ship, a self-review), driving each headless via the shared autonomous-pipeline contract, and never does the work itself. Two modes - default pauses once after the spec, `auto` runs end to end with a single final review gate (this is the mode to spawn several of in parallel). Invoke when the user types /joey-bot, or asks to "have joey-bot build/implement <feature>", "do an autonomous dev run on <feature>", or "run the whole pipeline on <feature>" for the ui-app.
 ---
 
 # joey-bot: autonomous senior-engineer dev run for a ui-app feature
@@ -54,10 +54,10 @@ Agent tool's `model` when you spawn that stage.
 | spec-ui | sonnet | sonnet | sonnet |
 | design-ui | opus | sonnet | sonnet |
 | implement-ui | opus | opus | opus |
-| testing-ui | sonnet | sonnet | sonnet |
+| update-tests | sonnet | sonnet | sonnet |
 | review-ui | opus | opus | sonnet |
 | self-review | opus | sonnet | sonnet |
-| prepare-to-ship-ui | haiku | haiku | haiku |
+| prepare-to-ship | sonnet | sonnet | sonnet |
 | live verification (Chrome MCP) | sonnet | sonnet | sonnet |
 
 Live verification is sonnet across all profiles: its cost is in tool output
@@ -100,11 +100,16 @@ expensive, and go as high as the feature allows:
 
 1. **Static** - compiles and lints clean (implement, Step 3).
 2. **Unit / component** - Vitest + Vue Test Utils at the repo's 100% statement and
-   branch gate (testing-ui).
+   branch gate (update-tests).
 3. **Accessibility** - the Storybook a11y suite (ship gate).
-4. **End-to-end** - Playwright specs where the feature has a real multi-step or
-   cross-component flow (testing-ui; autonomous runs should warrant these more
-   readily than a human-attended run, since no one is clicking through by hand).
+4. **End-to-end** - one thin Playwright happy-path spec per **integration point**
+   the work added that no existing spec crosses: a real backend call, the auth
+   boundary, a route that has to resolve, a browser capability the unit tier can
+   only fake, a multi-step flow (update-tests). Not one per page - the page is not
+   the unit of coverage, the seam is, and once a seam is proven the unit tier
+   proves the rest. Work that adds no seam gets no spec. Autonomous runs resolve a
+   borderline seam toward writing the test, since no one is clicking through by
+   hand.
 5. **Live verification** - drive the actually-running app with the Chrome DevTools
    MCP: load the feature, exercise its routes and states, check the rendered DOM,
    console, and network, and capture screenshots as evidence (the live-verify
@@ -149,13 +154,13 @@ Stages:
    points it at `logs/feature-spec.md`.
 3. **Implement** (implement-ui, opus) -> writes code; verifies compile + lint.
    Seed: points it at `logs/feature-design.md`.
-4. **Test** (testing-ui, sonnet) -> writes co-located specs; holds the 100%
+4. **Test** (update-tests, sonnet) -> writes co-located specs; holds the 100%
    coverage gate. Seed: the design handoff and the implemented code, and tell it
-   this is an unattended run, so it should warrant Playwright E2E for any real
-   multi-step or cross-component flow rather than leaning on manual exercise. Tell
-   it to end its summary with an explicit `## Handbacks` list, `none` if it has no
-   items.
-   - **Handbacks are the code changes testing-ui cannot make itself.** It owns
+   this is an unattended run, so it decides the end-to-end question itself instead
+   of asking: one thin happy-path spec per integration point the work added that
+   no existing spec crosses, nothing when it added no seam. Tell it to end its
+   summary with an explicit `## Handbacks` list, `none` if it has no items.
+   - **Handbacks are the code changes update-tests cannot make itself.** It owns
      tests, not components, so three things it legitimately finds fall outside its
      scope: an element it cannot locate without a **missing `data-testid`**, a
      **genuinely dead branch** that should be removed rather than covered by a
@@ -168,9 +173,9 @@ Stages:
      the handback items verbatim, the files they name, and the instruction to make
      the smallest change that resolves each and nothing else. This is a freeform
      minimal-change pass, not a re-implementation - it does not revisit the design.
-     Then re-run testing-ui **once**, seeded with the original inputs plus what
+     Then re-run update-tests **once**, seeded with the original inputs plus what
      changed. Record both passes and each item's resolution in the state file.
-   - Bound it there. If testing-ui still cannot hold the coverage gate after that
+   - Bound it there. If update-tests still cannot hold the coverage gate after that
      one round trip, stop the run and return a NOT READY report naming the
      unresolved handbacks and the real coverage output. Do not loop a third time
      and do not let it paper over the gap with a contrived test.
@@ -179,13 +184,15 @@ Stages:
      autonomous-pipeline contract's "surface, do not swallow a genuine blocker".
 5. **Review** (review-ui, per profile) -> fix mode, local scope, headless; applies
    quality fixes and writes `logs/feature-review.md`.
-6. **Ship gate** (prepare-to-ship-ui, haiku) -> runs build + unit/100% + a11y,
-   returns the scorecard.
-   - On **NOT READY**: make one targeted remediation pass - spawn the owning skill
-     (implement-ui for build/a11y, testing-ui for tests/coverage) with the failing
-     output, then re-run the ship gate once. If it still fails, stop the run and
-     return a NOT READY report naming the stage and the real failing output. Do
-     not fake a pass.
+6. **Ship gate** (prepare-to-ship, per profile) -> runs the local checks the
+   branch's changed components trigger (lint, unit tests, coverage thresholds,
+   build, ui-app a11y; no Docker and no PR-level checks), fixes
+   test/coverage/lint failures itself, returns the scorecard.
+   - On **NOT READY**: it already exhausted its own fix rounds on tests, coverage
+     and lint, so what comes back is something it does not own. Make one targeted
+     remediation pass - spawn implement-ui with the failing output - then re-run
+     the ship gate once. If it still fails, stop the run and return a NOT READY
+     report naming the stage and the real failing output. Do not fake a pass.
 7. **Self-review** (pr-review-toolkit:code-reviewer via `agentType`, per profile)
    -> a final read of the branch diff against `origin/main` for anything the
    dimension-scoped review-ui does not cover (correctness, obvious bugs, repo

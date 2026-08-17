@@ -198,5 +198,5 @@ spec only records exceptions under "Conventions & deviations".
 ## Relationship to the other UI skills
 
 `spec-ui` (this skill, requirements) -> `design-ui` (Nuxt UI component &
-architecture blueprint) -> `implement-ui` (code) -> `testing-ui` (tests). Stay in
+architecture blueprint) -> `implement-ui` (code) -> `update-tests` (tests). Stay in
 your lane: capture requirements, then hand the approved spec to design-ui.

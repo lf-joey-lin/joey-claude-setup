@@ -166,7 +166,7 @@ exists in the installed API. A wrong "just use `UFoo`" is worse than saying noth
 
 These dimensions are code quality only. They do NOT cover functional
 bugs / correctness / security (`/code-review`, `/security-review`), automated tests
-and coverage (`testing-ui`), or accessibility and test-hook/component-placement
+and coverage (`update-tests`), or accessibility and test-hook/component-placement
 audits (owned by `implement-ui`). If while applying this bar you spot a real bug,
 security issue, or missing test, note it against the owning skill rather than
 folding it in here.

@@ -1,6 +1,6 @@
 ---
 name: implement-ui
-description: Implement a UI feature in ui-app, either from an approved design handoff (logs/feature-design.md) produced by design-ui, or from a freeform request the user provides directly for a small tweak or addition that does not need the full spec/design pipeline. Works in a fresh context and builds idiomatic Nuxt UI + Vue 3 code following SOLID principles, the app's design language and theming, mobile-first responsive layout, accessibility, and the repo's data-testid conventions, then verifies it compiles and lints and hands off to the human to test and iterate. Writing the automated test suite is a separate testing-ui pass, done after the human is satisfied. Invoke when the user asks to "implement", "build", "code up", or "start on" a UI design, hands over a design handoff for the ui-app, or asks for a small UI change/addition described inline.
+description: Implement a UI feature in ui-app, either from an approved design handoff (logs/feature-design.md) produced by design-ui, or from a freeform request the user provides directly for a small tweak or addition that does not need the full spec/design pipeline. Works in a fresh context and builds idiomatic Nuxt UI + Vue 3 code following SOLID principles, the app's design language and theming, mobile-first responsive layout, accessibility, and the repo's data-testid conventions, then verifies it compiles and lints and hands off to the human to test and iterate. Writing the automated test suite is a separate update-tests pass, done after the human is satisfied. Invoke when the user asks to "implement", "build", "code up", or "start on" a UI design, hands over a design handoff for the ui-app, or asks for a small UI change/addition described inline.
 ---
 
 # implement-ui Skill
@@ -19,7 +19,7 @@ which):
 
 Scope boundary: this skill builds the feature and gets it compiling, linting, and
 ready for a human to exercise. It does **not** write the automated test suite -
-that is the `testing-ui` pass, run after the human has manually tested and
+that is the `update-tests` pass, run after the human has manually tested and
 iterated, so tests lock in settled behavior instead of being rewritten each round.
 You still add `data-testid` hooks (Step 2); those live in the components and serve
 both manual and later automated testing.
@@ -133,7 +133,7 @@ Follow these throughout:
   ambiguous, icon-only, dynamic, or repeated. Naming `<feature>-<element>-<qualifier>`,
   lowercase, hyphenated, stable across refactors. For repeated rows/cards use a
   stable entity ID in the value, never the array index. Note which hooks you added
-  and why - testing-ui and manual testers both rely on them.
+  and why - update-tests and manual testers both rely on them.
 
 **Code style (root + ui-app CLAUDE.md).**
 - TypeScript throughout; SFCs use `<script setup lang="ts">`. Explicit types, no
@@ -159,7 +159,7 @@ Iterate with the human: apply their feedback, re-verify compile/lint (Step 3), a
 repeat until they are satisfied. Do not proceed to writing tests on your own - the
 human decides when the behavior is settled.
 
-Once the human confirms the feature is good, point them to the `testing-ui` skill
+Once the human confirms the feature is good, point them to the `update-tests` skill
 (run in a fresh context against the design handoff, if any, and the implemented
 code) to write the automated suite and satisfy the coverage gate.
 
@@ -224,4 +224,4 @@ upstream spec. This skill writes code, not handoff files.
 - `npm run dev` - run the app locally for manual/visual checks.
 - `npm run build` - production build (use to confirm it compiles).
 - Automated tests (`npm run test:ci` and the coverage gate) are owned by the
-  `testing-ui` pass, not this skill.
+  `update-tests` pass, not this skill.
