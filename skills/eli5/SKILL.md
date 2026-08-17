@@ -1,175 +1,151 @@
 ---
 name: eli5
-description: Turn a concept into a from-scratch tutorial that assumes no prior knowledge, builds up from small pieces, and goes from high-level to low-level detail. Writes to the C:\code2\claude-explains-like-im-five repo as a folder per topic (main page plus subpages for abstractable detail), with mermaid diagrams for the hierarchy and a shared library for reusable building blocks. Invoke when the user types /eli5, or asks to "explain X like I'm five", "write a tutorial on X", "teach me how X works from scratch", or "make an ELI5 for X".
+description: Explain a piece of input in plain language, in the chat, with enough background to actually follow it. Takes whatever is handed over (a block of text, a diff or PR, a snippet of code, a comment, a code review finding, an error, a spec paragraph) and builds up from context to the point, defining every term it uses. Built for understanding someone else's work or a review comment on your own. For a code review item it separates the issue, the underlying concept, and the options. Invoke when the user types /eli5, or asks to "explain this", "explain this like I'm five", "what does this mean", "I don't understand this comment/finding/PR", "break this down", or "dumb this down for me".
 ---
 
-# eli5: explain a concept from scratch, as a built-up tutorial
+# eli5: explain the thing in front of me, in plain language
 
-Take one concept and produce a tutorial that a reader with no prior knowledge can
-follow start to finish. Begin with the smallest building blocks, explain every
-technology or term the first time it appears, and build upward until the whole
-concept is assembled. Move from high altitude (one sentence, then the big picture)
-down to low-level mechanics, and push detail that can be abstracted out into
-subpages so the main page stays a clean narrative.
+Someone hands over a piece of input and wants to understand it. Explain it so they
+finish reading with a real mental model, not a paraphrase they still cannot act on.
 
-The output style is already modeled by the tutorials sitting in the target repo
-(`ACS-Login-Tutorial.md`, `Momentum-Login-Tutorial.md`,
-`momentum-make-run-tutorial.md`). Match their clarity and top-down flow; this skill
-just standardizes the structure and adds the folder/subpage/mermaid conventions.
+This skill answers in the chat. It writes no files. If the explanation turns out to
+be something worth keeping, say so at the end and point at the `make-tutorial`
+skill, which writes a lasting from-scratch guide into the tutorials repo. Do not
+switch over on your own.
 
 ## Invocation
 
 ```
-/eli5 <concept> [assume: <what the reader already knows>]
+/eli5 [the thing, or a pointer to it]
 ```
 
-- `<concept>` is what to explain (e.g. "how DNS works", "how ACS login works",
-  "Kubernetes pods"). Required. If missing, ask what to explain before doing
-  anything.
-- `assume:` is optional. By default assume the reader knows **nothing** and explain
-  every term. If the caller states prior knowledge (e.g. `assume: I know Vue and
-  HTTP`), skip re-explaining that layer but still name it when it appears. Record
-  what was assumed in the tutorial's "How to read" section so a later reader knows
-  the starting line.
+The input can be anything:
 
-## Output location
+- Pasted prose: a spec paragraph, a design doc section, a Slack message, an email.
+- Code: a snippet, a file, a function, a whole diff.
+- A pointer: a file path, a `file:line`, a PR link or number, a work item, a commit.
+- A code review finding, from a human reviewer or from a tool.
+- Something in this conversation: your own code, your own comment, your own review
+  finding, an error you just printed. "this" and "that" usually mean the most
+  recent one.
 
-Always write to the repo at `C:\code2\claude-explains-like-im-five`. Never write
-tutorials anywhere else.
+If no input is given and nothing in the conversation is an obvious referent, ask
+what to explain. One question, then stop.
 
-```
-claude-explains-like-im-five/
-  README.md                 # index of every topic + a mermaid map of topics
-  _shared/                  # reusable building-block explainers, one concept each
-    <primitive-slug>.md     # e.g. cookies.md, tcp.md, oauth.md
-  <topic-slug>/
-    README.md               # the tutorial's main page (top-down narrative)
-    <subpage-slug>.md       # abstracted deep-dives for this topic
-```
+## Step 1: get the real thing before explaining it
 
-- One folder per topic, `kebab-case` slug derived from the concept
-  (e.g. "how DNS works" -> `dns`, "ACS login" -> `acs-login`). The main page is
-  always `README.md` inside that folder so it renders as the folder's landing page
-  on GitHub.
-- Subpages are `kebab-case` `.md` files beside the `README.md`.
-- The three existing flat tutorials stay where they are; do not migrate them unless
-  asked. New topics use the folder convention.
-- If the topic folder already exists, this is an update: read what is there,
-  extend or correct it, and keep existing subpage/anchor links working rather than
-  rewriting from scratch.
+The failure mode here is explaining a plausible version of the code instead of the
+code. It reads fine and teaches the wrong thing, and the user has no way to catch
+it, because not knowing is why they asked.
 
-## Step 1: ground the content (detect, then verify)
+So resolve the input to its source first:
 
-Accuracy matters most here, and a from-scratch tutorial is exactly where a wrong
-detail does the most damage. Before writing, decide what kind of concept this is:
+- A path or `file:line`: read it, plus enough around it to know what calls it and
+  what it calls.
+- A PR or commit: read the actual diff (`gh pr diff`, `git show`), not the
+  description. Read the files it touches where the diff alone is not enough.
+- A snippet with no context: find where it lives in the repo if it lives here. If
+  it does not, say you are explaining it standalone and that behavior may depend on
+  callers you cannot see.
+- A review finding on code in this repo: read the code it points at and judge
+  whether the finding actually holds. See step 4.
+- Prose: take it as given, but check any claim it makes about this codebase against
+  the codebase.
 
-- **Codebase- or system-specific** (names a repo, component, internal system, file,
-  or product - e.g. ACS, Momentum, `bpm`, `ui-app`): investigate the real source
-  first. Use Explore/Grep/Read against the relevant repo(s) and cite concrete
-  anchors (`file_path:line`, repo/module names) the way the ACS tutorial does. Do
-  not invent module names, flows, or file paths.
-- **General/standard concept** (TCP, OAuth, hashing, DNS): write from model
-  knowledge, but web-verify anything version-specific, numeric, or likely to have
-  changed (default ports, RFC behavior, current API shapes). When a detail is
-  genuinely uncertain and you could not verify it, say so plainly rather than
-  guessing confidently.
-- **Ambiguous**: if you cannot tell whether the concept is internal or general,
-  ask one clarifying question before investing in a wrong grounding path.
+Anything you could not verify gets said out loud, in one clause, at the point where
+it matters. Never paper over a gap with confident phrasing.
 
-## Step 2: reuse and build the shared library
+## Step 2: work out what the reader is missing
 
-Before explaining a primitive from scratch, check `_shared/` for an existing
-explainer and link to it instead of re-explaining. When a building block is
-general and likely to recur across topics (a cookie, a hash, TCP, a JWT), write it
-once as `_shared/<primitive>.md` and link from the topic. Topic-specific detail
-never goes in `_shared/`.
+The reason a thing is confusing is almost never the thing itself. It is one or two
+prerequisites nobody named. Before writing, list for yourself:
 
-This keeps topics connected into one knowledge base instead of duplicating the
-basics in every folder.
+- The terms in the input that carry weight and are not defined by it.
+- The pieces of surrounding machinery the input assumes (the framework's lifecycle,
+  who calls this, what the data looks like when it arrives, what the platform
+  guarantees).
+- Why anyone wrote this at all: the problem it exists to solve.
 
-## Step 3: write the topic main page (README.md)
+That list becomes the background section. Order it by dependency so nothing is used
+before it is introduced.
 
-The main page is the top-down narrative. Structure, mirroring the existing
-tutorials:
+Calibrate to what the user already knows. If they have shown fluency in something
+earlier in the conversation, do not lecture them on it. Name it and move on. If they
+say what to assume, honor it. Default to assuming nothing about the specific
+domain, and general programming literacy unless the input says otherwise.
 
-1. **Title** - `# How <concept> works` plus a short line naming the intended
-   reader and what they will be able to do by the end.
-2. **One sentence to hold onto** - a single blockquote that captures the whole idea
-   before any detail.
-3. **How to read this guide** - what to read in order, and the assumed starting
-   knowledge (from `assume:`, default none).
-4. **Hierarchy map** - a mermaid `graph TD` showing the concept broken into its
-   building blocks, and which blocks live in subpages or `_shared/` (see Mermaid
-   conventions).
-5. **Building blocks, from scratch** - each primitive gets an everyday **analogy
-   first**, then the precise definition. Small, self-contained, in dependency
-   order so nothing is used before it is introduced.
-6. **The big picture** - assemble the blocks into the whole system at a high level.
-7. **Mechanics / walkthroughs** - the low-level detail, step by step. Use mermaid
-   sequence or flow diagrams for processes with ordered steps.
-8. **Reference + glossary** - lookup tables and every term defined in one place.
-9. **Links** - to this topic's subpages and to `_shared/` pages used.
+## Step 3: explain, building up to the point
 
-### Altitude: high to low, enforced
+Structure the answer as a climb, not a dump:
 
-Do not flatten everything to one depth. Every topic moves through levels:
+1. **The one-line version.** What this is, in a sentence, before any detail. The
+   reader should be able to stop here and be less confused than when they started.
+2. **Background, in dependency order.** Each prerequisite from step 2, one short
+   block each: everyday analogy first where one genuinely helps, then the precise
+   definition. An analogy never stands alone as the explanation, and a bad analogy
+   is worse than none.
+3. **The thing itself.** Now walk the actual input. For code, go line by line or
+   block by block where that is what the confusion needs, and keep saying what
+   state looks like at each point. For prose, restate each claim in plain terms and
+   say what it implies.
+4. **Why it is like this.** The constraint, bug, or decision that produced it. This
+   is usually the part that makes the whole thing click.
+5. **What it means for you.** What the reader should now do, watch out for, or
+   stop worrying about.
 
-- **L1** - one sentence (the "hold onto this" line).
-- **L2** - the big picture: the blocks and how they connect.
-- **L3** - the mechanics on the main page: how each step actually works.
-- **L4** - deep or optional detail, moved into subpages so L1-L3 stay readable.
+Rules that keep it readable:
 
-### When to spin out a subpage
+- Never use a term you have not defined, including in the one-line version.
+- Length tracks the input and the confusion, not the structure above. A confusing
+  three-line comment gets a few paragraphs; a 40-file PR gets a real walkthrough.
+  Do not pad a small question into all five sections.
+- Quote the specific line you are talking about rather than describing it from a
+  distance. For repo code, cite `file_path:line` so it is clickable.
+- Where an ordered process or a set of moving parts is the hard part, a small
+  mermaid diagram (`sequenceDiagram` or `flowchart`) earns its place. Keep `-` out
+  of node ids. One diagram, not five.
+- No hedging as a substitute for knowing. Either verify it or flag it as unverified.
 
-A sub-concept becomes a subpage when it is (a) reusable across topics -> put it in
-`_shared/`; (b) detailed enough that inlining it would break the main narrative's
-flow; or (c) optional depth a first-time reader can skip. Otherwise keep it inline.
-Avoid both extremes: no wall of text, and no death-by-fragmentation where the
-reader chases ten tiny files to understand one idea. Each subpage is self-contained
-with its own short intro and a link back to the topic's `README.md`.
+## Step 4: code review items get a specific shape
 
-## Mermaid conventions
+A review finding, whether from a person or from a tool, is the most common reason
+to reach for this skill and the one with the most ways to go wrong. Explain it in
+four separate parts, clearly labeled, and never collapse them:
 
-- Every topic main page carries a hierarchy diagram (`graph TD`) with the concept
-  at the top decomposing into its building blocks. Mark nodes that link out to a
-  subpage or `_shared/` page (e.g. a trailing `*`), and explain the marker in a
-  line under the diagram. Mermaid nodes cannot themselves be hyperlinks in plain
-  GitHub markdown, so pair the diagram with a bullet list of the links.
-- Use sequence/flow diagrams (`sequenceDiagram`, `flowchart`) for walkthroughs and
-  ordered processes.
-- Keep `-` out of mermaid node **ids** (use `acsLogin`, not `acs-login`); it is a
-  reserved character in some contexts. Labels (quoted text) may contain anything.
+1. **The issue.** What the reviewer is claiming is wrong, in the concrete: the
+   input or state that triggers it, and what actually happens then. If you cannot
+   construct that concrete failure from the code, say so plainly, because it is
+   real evidence the finding may not hold.
+2. **The concept.** The general principle behind the finding, taught from scratch:
+   what a race is, why a nullable slipped through, what a rolling deploy does to
+   two versions of a contract. This is the part with lasting value. The reader
+   should recognize the pattern the next time it appears somewhere else.
+3. **The options.** Every reasonable response, including doing nothing. For each
+   one, what it costs, what it buys, and what it gives up. Then give your own
+   recommendation and the reason for it. Do not present a survey and leave the
+   reader to guess which way you lean.
+4. **Whether it is even right.** You read the code in step 1, so say whether you
+   agree. Reviewers and review tools are both wrong sometimes, and a user who
+   cannot yet evaluate the finding is exactly the person who will implement a
+   bogus one. If you disagree, say so and show what in the code makes you think
+   that.
+
+Explaining your own code or your own review finding follows the same shape. Being
+the author is not a reason to soften it.
 
 ## Writing style
 
-This is human-facing prose, so the writing rules apply:
+- Plain, direct, and short-sentenced. Fewer clauses beats more precision here.
+- House rules hold: no em dashes, no emoji, no arrows, no box-drawing characters.
+- Do not open with a restatement of the question or a preamble about what you are
+  about to do. Start explaining.
+- Skip the reassurance. "This is a common point of confusion" and "great question"
+  add nothing. The reader wants the answer.
+- Never condescend. "Like I'm five" is about removing assumed knowledge, not about
+  talking down to somebody who is good at their job and new to this corner of it.
 
-- Run the **`avoid-ai-writing`** skill over the finished prose before committing
-  (full pass for a whole tutorial; inline rules for a small subpage edit).
-- Follow the repo/house rules: no em dashes, no emoji, no arrows or box-drawing
-  characters, sentence-case headings. Write for a global audience.
-- Analogies are the ELI5 half of the job - lead each new primitive with one - but
-  the precise definition must always follow. An analogy never stands alone as the
-  explanation.
+## Ending
 
-## Step 4: update the index
-
-Keep the root `README.md` current: add the new topic (title, one-line hook, link)
-and reflect it in the topic-map mermaid diagram there. Create the root `README.md`
-if it does not exist yet.
-
-## Step 5: commit
-
-After the files are written and the writing pass is done, stage the new/changed
-files and commit to the target repo (`C:\code2\claude-explains-like-im-five`) on
-its current branch. Do not push. Commit message: a short imperative subject naming
-the topic (e.g. `Add DNS tutorial`), applying the writing rules. Commit only the
-files this run created or changed, not unrelated untracked files already in the
-repo.
-
-## Final report
-
-Report what was produced: the topic folder, the main page and any subpages, which
-`_shared/` pages were created or reused, how the content was grounded (source
-investigated vs general knowledge, and anything you could not verify), and the
-commit made. Note the paths so the user can open and review before pushing.
+Close with one line offering the obvious next step, chosen from what actually fits:
+which part to go deeper on, whether to apply a fix now, or that this would make a
+good `make-tutorial` topic if they want it written down. One offer, not a menu.
