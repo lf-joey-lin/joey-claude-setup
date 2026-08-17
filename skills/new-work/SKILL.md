@@ -1,6 +1,6 @@
 ---
 name: new-work
-description: Set up the local git environment for a new story or bug fix in the momentum repo. Takes a short description, fetches origin, and either branches in place in the default momentum worktree (when it is clean and on main) or spins up a fresh worktree at <root>/momentum-<shortdesc> so in-progress work is never disturbed. The workspace root is ~/m-code on WSL/Linux and C:\code2 on Windows. Invoke when the user types /new-work, or asks to "start new work", "set up a branch for", "begin a story", or "start a bug fix".
+description: Set up the local git environment for a new story or bug fix in the momentum repo. Takes a short description, fetches origin, and either branches in place in the default momentum worktree (when it is clean and on main) or spins up a fresh worktree at <root>/momentum-<shortdesc> so in-progress work is never disturbed. Publishes the new branch right away so it tracks origin from the start and unpushed commits show up as outgoing changes in the editor. The workspace root is ~/m-code on WSL/Linux and C:\code2 on Windows. Invoke when the user types /new-work, or asks to "start new work", "set up a branch for", "begin a story", or "start a bug fix".
 model: sonnet
 effort: low
 ---
@@ -99,7 +99,9 @@ git -C "<root>/momentum" checkout -b <branch> --no-track origin/main
 ```
 
 The `--no-track` is required: without it the branch inherits `origin/main` as
-upstream and `git push` later fails under `push.default=simple`.
+upstream, a bare `git push` fails under `push.default=simple` on the branch name
+mismatch, and until step 5 runs the tree reads as "ahead of origin/main" rather
+than as a branch of its own.
 
 ## 4b. New worktree (default worktree is busy)
 
@@ -118,7 +120,40 @@ On WSL, keep the worktree on the Linux filesystem under `~/m-code`. Do not put
 it on a `/mnt/c` path: the 9p mount is slow enough to break tooling that assumes
 local-disk speed (node_modules loads, watchers, dotnet builds).
 
-## 5. Report
+## 5. Publish the branch immediately
+
+Push the new branch straight away, from whichever worktree it landed in:
+
+```bash
+git -C "<the worktree from step 4a or 4b>" push -u origin HEAD
+```
+
+This is the setup step, not a "push my work" step. The branch is still sitting on
+`origin/main`'s commit, so the push transfers no objects and creates no PR; it
+only creates `origin/<branch>` and sets the matching upstream.
+
+The upstream is the point. Without one, `@{upstream}` is undefined, so VS Code's
+Source Control view hides its incoming/outgoing section entirely and the sync
+button reads "Publish Branch" instead of showing the unpushed-commit count.
+Setting the tracking ref up front means every commit made from here on shows as
+outgoing without having to remember to publish first.
+
+Safe to do at setup in this repo specifically: every workflow under
+`.github/workflows/` triggers on `pull_request` or `push` to `main`, so pushing a
+feature branch runs no CI.
+
+Two things to get right:
+
+- **Use `HEAD`, not the branch name**, and keep `-u`. Step 4's `--no-track` left
+  the branch with no upstream on purpose; this is what sets it.
+- **A failed push is not a failed setup.** If the push fails (offline, auth,
+  remote rejects the name), the branch and worktree are still good. Report the
+  actual error and carry on to step 6 rather than unwinding anything.
+
+In the jj-colocated repo, `git push` is fine; jj picks up the new remote bookmark
+on its next command.
+
+## 6. Report
 
 State plainly what was set up so the next steps are obvious:
 
@@ -127,16 +162,14 @@ State plainly what was set up so the next steps are obvious:
   `<root>/momentum-<shortdesc>`, and why (default worktree was clean vs. busy) -
   print the resolved absolute path, not the `<root>` placeholder
 - the working directory to run subsequent commands from
-
-Do **not** push or create an upstream here - the branch stays local until there
-is something to push. When the user is ready, the first push is
-`git push -u origin HEAD` (per the global git conventions), which creates
-`origin/<branch>` and sets the matching upstream.
+- that the branch is published and tracking `origin/<branch>`, or, if the push
+  failed, that it is local-only and why
 
 ## Notes
 
 - Never branch off a stale local `main`; the `fetch` in step 2 is not optional.
-- Never push to `main` directly, and never push at setup time.
+- Never push to `main` directly. Publishing the feature branch at setup (step 5)
+  is the one push this skill makes, and it carries no commits.
 - One piece of work per invocation - it maps to exactly one branch and, at most,
   one worktree.
 - This is setup only. It does not create the TFS work item (that is `create-tfs`)
