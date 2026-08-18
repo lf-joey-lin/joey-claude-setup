@@ -1,6 +1,6 @@
 ---
 name: ux-review
-description: Expert UI/UX design reviewer for an open design question - researches how the industry actually solves it, weighs the trade-offs against the current context, and recommends the top options. ADVISORY ONLY, no code and no files. Takes a question like "how should filtering work on this table", "modal vs side panel vs full page for this edit flow", "where does the primary action go", or a screenshot/description of a screen to critique, then grounds itself in established design systems (Material, Apple HIG, GOV.UK, WAI-ARIA APG, Polaris/Carbon) and real-product precedent, scores the candidate patterns on the criteria that matter for this app, and returns a ranked recommendation with the conditions that would flip it. Also runs an adversarial audit mode for finished screens or exports from another design tool (Figma, a mockup, a screenshot): a brutally honest teardown against cognitive load, messy-data breakpoints, and hidden UX traps, reported as findings ranked Critical Blocker / Moderate Friction / Minor Polish. Invoke when the user asks "what's the best UX for", "how do other apps do this", "which pattern should I use", "is this good UX", "review this design", "critique these screens", "tear this apart", "audit this UI", "be brutal about this design", "compare these two options", or hands over a UI/UX decision or a set of design screens and wants an industry-standard answer before any spec or code exists. Also checks Manta, the company's other established app, as in-house precedent for cross-product consistency - as a reference, never a gold standard. Everything it reports is written in plain UX language, describing what the user sees and does rather than how any of it is built, so it reads the same to a designer, a product manager, and an engineer.
+description: Expert UI/UX design reviewer for an open design question - researches how the industry actually solves it, weighs the trade-offs against the current context, and recommends the top options. ADVISORY ONLY, no code and no files. Takes a question like "how should filtering work on this table", "modal vs side panel vs full page for this edit flow", "where does the primary action go", or a screenshot/description of a screen to critique, then grounds itself in established design systems (Material, Apple HIG, GOV.UK, WAI-ARIA APG, Polaris/Carbon) and real-product precedent, scores the candidate patterns on the criteria that matter for this app, and returns a ranked recommendation with the conditions that would flip it. Also runs an adversarial audit mode for finished screens or exports from another design tool (Figma, a mockup, a screenshot): a brutally honest teardown against cognitive load, messy-data breakpoints, and hidden UX traps, reported as findings ranked Critical Blocker / Moderate Friction / Minor Polish. Invoke when the user asks "what's the best UX for", "how do other apps do this", "which pattern should I use", "is this good UX", "review this design", "critique these screens", "tear this apart", "audit this UI", "be brutal about this design", "compare these two options", or hands over a UI/UX decision or a set of design screens and wants an industry-standard answer before any spec or code exists. Also checks Manta, the company's other established app, as in-house precedent for cross-product consistency - as a reference, never a gold standard. Always names what TFS (the on-prem Azure DevOps Server the team lives in) does with the same problem, as evidence of what internal users already expect rather than of what is good. Everything it reports is written in plain UX language, describing what the user sees and does rather than how any of it is built, so it reads the same to a designer, a product manager, and an engineer.
 ---
 
 # ux-review Skill
@@ -163,6 +163,29 @@ SharePoint, Notion, Linear, GitHub, or Jira handle it. Convergence across severa
 mature products is a strong signal; one product's choice is an anecdote and
 should be called one.
 
+Always include **TFS** in the comparator set, and say what it does even when the
+answer is that it has no counterpart. It is the on-prem Team Foundation Server /
+Azure DevOps Server at `https://v-dev-tfs.laserfiche.com/DefaultCollection`, and
+it is worth naming for one reason: the internal people who use this app are in it
+every day, so its patterns are what they are already trained on. That makes it
+evidence about expectations, not about quality.
+
+Weight it accordingly:
+
+- It is a **familiarity argument only**. TFS is a dated enterprise UI and much of
+  it is worse than current practice, so "TFS does it" never carries a ranking on
+  its own. When its pattern is the weaker one, say so and move on.
+- It counts for most on **work-item shaped problems**: lists and queries, board
+  and backlog views, a list next to a detail pane, filtering and saved views,
+  bulk edits, status and state vocabulary, comment and history threads,
+  attachments, links between records. It counts for little outside those.
+- It counts for **internal users only**. If the screen serves customers or
+  occasional users, TFS familiarity buys nothing and the argument drops out.
+- Check it live rather than from memory when the question turns on how it behaves.
+  Reading it in the browser is fine, and it is read-only work: look, do not save
+  anything. The `azure-devops` tools read work item data, not the interface, so
+  they answer nothing about layout or interaction.
+
 **In-house precedent** (what Manta already ships). Manta is the company's other
 established app, a mature product with a real design system and a documented
 brand voice, so it is stronger evidence than one arbitrary product. It is also a
@@ -258,7 +281,8 @@ that is your job. For each option, give:
 
 - **Name** in standard pattern vocabulary, so it is searchable and unambiguous.
 - **What it is** in one or two sentences.
-- **Who ships it** - the products and design systems where you found it.
+- **Who ships it** - the products and design systems where you found it. Name TFS
+  here when it ships this option, since that is the one users already know.
 - **Where Manta lands** - whether Manta ships this option, a different one, or
   nothing comparable. "No counterpart in Manta" is a fine answer; say it in
   three words and move on.
@@ -285,6 +309,8 @@ from the list below; do not pad the table with criteria that do not discriminate
 - Globalization tolerance (label growth, right-to-left languages)
 - Consistency with the rest of this product
 - Consistency with Manta, weighted by the four tests in Step 3
+- Familiarity for people who use TFS daily, weighted per Step 3 and only for
+  internal users on a work-item shaped screen
 - Implementation and maintenance cost, given the app's design system
 
 Present it as a comparison table, ratings plus a short reason, then follow with
@@ -327,7 +353,8 @@ Commit to an answer. Structure it as:
    your judgment, and any question whose answer would materially change the
    ranking.
 8. **Sources** - the URLs you actually read, one line each with what it
-   contributed, plus the Manta files you read and what each settled.
+   contributed, plus the Manta files you read and what each settled, plus the
+   TFS screens you looked at if you looked.
 
 For a **critique** (Step 1's fifth mode), the same shape holds: lead with what the
 design already gets right, then the findings ordered by user impact, each with the
@@ -457,6 +484,12 @@ Checking Manta is worth a few minutes on copy, formats, terminology, empty
 states and confirmations, where `DesignSystem.mdx` gives a direct answer. It is
 not worth a hunt on a truncation bug or a contrast failure.
 
+TFS works differently in an audit. Not matching TFS is never a finding, since it
+is third-party software with no claim on this app's conventions. The one place it
+belongs is a note on a finding where the screen borrowed a TFS habit that is bad,
+or where an internal user's TFS reflex would lead them wrong here. One line, then
+back to the finding.
+
 ### Output format
 
 A prioritized list, categorized by severity. Within each category, order by user
@@ -522,10 +555,11 @@ Match the output to the stakes. Say which mode you chose.
 - **Standard review** (the default: a pattern choice inside one screen): the full
   Step 4 to Step 6 treatment with a comparison table, 3 to 6 sources. Check the
   relevant Manta design doc and the component or page that most resembles this
-  one.
+  one, and name what TFS does with the same problem.
 - **Deep review** (navigation model, a core flow, something expensive to reverse):
   add a second research pass across more comparators, walk the Manta surface
-  closest to this one end to end rather than reading a single component, and
+  closest to this one end to end rather than reading a single component, open the
+  closest TFS surface in the browser instead of recalling it, and
   walk the top two options through the realistic worst case (max data volume,
   longest labels, narrowest screen, keyboard-only user) before ranking.
 - **Adversarial audit**: standard depth for one screen, deep for a set of screens
@@ -548,6 +582,9 @@ decision is its own failure.
   genuine criterion and a weak tiebreaker. Recommend against Manta whenever the
   evidence points that way, and give the reason in a sentence. A review that
   only ever agrees with Manta is not doing the job the user asked for.
+- **TFS buys familiarity, nothing else.** Cite it for what the daily users
+  already expect, never as proof a pattern is good. It is old software and it
+  loses to current practice more often than it wins.
 - **Accessibility is a floor.** Never rank a pattern first if it cannot meet
   WCAG AA with reasonable effort.
 - **Cheapest thing that solves the problem.** Novelty needs justification;
