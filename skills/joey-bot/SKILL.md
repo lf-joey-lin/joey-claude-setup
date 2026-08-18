@@ -1,6 +1,6 @@
 ---
 name: joey-bot
-description: Run a full round of ui-app dev work autonomously, the way Joey (a senior engineer) would - from a brief spec through to a tested, ready-to-PR branch on its own worktree, then hand to a human to review and ship. joey-bot is a pure orchestrator: it owns a markdown state file and spawns one subagent per pipeline stage (new-work, spec-ui, design-ui, implement-ui, update-tests, review-ui, prepare-to-ship, a self-review, live browser verification), driving each headless via the shared autonomous-pipeline contract, and never does the work itself. Two modes - default pauses once after the spec, `auto` runs end to end with a single final review gate (this is the mode to spawn several of in parallel). Invoke when the user types /joey-bot, or asks to "have joey-bot build/implement <feature>", "do an autonomous dev run on <feature>", or "run the whole pipeline on <feature>" for the ui-app.
+description: Run a full round of ui-app dev work autonomously, the way Joey (a senior engineer) would - from a brief spec through to a tested, ready-to-PR branch on its own worktree, then hand to a human to review and ship. joey-bot is a pure orchestrator: it owns a markdown state file and spawns one subagent per pipeline stage (new-work, spec-ui, design-ui, implement-ui, update-tests, review-ui, prepare-to-ship, a self-review, live browser verification), driving each headless via the shared autonomous-pipeline contract, and never does the work itself. Two modes - the default is full auto, running end to end with a single final review gate (and is the mode to spawn several of in parallel); `--interactive` adds one checkpoint after the spec. Invoke when the user types /joey-bot, or asks to "have joey-bot build/implement <feature>", "do an autonomous dev run on <feature>", or "run the whole pipeline on <feature>" for the ui-app.
 ---
 
 # joey-bot: autonomous senior-engineer dev run for a ui-app feature
@@ -23,22 +23,33 @@ code in your own context, stop and delegate.
 ## Invocation and modes
 
 ```
-/joey-bot <spec>                     # default: one checkpoint after the spec, then autonomous
-/joey-bot <spec> auto                # full auto: no mid-run gate, single final review gate
-/joey-bot <spec> auto --balanced     # override the model profile (default is --thorough)
-/joey-bot <spec> auto --economy
+/joey-bot <spec>                     # default: full auto, no mid-run gate, single final review gate
+/joey-bot <spec> --interactive       # add one checkpoint after the spec
+/joey-bot <spec> --balanced          # override the model profile (default is --thorough)
+/joey-bot <spec> --economy
 ```
 
 - `<spec>` is a brief description of the work (a sentence or a short bullet list).
   Required - if missing, ask what to build before doing anything.
-- **default mode** is interactive: it pauses once, after the spec stage, so you
-  can catch a wrong direction cheaply, then runs autonomously to the final gate.
-  Use it for a single run you are watching.
-- **`auto` mode** takes no mid-run input. It runs straight through and ends at the
-  final review gate (a ready-for-review report). This is the mode to spawn several
-  of **in parallel** (see "Running several in parallel").
+- **The default is `auto`**: no mid-run input, straight through to the final review
+  gate (a ready-for-review report). This is also the mode to spawn several of **in
+  parallel** (see "Running several in parallel"). `auto` is still accepted as an
+  explicit spelling of the default and changes nothing.
+- **`--interactive`** adds one pause, after the spec stage, so a human watching a
+  single run can catch a wrong direction cheaply. It then runs autonomously to the
+  final gate. Nothing else in the pipeline gains a gate.
+- **Say the resolved mode in your first line of output**, before any tool call:
+  `Mode: <auto|interactive>, profile <thorough|balanced|economy>`, filled in with
+  the one that actually applies. Auto is now the silent default, so
+  `--interactive` is the flag that gets forgotten - make which one is active
+  visible up front rather than three stages later.
 - Undecidable decisions are never forked. Pick the most-recommended option and
   record the alternative in the state file. This holds even for a genuine 50/50.
+- **Asking a question outside `--interactive`'s one checkpoint is a bug in this
+  skill, not a judgment call.** If you reach a fork this file documents no default
+  for, take the most-recommended option, record it in the decisions log, and note
+  in the final report that the skill needs a rule for it. The one exception is a
+  genuine blocker, which stops the run per the autonomous-pipeline contract.
 
 ## Model profile (be deliberate about token spend)
 
@@ -74,17 +85,52 @@ positioning first rather than guessing.
 1. Derive a short kebab-case `<slug>` from the spec (e.g. `user-status-widget`)
    and the camelCase branch name per the global git rules
    (e.g. `userStatusWidget`).
-2. **Resume check, before touching git.** If the worktree
-   `<root>/momentum-<slug>` already exists and holds a state file at
-   `src/ui-app/logs/joey-bot-<slug>.md`, this is a resumed run: read the state
-   file, skip setup, and continue from the first stage not marked done. Only a
-   missing worktree gets a fresh setup - new-work stops on an occupied path, so
-   running it on a resume would kill the run at stage one. (`<root>` is
-   new-work's workspace root: `~/m-code` on WSL/Linux, `C:\code2` on Windows.)
-3. Spawn the **setup subagent** (model: haiku) to run the `new-work` skill,
-   **forced to a new worktree, always** - never branch in place in the default
-   `<root>/momentum` worktree. Parallel runs would collide on it, and even a
-   single run should stay off the default checkout. Seed it:
+2. **Resume check, before touching git.** A state file at
+   `src/ui-app/logs/joey-bot-<slug>.md` means this is a resumed run: read it, skip
+   setup, and continue from the first stage not marked done. Look in **both** places
+   a run can live, `<root>/momentum-<slug>` and `<root>/momentum` (step 3's path A
+   puts the state file in the default worktree). Only when neither holds one does
+   setup run for real - new-work stops on an occupied path, so running it on a
+   resume would kill the run at stage one. (`<root>` is new-work's workspace root:
+   `~/m-code` on WSL/Linux, `C:\code2` on Windows.)
+3. **Decide the workspace.** Two paths, and the choice is yours to make from the
+   repo state - never a question for the human. Read the default worktree's state
+   first (`git -C "<root>/momentum" status --porcelain`, `branch --show-current`,
+   and `log --oneline origin/main..HEAD` after a fetch).
+
+   **Path A - extend the branch already in progress.** Take this only when all of
+   these hold:
+   - the default worktree's tree is **clean** (no modified or untracked content);
+   - it is on a branch **other than `main`**;
+   - that branch has commits **not in `origin/main`**;
+   - **the spec continues that work.** Judge this from the spec against
+     `git log --stat origin/main..HEAD`: it continues when the spec names the same
+     page, feature or component those commits touch, or refers to them directly
+     ("update tests for the previous commits", "finish the listing"). Resolve a
+     borderline case toward Path A - a fresh branch off `origin/main` cannot build
+     on work that only exists on that branch, and half the spec then becomes
+     impossible rather than merely misplaced.
+
+   On Path A there is **no new-work call at all** (every new-work path branches off
+   `origin/main`, so it cannot continue an existing branch). Work in place: the
+   branch is the one already checked out, `<worktree>` is `<root>/momentum`, and the
+   run's commits stack on top of the unpushed ones. Record the branch, the baseline
+   commit, and how many commits it is ahead in the state file's setup result and
+   decisions log.
+
+   Two cases take Path A's **base** but not the default worktree, and both get a
+   worktree at `<root>/momentum-<slug>` on a new branch off **that branch's tip**
+   rather than off `origin/main`, so the earlier commits are in the base:
+   - a **background or parallel run**, which must never take the default worktree
+     because siblings would collide on it;
+   - a branch that **already has an open PR** (`gh pr list --head <branch>`), where
+     appending a feature would quietly enlarge work someone is reviewing.
+
+   Say which case applied in the report, since it decides what the PR contains.
+
+   **Path B - fresh worktree (the normal case).** Otherwise, spawn the **setup
+   subagent** (model: haiku) to run `new-work`, forced to a new worktree, never
+   branching in place. Seed it:
 
    > Invoke the `new-work` skill for "<spec>". Do NOT branch in place under any
    > circumstances: always create a fresh worktree at
@@ -93,10 +139,10 @@ positioning first rather than guessing.
    > not push the branch. Return the branch name and the absolute worktree
    > path.
 
-   Capture the branch name and worktree path; `<worktree>` below means that
-   returned absolute path, and every downstream subagent runs from it. The
-   branch stays local until Phase 2 - new-work normally publishes right away,
-   but here pushing waits for human approval.
+   Capture the branch name and worktree path. On either path, `<worktree>` below
+   means the absolute path the run works in, and every downstream subagent runs from
+   it. The branch stays local until Phase 2 - new-work normally publishes right
+   away, but here pushing waits for human approval.
 4. Create the state file (see "The state file") at
    `<worktree>/src/ui-app/logs/joey-bot-<slug>.md`.
 
@@ -156,10 +202,14 @@ Stages:
 
 1. **Spec** (spec-ui, sonnet) -> writes `logs/feature-spec.md`. Seed: the raw
    `<spec>`.
-   - **default mode only: checkpoint here.** Present the spec summary and its
+   - **`--interactive` only: checkpoint here.** Present the spec summary and its
      recorded assumptions with `AskUserQuestion` (approve / revise / abort). On
      revise, re-run the spec subagent with the feedback. On approve, continue
-     autonomously to the end. In `auto` mode, skip this and continue.
+     autonomously to the end. This is the **only** mid-run gate `--interactive`
+     buys, and it does not grow: if the human's answer asks for a further gate
+     later in the pipeline, honour it as a one-off for this run and record it in
+     the state file, but never add one on your own initiative. By default (auto),
+     skip this stage's checkpoint entirely and continue.
 2. **Design** (design-ui, per profile) -> writes `logs/feature-design.md`. Seed:
    points it at `logs/feature-spec.md`.
 3. **Implement** (implement-ui, opus) -> writes code; verifies compile + lint.
@@ -237,8 +287,8 @@ the review artifact; pushing and the PR are Phase 2, after the human approves.
 ## The final review gate
 
 When the pipeline completes (or stops on a hard failure), produce the
-**ready-for-review report** and stop. This is the single human gate in `auto`
-mode. The report states:
+**ready-for-review report** and stop. By default this is the run's only human
+gate. The report states:
 
 - branch name, worktree path, and the absolute state-file path;
 - one line per stage: what it did and its outcome;
@@ -252,14 +302,21 @@ mode. The report states:
   it is here and what to look at (`npm run dev` in the worktree's `src/ui-app`,
   the specific
   route/state/breakpoint);
+- the workspace path taken (A or B) and why, since it decides what the branch is
+  based on and therefore what a PR would contain;
 - the decisions taken and the alternatives not taken (from the state file);
 - the "out of scope but worth noting" items review-ui surfaced (bugs / security /
-  a11y), each pointing at its owning skill.
+  a11y), each pointing at its owning skill;
+- **any fork this skill had no documented default for**, and what you picked. These
+  are the gaps that would have stopped an unattended run to ask, so they are the
+  most useful thing in the report for improving the skill.
 
-In **default mode** (interactive), present this and ask the human to approve with
-`AskUserQuestion`, then proceed to Phase 2 on approval. In **`auto` mode**, the
-agent cannot prompt - end here, returning the report. The human reads it in the
-main session and runs Phase 2 there.
+What happens next turns on whether a human is reachable, not on the mode - auto is
+now the default, so an auto run is usually one you are watching in the main session.
+Running **in the main session**: present the report and ask for Phase 2 approval
+with `AskUserQuestion`, then proceed on approval. Running **as a background or
+parallel agent**: you cannot prompt, so end here and return the report. The human
+reads it in the main session and runs Phase 2 there.
 
 ## Phase 2 - housekeeping (only after the human approves)
 
@@ -285,14 +342,17 @@ never in a batch at the end.
 # joey-bot run: <feature name>
 
 - Spec: <the raw spec, verbatim>
-- Mode: auto | default        Profile: thorough | balanced | economy
+- Mode: auto | interactive    Profile: thorough | balanced | economy
 - Branch: <branch>            Worktree: <absolute worktree path>
+- Workspace: path A in place on <branch> (N commits ahead, baseline <sha>) | path A
+  based off <branch> tip in a new worktree (<why: background run | open PR>) | path B
+  (fresh off origin/main)
 - Generated: <yyyy-mm-dd>
 - Status legend: [ ] pending  [~] in progress  [x] done  [!] blocked
 
 ## Stages
 ### 1. setup - [ ]
-- Result: (branch + worktree, or blocker)
+- Result: (branch + worktree + which path and why, or blocker)
 ### 2. spec - [ ]
 - Result:  Handoff: logs/feature-spec.md  Commit: -
 - Decisions: (choices made, alternatives not taken + one-line why)
@@ -323,13 +383,16 @@ never in a batch at the end.
 
 ## Decisions log
 - <stage>: chose <X> over <Y> because <reason>
+
+## Skill gaps hit (forks with no documented default)
+- <stage>: <the fork> - took <X>; joey-bot needs a rule for this
 ```
 
 ## Running several in parallel
 
 Parallelism is at the joey-bot level: the main session spawns N background
-joey-bot agents, each on its own spec. Because each run makes its own worktree
-(setup forces a fresh one) and its own state file, they never collide.
+joey-bot agents, each on its own spec. Because each run gets its own worktree and
+its own state file, they never collide.
 
 From the main session, for each spec, one Agent call (all in one message so they
 run concurrently):
@@ -338,12 +401,15 @@ run concurrently):
 - `model`: `sonnet` (the orchestrator is light; the run picks heavier models per
   stage itself).
 - `run_in_background`: true.
-- prompt: "Invoke the joey-bot skill in `auto` mode with this spec: <X>. Follow it
-  end to end and return the ready-for-review report."
+- prompt: "Invoke the joey-bot skill with this spec: <X>. Follow it end to end and
+  return the ready-for-review report."
 
-`auto` mode is required for parallel runs - a background agent has no human to
-answer a checkpoint. When they finish, review each report and drive Phase 2 per
-run in the main session, one at a time.
+Auto is the default, so a background run needs no mode argument. **Never pass
+`--interactive` to one** - a background agent has no human to answer a checkpoint
+and would stall there. Each run must also stay out of the default worktree, which
+means setup's path A takes its background shape (a worktree off the in-progress
+branch's tip, not the default checkout). When they finish, review each report and
+drive Phase 2 per run in the main session, one at a time.
 
 Depth note: a parallel run nests two levels (background joey-bot -> stage
 subagent). The headless pipeline skills are written to stay inline rather than
@@ -359,12 +425,17 @@ stage ends, so two runs never fight over one port.
 - The orchestrator delegates all work. It owns only the state file, local git
   bookkeeping (commits, never pushes), the gate decisions, and the human-facing
   report. No reading source or writing code in its own context.
-- Every stage runs headless via the autonomous-mode line and runs from the
-  feature worktree, on the model its profile assigns.
+- Every stage runs headless via the autonomous-mode line and runs from the run's
+  worktree, on the model its profile assigns.
 - Gate on real results - exit codes and verification output - never on a
   subagent's prose claim of success.
 - Never fork a worktree for a decision; decide most-recommended and document the
   alternative.
+- **The run asks the human nothing** beyond `--interactive`'s single spec
+  checkpoint and the final gate. Workspace setup, stale handoff artifacts in
+  `logs/`, and every open product question are yours to decide and record. A fork
+  with no documented default gets the most-recommended option plus a note in the
+  report that this file needs a rule for it.
 - Never push, and never do Phase 2 (work item, PR) without explicit human
   approval, confirmed each time.
 - No em dash, emojis, arrows, or box-drawing characters in anything written.
