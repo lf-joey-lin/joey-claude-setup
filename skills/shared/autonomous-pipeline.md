@@ -2,8 +2,10 @@
 
 The contract that lets the interactive `ui-app` pipeline skills (`spec-ui`,
 `design-ui`, `implement-ui`, `update-tests`, `review-ui`, `prepare-to-ship`) run
-**headless** under the `joey-bot` orchestrator, with no human available to answer
-their gates. Each of those skills carries an `## Autonomous mode` section that
+**headless** under an orchestrator skill (`joey-bot` for a full dev run,
+`wrap-it-up` for the finishing pass), with no human available to answer their
+gates. The line names whichever host is driving; the rules below are the same
+either way. Each of those skills carries an `## Autonomous mode` section that
 points here for the shared rules and states only its own gate replacements.
 
 Interactive behavior is the default. Autonomous mode is strictly opt-in: a skill
@@ -92,4 +94,6 @@ keeps the depth at orchestrator -> stage subagent, not a third level.
 - The verification commands and the requirement to report real results.
 - The handoff file names and formats.
 - Commits and pushes: an individual skill still never pushes. Commit policy for
-  the run as a whole belongs to `joey-bot`, not to these skills.
+  the run as a whole belongs to the host orchestrator, not to these skills -
+  `joey-bot` commits per stage and never pushes, `wrap-it-up` pushes only through
+  its `ship-it` phase once the gate is green.
