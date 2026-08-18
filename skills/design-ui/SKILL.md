@@ -1,6 +1,6 @@
 ---
 name: design-ui
-description: Turn a list of specs and UI requirements into a Nuxt UI design and architecture plan for ui-app - DESIGN ONLY, no implementation. Grounds itself in the live Nuxt UI API installed in the repo (local node_modules types, plus the free ui.nuxt.com llms docs for prose/patterns), maps each requirement to Nuxt UI components/composables, calls out where a custom Vue component is genuinely needed, and outlines the layout/composition tree, theming, and open questions. It designs against the same shared ui-app quality dimensions that review-ui gates on, so the blueprint it produces passes review with nothing to flag. After the human approves the blueprint, it writes a design.md handoff document that implement-ui consumes. Invoke when the user asks to "design", "plan", "architect", "spec out", or "figure out the components for" a UI feature/page/screen in the ui-app, or hands over UI requirements and wants a component/architecture blueprint before any code is written.
+description: Turn a list of specs and UI requirements into a Nuxt UI design and architecture plan for ui-app - DESIGN ONLY, no implementation. Grounds itself in the live Nuxt UI API installed in the repo (local node_modules types, plus the free ui.nuxt.com llms docs for prose/patterns), maps each requirement to Nuxt UI components/composables, calls out where a custom Vue component is genuinely needed, and outlines the layout/composition tree, theming, and open questions. It designs against the same shared ui-app quality dimensions that review-ui gates on, so the blueprint it produces passes review with nothing to flag. It then runs the solidify skill's bar over the finished blueprint as its own pass, so the design cannot bake in a SOLID/DRY defect: it reuses prior art instead of adding a second way to do the same thing, names the superseded code implement-ui has to delete, lists the existing sites that should converge on any shared unit it introduces, and holds every custom component to solidify's over-engineering veto. After the human approves the blueprint, it writes a design.md handoff document that implement-ui consumes. Invoke when the user asks to "design", "plan", "architect", "spec out", or "figure out the components for" a UI feature/page/screen in the ui-app, or hands over UI requirements and wants a component/architecture blueprint before any code is written.
 ---
 
 # design-ui Skill
@@ -14,7 +14,7 @@ plus a clear, justified call on what has to be custom.
 `app.config.ts` edits, no SFCs, no runnable code. Component "contracts" you
 describe are prose/tables (props, emits, slots, states), not source. The only
 file this skill ever writes is the final `design.md`, and only after the human
-approves (Step 9).
+approves (Step 10).
 
 The value of this skill is choosing the *most idiomatic* Nuxt UI solution and
 resisting the urge to hand-roll what the library already provides. Custom Vue
@@ -177,16 +177,96 @@ each as "the decision that would not be flagged":
     them.
 
 Anything you cannot satisfy at design time goes into the Open questions / risks
-section (Step 9, item 9) so implement-ui and review-ui see it, rather than being
+section (Step 10, item 9) so implement-ui and review-ui see it, rather than being
 silently deferred. Same "Out of scope" boundary as the shared file: correctness,
 security, tests, and a11y are owned elsewhere (see Step 5 for the a11y plan this
 skill does own).
 
-## Step 9 - Review, approve, then write design.md
+## Step 9 - Solidify pass (run before you present anything)
 
-First present the full blueprint **in the conversation** (all sections below) and
-ask the human to review. Iterate until they explicitly approve. Do NOT write any
-file before approval - the human gate is the whole point of this skill.
+review-ui is not the only gate the eventual branch faces. `/solidify` reviews it
+for SOLID, DRY and maintainability, and it judges the branch against the whole
+app rather than the diff. Most of what it finds was decided here, not during
+implementation: a component that duplicates one three folders away, an old page
+left live beside the new one, a composable built for a single call site. So run
+its bar over the blueprint now, while a fix is one line of a table.
+
+Read [`../solidify/SKILL.md`](../solidify/SKILL.md) for the current veto and
+dimensions rather than working from the summary below - that file is the source
+of truth, and this pass is its design-time application.
+
+The two self-checks do not overlap. Step 8 covers what solidify hands to
+review-ui (Nuxt UI component choice, i18n, theming tokens, accessibility). This
+step covers what solidify keeps.
+
+**The app-context searches.** Do these against the repo; do not reason from the
+spec. Run them for every new unit in the blueprint - page, component, composable,
+`useState` / `useCookie` key, helper, type, group of `en.json` keys:
+
+- **Does something already do this?** Search `app/components/`, `app/composables/`
+  and `app/pages/` by name, by the props and state it carries, and by the shape of
+  the markup. Names diverge, behavior does not. If a hit is the same behavior, the
+  design reuses it and the new unit comes out of the Step 2 map.
+- **What does it supersede?** Name the old unit and every thread wired into it:
+  imports and auto-import globs, route and nav entries, `en.json` keys,
+  `data-testid` references, stories, tests. That list becomes the deletion
+  checklist implement-ui works from. Two live paths to the same behavior is the
+  expensive outcome - the next reader cannot tell which one is current.
+- **Who else should use it?** When the blueprint introduces a genuinely shared
+  unit, grep for the hand-rolled copies it makes redundant, open each, and decide
+  whether it is the same behavior or only the same silhouette. Two or more real
+  sites means the design names them and says whether the migration belongs to this
+  feature or is follow-up work.
+
+Cite what you find as `path:line`. A "nothing else does this" or "these three
+places do the same thing" claim needs the search behind it.
+
+**The veto binds harder here than in review.** Design is where speculative
+abstraction is cheapest to add and most expensive to remove later. Before any
+custom component, composable, wrapper or base type survives into the map:
+
+- One call site means no abstraction. Existing hand-rolled copies elsewhere in the
+  app do count as sites - cite them.
+- One implementation means no interface, unless you can name the seam it sits on.
+- Two copies are a note, three are a finding, and the fix is to name the thing
+  once, not to build a framework.
+- The fix must remove more than it adds; say what it costs in components and hops.
+- The repo's existing pattern wins over generic best practice.
+
+Anything that fails, collapse back into the page or the stock component, and say
+so in the map's "why" column.
+
+**Dimensions to walk the blueprint against** (solidify's Step 2, at design time):
+
+- **Single responsibility** - a component in the tree that both fetches and renders
+  where its siblings separate the two, or that holds two disjoint clusters of state.
+- **Open/closed** - the design adds the second or third visibly parallel arm to an
+  existing conditional, lookup or variant map.
+- **Interface segregation** - a props contract carrying members some of its
+  consumers will never use.
+- **Dependency inversion** - a presentational component that reaches for its own
+  data source instead of taking it through props or a composable, in an app whose
+  siblings inject it.
+- **DRY** - logic (not shape) the design repeats across two of its own components,
+  or a third copy of something the app already has twice.
+- **Naming and dead code** - names that mislead, and anything this feature orphans.
+- **Coupled constants, public surface width, shared-unit blast radius** - already
+  covered as Step 8 items 8, 4 and 10. Solidify counts them too; do not run them
+  twice.
+
+**What to do with a finding.** At design time a finding is an edit, not a report:
+change the component map, the tree, or the contract, and move on. Only what you
+cannot resolve here goes into Open questions / risks (Step 10, item 9) with the
+reason. Keep one line for each thing you considered and vetoed, so the reader can
+tell you looked and decided rather than missed it.
+
+## Step 10 - Review, approve, then write design.md
+
+First present the full blueprint **in the conversation** (all sections below,
+including the Step 9 solidify result) and ask the human to review. Iterate until
+they explicitly approve. Do NOT write any file before approval - the human gate is
+the whole point of this skill. A deletion the solidify pass proposes needs the
+human's explicit yes here, since implement-ui will act on it without asking again.
 
 Once the human approves, write the blueprint to the standard handoff file
 `src/ui-app/logs/feature-design.md` (see "Handoff folder & format" below; create
@@ -205,7 +285,13 @@ Structure the document (after the header) with these sections:
 7. **Custom components** (contracts, with test hooks) - or "none needed".
 8. **Theming**.
 9. **Open questions / risks** (anything that could flip a decision).
-10. **Pinned versions** - the `@nuxt/ui` / `nuxt` / `tailwindcss` versions you
+10. **Solidify pass** - the Step 9 result, written for implement-ui to act on:
+    prior art reused instead of rebuilt; the superseded code to delete, with every
+    reference thread listed as a checklist; existing sites that should converge on
+    a shared unit this design introduces, and whether that is in scope here or
+    follow-up; abstractions vetoed, one line each. "None" is a valid answer to any
+    of these, but say it rather than leaving the heading out.
+11. **Pinned versions** - the `@nuxt/ui` / `nuxt` / `tailwindcss` versions you
     grounded against, so implement-ui can detect drift.
 
 After writing, tell the user the path and state that this is a design only, no
@@ -217,9 +303,9 @@ a fresh context - it reads this same `logs/feature-design.md`).
 When the invocation says you are running in autonomous mode (see
 [`../shared/autonomous-pipeline.md`](../shared/autonomous-pipeline.md)), there is
 no human to approve the blueprint. Fold the Step 1/Step 2 clarifying questions and
-the Step 9 approval gate into a headless pass:
+the Step 10 approval gate into a headless pass:
 
-- Do not ask clarifying questions and do not wait for the Step 9 approval. Resolve
+- Do not ask clarifying questions and do not wait for the Step 10 approval. Resolve
   every open architectural choice with the most-idiomatic Nuxt UI option, still
   grounded in the live installed API (Step 0 is not optional in autonomous mode).
 - Record each resolved choice and the alternative you did not take, with a one-line
@@ -228,8 +314,11 @@ the Step 9 approval gate into a headless pass:
 - Write `feature-design.md` directly once the blueprint is complete, then return
   your summary.
 
-Everything else (the DESIGN-ONLY boundary, the ground-truth discipline, the Step 8
-self-check against the quality dimensions) is unchanged.
+Everything else is unchanged, including the DESIGN-ONLY boundary, the ground-truth
+discipline, the Step 8 self-check against the quality dimensions, and the Step 9
+solidify pass. The solidify pass is not optional headless either - its searches are
+exactly what a fresh context would otherwise skip, and nothing downstream repeats
+them before the branch reaches `/solidify`.
 
 ## Handoff folder & format (standard)
 
