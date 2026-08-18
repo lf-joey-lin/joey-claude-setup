@@ -215,7 +215,32 @@ A merge can conflict nowhere and still be broken: main renamed something the bra
 calls, or changed a contract it relies on. So finish the merge commit if the
 resolution left it open (`git commit --no-edit`), then have one subagent build the
 touched components and report the real output. A broken build here is a stop with
-the error. The suite, coverage and lint stay in phase 5.
+the error. The suite and the coverage gate stay in phase 5.
+
+Seed that subagent with the **absolute** worktree path and tell it to build with
+absolute paths - `dotnet build <worktree>/src/<component>/<component>.slnx -c
+Release`, not `src/...` relative to a cwd it never states. Auto mode judges the
+command text it is handed, and a bare relative build from a subagent has nothing
+tying it to a trusted checkout, so it gets blocked and the run stalls on a prompt no
+subagent can answer. Same rule for every command any phase hands to a subagent.
+
+**Lint autofix, before anything is reviewed**
+
+Same subagent, straight after the build, when the branch touched `ui-app`:
+
+```bash
+npx eslint --fix <worktree>/src/ui-app/<the paths the branch changed>
+```
+
+Mechanical, no judgment, and it was going to happen anyway in phase 3 and phase 5.
+Doing it here means the review fan-out is not spending findings on unused imports
+and formatting drift that a tool always had covered. Autofix only. A rule the
+fixer cannot resolve on its own is a finding, not a stop: leave it for phase 2 to
+raise and phase 3 to triage. Nothing gets committed here; the changes ride along
+in the working tree like the rest of the branch's review state.
+
+There is no equivalent step for the C# components. Their formatting is not
+autofixed in this repo, so the build is the whole of phase 1's cheap gate there.
 
 Everything downstream now reads the merged tree. Useful side effect: with main
 merged in, `git diff origin/main...HEAD` and `git diff origin/main` agree, so the
@@ -260,7 +285,8 @@ Wait for all four. Record each pass's finding count in the state file.
    and to return the real applied diff per entry.
 4. **Per-file verification is cheap only.** The subagent runs the file-scoped check
    and nothing more: `npx eslint --fix <paths>` for `ui-app`, a build of the
-   touched project for C#. The suite and the coverage gate come later, once, in
+   touched project for C#, absolute paths in both per phase 1. The suite and the
+   coverage gate come later, once, in
    phase 5. A subagent must report "deferred to the ship gate", never claim a
    check it did not run.
 5. **Bound it.** One fix round per file. If a fix subagent reports the change is
@@ -391,6 +417,7 @@ first phase not marked done.
 - Result: (branch, components, scope, what is skipped and why)
 ### 1. merge origin/main - [ ]
 - Merged: <sha> | already up to date   Conflicts: none | (file: how it was resolved)
+- Lint autofix: <files changed> | n/a (no ui-app change)
 ### 2. review fan-out - [ ]
 - solidify: N findings | code-review: N | security-review: N | review-ui: N or skipped
 ### 3. triage and fix - [ ]
