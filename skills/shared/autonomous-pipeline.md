@@ -69,7 +69,7 @@ summary the orchestrator relies on.
 
 | Skill | Interactive gate | Headless default |
 |-------|------------------|------------------|
-| spec-ui | Step 3 questions + Step 4 iterate-to-approval | answer each open question with the house default / most-recommended option, mark the choice and the alternative in "Conventions & deviations", write `feature-spec.md` without stopping |
+| spec-ui | Step 5 clarification rounds + Step 6 approval | answer each open question from app precedent, then Manta, then the house default, then the most-recommended option; still run the Step 3 ux-review pass (it is what catches a request that does not make sense, and nothing downstream repeats it); record each choice and the alternative in "Resolved design questions" / "Conventions & deviations", departures from the request first; write `feature-spec.md` without stopping |
 | design-ui | Step 1/2 clarifying questions + Step 9 approve-then-write | resolve open questions most-recommended, record alternatives in "Open questions / risks", write `feature-design.md` without stopping |
 | implement-ui | Step 4 hand off to human to test and iterate | after compile + lint pass, do not stop for manual testing; list the manual checks for the final review gate and return |
 | update-tests | Step 4's end-to-end approval question (assumes prior human approval of the code) | run immediately after implement; enforce the component's real coverage gate; decide the end-to-end question yourself under the same "one thin happy path per new integration point no existing spec crosses, nothing if the branch added no seam" rule, resolving a borderline seam toward writing it since nobody clicks through; note that manual verification was deferred |
