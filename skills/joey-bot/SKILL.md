@@ -1,6 +1,6 @@
 ---
 name: joey-bot
-description: Run a full round of ui-app dev work autonomously, the way Joey (a senior engineer) would - from a brief spec through to a tested, ready-to-PR branch on its own worktree, then hand to a human to review and ship. joey-bot is a pure orchestrator: it owns a markdown state file and spawns one subagent per pipeline stage (new-work, spec-ui, design-ui, implement-ui, update-tests, review-ui, prepare-to-ship, a self-review), driving each headless via the shared autonomous-pipeline contract, and never does the work itself. Two modes - default pauses once after the spec, `auto` runs end to end with a single final review gate (this is the mode to spawn several of in parallel). Invoke when the user types /joey-bot, or asks to "have joey-bot build/implement <feature>", "do an autonomous dev run on <feature>", or "run the whole pipeline on <feature>" for the ui-app.
+description: Run a full round of ui-app dev work autonomously, the way Joey (a senior engineer) would - from a brief spec through to a tested, ready-to-PR branch on its own worktree, then hand to a human to review and ship. joey-bot is a pure orchestrator: it owns a markdown state file and spawns one subagent per pipeline stage (new-work, spec-ui, design-ui, implement-ui, update-tests, review-ui, prepare-to-ship, a self-review, live browser verification), driving each headless via the shared autonomous-pipeline contract, and never does the work itself. Two modes - default pauses once after the spec, `auto` runs end to end with a single final review gate (this is the mode to spawn several of in parallel). Invoke when the user types /joey-bot, or asks to "have joey-bot build/implement <feature>", "do an autonomous dev run on <feature>", or "run the whole pipeline on <feature>" for the ui-app.
 ---
 
 # joey-bot: autonomous senior-engineer dev run for a ui-app feature
@@ -74,22 +74,31 @@ positioning first rather than guessing.
 1. Derive a short kebab-case `<slug>` from the spec (e.g. `user-status-widget`)
    and the camelCase branch name per the global git rules
    (e.g. `userStatusWidget`).
-2. Spawn the **setup subagent** (model: haiku) to run the `new-work` skill,
+2. **Resume check, before touching git.** If the worktree
+   `<root>/momentum-<slug>` already exists and holds a state file at
+   `src/ui-app/logs/joey-bot-<slug>.md`, this is a resumed run: read the state
+   file, skip setup, and continue from the first stage not marked done. Only a
+   missing worktree gets a fresh setup - new-work stops on an occupied path, so
+   running it on a resume would kill the run at stage one. (`<root>` is
+   new-work's workspace root: `~/m-code` on WSL/Linux, `C:\code2` on Windows.)
+3. Spawn the **setup subagent** (model: haiku) to run the `new-work` skill,
    **forced to a new worktree, always** - never branch in place in the default
-   `C:\code2\momentum` worktree. Parallel runs would collide on it, and even a
+   `<root>/momentum` worktree. Parallel runs would collide on it, and even a
    single run should stay off the default checkout. Seed it:
 
    > Invoke the `new-work` skill for "<spec>". Do NOT branch in place under any
    > circumstances: always create a fresh worktree at
-   > `C:\code2\momentum-<slug>` off fresh `origin/main` (new-work's step 3b),
-   > even if the default worktree is clean. Return the branch name and the
-   > absolute worktree path.
+   > `<root>/momentum-<slug>` off fresh `origin/main` (new-work's step 3b),
+   > even if the default worktree is clean. Skip new-work's publish step: do
+   > not push the branch. Return the branch name and the absolute worktree
+   > path.
 
-   Capture the branch name and worktree path. Every downstream subagent runs from
-   that worktree.
-3. Create the state file (see "The state file") at
-   `<worktree>/src/ui-app/logs/joey-bot-<slug>.md`. If one already exists for this
-   slug, read it and resume rather than overwrite.
+   Capture the branch name and worktree path; `<worktree>` below means that
+   returned absolute path, and every downstream subagent runs from it. The
+   branch stays local until Phase 2 - new-work normally publishes right away,
+   but here pushing waits for human approval.
+4. Create the state file (see "The state file") at
+   `<worktree>/src/ui-app/logs/joey-bot-<slug>.md`.
 
 ## Testing ladder (autonomous code is properly tested)
 
@@ -134,13 +143,14 @@ summary, gate on the real result (exit codes and verification output, not prose)
 record the outcome, and move on. Never fan subagents out across stages - the
 pipeline is sequential and later stages depend on earlier ones.
 
-Every stage seed includes this line verbatim so the skill runs headless:
+Every stage seed includes this line, with `<worktree>` replaced by the absolute
+path setup returned, so the skill runs headless:
 
 > AUTONOMOUS MODE (joey-bot): no human is available for gates. Do not stop for
 > approval. Replace every human gate with its documented default per
 > `../shared/autonomous-pipeline.md`, make Joey's decisions yourself, decide
 > most-recommended and document alternatives (never fork), and return your normal
-> handoff summary. Work in the worktree at `C:\code2\momentum-<slug>`.
+> handoff summary. Work in the worktree at `<worktree>`.
 
 Stages:
 
@@ -200,10 +210,11 @@ Stages:
    subagent; if code changed, re-run the ship gate.
 8. **Live verification** (Chrome DevTools MCP, sonnet) -> rung 5 of the testing
    ladder, run once the code is settled and the ship gate is green. Seed: invoke
-   the `chrome-devtools-mcp:chrome-devtools` skill; start the dev server from the
-   worktree (`npm run dev`) on a **per-worktree port** (derive it so parallel runs
-   never collide - e.g. base it on the slug, and pass it explicitly rather than
-   letting two runs both grab the default); navigate to the feature's route(s) and
+   the `chrome-devtools-mcp:chrome-devtools` skill; start the dev server from
+   `src/ui-app` in the worktree (`npm run dev -- --port <port>`; the repo root
+   has no dev script) on a **per-run port**: pick a free one, record it in the
+   state file, and pass it explicitly rather than letting two runs both grab the
+   default; navigate to the feature's route(s) and
    exercise each behavior and state the design lists (empty / loading / error /
    validation), at mobile, tablet, and desktop widths. For each, capture evidence:
    a screenshot, plus any console errors and failed network requests. Return a
@@ -238,7 +249,8 @@ mode. The report states:
   was actually exercised, not just built;
 - **needs human verification** - only the checks that genuinely could not be
   automated (or a rung that could not run, e.g. no browser), each with the reason
-  it is here and what to look at (`npm run dev` in the worktree, the specific
+  it is here and what to look at (`npm run dev` in the worktree's `src/ui-app`,
+  the specific
   route/state/breakpoint);
 - the decisions taken and the alternatives not taken (from the state file);
 - the "out of scope but worth noting" items review-ui surfaced (bugs / security /
@@ -274,7 +286,7 @@ never in a batch at the end.
 
 - Spec: <the raw spec, verbatim>
 - Mode: auto | default        Profile: thorough | balanced | economy
-- Branch: <branch>            Worktree: C:\code2\momentum-<slug>
+- Branch: <branch>            Worktree: <absolute worktree path>
 - Generated: <yyyy-mm-dd>
 - Status legend: [ ] pending  [~] in progress  [x] done  [!] blocked
 
@@ -285,10 +297,12 @@ never in a batch at the end.
 - Result:  Handoff: logs/feature-spec.md  Commit: -
 - Decisions: (choices made, alternatives not taken + one-line why)
 ### 3. design - [ ]
-### 4. test - [ ]
+### 4. implement - [ ]
+- Result:  Commit: -
+### 5. test - [ ]
 - Result:  Handoff: -  Commit: -
 - Handbacks: (none, or one line per item and how each was resolved)
-...through self-review and live verification...
+...through review, ship gate, self-review and live verification...
 
 ## Ship-gate scorecard
 - Build: -  |  Unit + 100%: -  |  Accessibility: -   Verdict: -
@@ -305,7 +319,7 @@ never in a batch at the end.
 - <check> - why it cannot be automated - what to look at
 
 ## Out of scope but worth noting
-- <bug / security / a11y note> -> <owning skill>
+- <bug / security / a11y note> - owned by <owning skill>
 
 ## Decisions log
 - <stage>: chose <X> over <Y> because <reason>
@@ -336,9 +350,9 @@ subagent). The headless pipeline skills are written to stay inline rather than
 add a third level (see `../shared/autonomous-pipeline.md`, "Nesting note").
 
 Port note: the only shared resource parallel runs can still collide on is the dev
-server's port in live verification (rung 5). Each run must derive a distinct
-per-worktree port from its slug and tear the server down when the stage ends, so
-two runs never fight over one port.
+server's port in live verification (rung 5). Each run must pick a free port for
+its dev server (recorded in its state file) and tear the server down when the
+stage ends, so two runs never fight over one port.
 
 ## Invariants
 
