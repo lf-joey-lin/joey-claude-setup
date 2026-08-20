@@ -366,6 +366,10 @@ digest.
 | Worker | File | Investigate model | Fix model | Tiers needed | Findings cap | Enabled |
 |--------|------|-------------------|-----------|--------------|--------------|---------|
 | console-noise | `workers/console-noise.md` | sonnet | sonnet | A, B, C | 2 | yes |
+| ux-consistency | `workers/ux-consistency.md` | opus | sonnet | A, B, C | 2 | yes |
+
+Tier letters are per worker, not shared. Each worker file defines its own A, B
+and C, so read them there before probing at preflight.
 
 Model choice follows joey-bot's rule: mechanical and tool-output-heavy stages run
 cheap, and only work where senior judgment shows up pays for a higher tier. A
