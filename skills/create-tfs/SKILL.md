@@ -75,8 +75,27 @@ sentence-case). Keep it short:
 
 - **Description** (`System.Description`): 1-3 short sentences on what and why.
 - **Acceptance criteria** (`Microsoft.VSTS.Common.AcceptanceCriteria`): a short
-  `<ul>` of concrete, checkable bullets. For a spike, frame them as the questions
-  answered / artifact produced rather than shipped behavior.
+  `<ol>` of the story's main features, one line each. Usually three to six.
+  For a spike, frame them as the questions answered / artifact produced rather
+  than shipped behavior.
+
+AC is the high-level feature list, not a spec and not a test plan. Two filters
+kill a line before it gets written:
+
+- **A person has to be able to check it by sitting in front of the feature.** If
+  it needs a rigged server, a forced backend failure, a devtools look at the
+  request payload, or a malformed response, it is a unit test. Specific status
+  codes go here too: "a 403 gets its own message, not a generic load failure" is
+  code, not AC.
+- **Anything a PR gate already blocks on is out.** Unit tests, the 100% coverage
+  thresholds, lint, build, the a11y suite. CI fails without them; saying it on
+  the board adds nothing.
+
+Also out: implementation detail (which mapper, which component, which query
+validation), grouping headers, and edge cases nobody will exercise by hand. Write
+each line as the behavior someone sees. The full rules, with examples, are in the
+"TFS work items" section of `joey-writing-style.md`; read it before writing the
+field.
 
 ### 4. Assemble the fields per type
 

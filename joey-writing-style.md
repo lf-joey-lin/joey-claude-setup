@@ -112,22 +112,30 @@ wiring story, name the endpoints or contracts involved so a reader knows what
 talks to what. Then a "Not in scope" list if anything obvious is deliberately
 left out, with the one-line reason. Skip the reason only when it's obvious.
 
-**Acceptance criteria.** A numbered list, so people can say "AC 3 fails".
-Roughly ten items, one line each, plain language.
+**Acceptance criteria.** A numbered list, so people can say "AC 3 fails". The
+main features of the story, one line each, plain language. However many that
+takes, usually three to six. Don't pad to a count. A list that runs long stops
+reading as the feature and starts reading as a spec.
 
-Every item has to be something a person can check by sitting in front of the
-feature. That is the filter. If the only way to hit it is forcing a backend
-failure, inspecting a request payload, or feeding in a malformed response, cut
-it. Those are unit tested and belong in the code, not on the board.
+Two filters, applied before anything gets a number.
+
+**Can a person check it by sitting in front of the feature?** If the only way to
+hit it is forcing a backend failure, inspecting a request payload, or feeding in
+a malformed response, cut it. Those are unit tested and belong in the code, not
+on the board.
+
+**Would a PR gate already block the merge?** Then it isn't an AC. Unit tests,
+coverage numbers, lint, build, the a11y suite: CI fails without them, so the
+board gains nothing by repeating them.
 
 Cut too:
 
-- "Unit tests pass", coverage numbers, test names. Same rule as PR descriptions.
+- Specific error paths and status codes. "A 403 gets its own message, not a
+  generic load failure" needs a rigged server to see. Unit test, not AC.
 - Implementation reasoning. AC says what a tester sees, not why the code does it
   that way. "Save only sends what changed" is a payload rule; "saving a new
   display name doesn't change the stored repository" is what someone can check.
-- Grouping headers over the list. Ten flat numbered items beat four headed
-  sections of three.
+- Grouping headers over the list. Flat numbered items beat headed sections.
 - Edge cases that are real but nobody will manually exercise. Being accurate
   isn't enough to earn a line.
 
