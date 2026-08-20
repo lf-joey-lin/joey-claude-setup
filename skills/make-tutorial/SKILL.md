@@ -144,8 +144,9 @@ with its own short intro and a link back to the topic's `README.md`.
 
 This is human-facing prose, so the writing rules apply:
 
-- Run the **`avoid-ai-writing`** skill over the finished prose before committing
-  (full pass for a whole tutorial; inline rules for a small subpage edit).
+- Read the finished prose back before committing and cut anything that reads as
+  generated: hedging, filler, "comprehensive"/"robust"/"seamless", closing
+  summaries that restate the page.
 - Follow the repo/house rules: no em dashes, no emoji, no arrows or box-drawing
   characters, sentence-case headings. Write for a global audience.
 - Analogies are the ELI5 half of the job - lead each new primitive with one - but

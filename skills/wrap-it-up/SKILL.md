@@ -357,7 +357,7 @@ scorecard, the commit list, and this task:
 > feature by hand, has not seen the wrap-up edits, and is about to read the branch
 > file by file before opening the PR. Explain in plain language. Define every term
 > the code forces on the reader. Apply the `eli5` skill's method for the
-> explanations and the `avoid-ai-writing` skill's rules to the prose.
+> explanations and the writing rules in `CLAUDE.md` to the prose.
 
 Structure, in this order:
 

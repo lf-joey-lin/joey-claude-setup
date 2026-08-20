@@ -69,9 +69,9 @@ component, use `[<component>]` instead and mention it.
 ### 3. Write the description and acceptance criteria
 
 Both are HTML fields (`format: Html`). Write them the way a person on this team
-writes them - see existing items like 678773 for tone. Apply the standing
-`avoid-ai-writing` rules inline (no em dashes, no emoji, no "populated with" /
-"seamless" filler, sentence-case). Keep it short:
+writes them - see existing items like 678773 for tone. Apply the standing writing
+rules inline (no em dashes, no emoji, no "populated with" / "seamless" filler,
+sentence-case). Keep it short:
 
 - **Description** (`System.Description`): 1-3 short sentences on what and why.
 - **Acceptance criteria** (`Microsoft.VSTS.Common.AcceptanceCriteria`): a short

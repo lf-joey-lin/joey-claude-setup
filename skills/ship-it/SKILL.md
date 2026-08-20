@@ -152,9 +152,8 @@ follow the diff without one.
 - No em dash, no emoji, no arrows, no box-drawing characters.
 - Do not restate the diff, do not list the files, do not explain why it is a good
   change.
-- Apply the writing rules inline (the `avoid-ai-writing` skill's rules for a short
-  fragment): no hedging, no filler, no "comprehensive" or "robust", nothing that
-  reads as generated.
+- Apply the writing rules inline: no hedging, no filler, no "comprehensive" or
+  "robust", nothing that reads as generated.
 
 ## 6. Commit each piece
 

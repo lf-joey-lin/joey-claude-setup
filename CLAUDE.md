@@ -2,7 +2,7 @@
 
 # Claude setup source of truth
 
-My skills, this CLAUDE.md, settings.json, statusline.js, and writing corpus are the canonical copies in the git repo at `C:\code2\joey-claude-setup`, symlinked into `~/.claude`. Editing any of these files edits the repo copy directly (that is what the symlink gives me), so to update: change the file in place, then commit and push from `C:\code2\joey-claude-setup`.
+My skills, this CLAUDE.md, settings.json, and statusline.js are the canonical copies in the git repo at `C:\code2\joey-claude-setup`, symlinked into `~/.claude`. Editing any of these files edits the repo copy directly (that is what the symlink gives me), so to update: change the file in place, then commit and push from `C:\code2\joey-claude-setup`.
 
 - Don't drop a real file into `~/.claude` for a path the repo owns; that replaces the symlink and breaks the sync. If it happens, re-run `bootstrap.ps1` from the repo.
 - New machine: clone the repo and run `bootstrap.ps1` to recreate the links.
@@ -59,15 +59,13 @@ an LLM. Internal skill, doc, and config files are out of scope.
   item already says; if a paragraph and a bullet cover the same ground, keep the
   bullet; drop a line rather than defend a decision the code comment already
   carries. Short sentences, short words, plain grammar.
-- Auto-invoke the **`avoid-ai-writing`** skill on that prose before I present or
-  commit it. I don't need to be asked; treat this as standing instruction for the
-  writing types above. It loads `joey-writing-style.md`, which carries the
-  per-genre length targets.
-- For a short fragment (one comment, a commit subject) apply the skill's rules
-  inline rather than spinning up a full pass; for anything longer (a PR body, a
-  doc section) run the skill's edit/rewrite pass.
-- This reinforces the repo's own style rules (no em dashes, no emoji, sentence-case
-  headings) — the skill goes further on AI-isms, hedging, and filler.
+- **Avoid AI writing.** No em dashes, no emoji, no arrows or box-drawing
+  characters, sentence-case headings. Cut hedging and filler. Nothing that reads
+  as generated: no "comprehensive", "robust", "seamless", "delve", "it's not just
+  X, it's Y", no closing summary that restates what was already said. Read it back
+  and cut whatever a person would not have written.
+- `joey-writing-style.md` carries the per-genre length targets and the TFS work
+  item rules. Read it when writing something longer than a commit subject.
 
 # Testing
 

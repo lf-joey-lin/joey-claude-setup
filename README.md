@@ -1,6 +1,6 @@
 # joey-claude-setup
 
-Source of truth for my Claude Code configuration: skills, the global `CLAUDE.md`, custom statusline, settings, and writing corpus.
+Source of truth for my Claude Code configuration: skills, the global `CLAUDE.md`, custom statusline, and settings.
 
 ## How it works
 
@@ -15,7 +15,6 @@ Linked paths:
 | `statusline.js`        | `statusline.js`         |
 | `joey-writing-style.md`| `joey-writing-style.md` |
 | `skills/`              | `skills/`               |
-| `writing-corpus/`      | `writing-corpus/`       |
 
 ## Setting up a new machine
 

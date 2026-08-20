@@ -4,7 +4,7 @@
 
 $repo = $PSScriptRoot
 $cl   = Join-Path $env:USERPROFILE ".claude"
-$items = "CLAUDE.md", "settings.json", "statusline.js", "joey-writing-style.md", "skills", "writing-corpus"
+$items = "CLAUDE.md", "settings.json", "statusline.js", "joey-writing-style.md", "skills"
 
 if (-not (Test-Path $cl)) { New-Item -ItemType Directory -Force $cl | Out-Null }
 

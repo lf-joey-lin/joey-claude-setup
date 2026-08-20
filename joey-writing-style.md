@@ -3,10 +3,8 @@
 How to write human-facing prose (PR descriptions, TFS work item text, comments,
 status updates, short docs) so it reads like Joey wrote it, not an LLM.
 
-Raw corpus this is drawn from is in `~/.claude/writing-corpus/`.
-
-Apply this together with the `avoid-ai-writing` skill. This file adds Joey's
-specific voice on top of the general "don't sound like AI" rules.
+Apply this on top of the writing rules in `CLAUDE.md`. Those cover the general
+"don't sound like AI" rules; this file adds Joey's specific voice.
 
 ## The voice in one line
 
@@ -186,9 +184,9 @@ He does write at length, but it still reads like him, not like a report:
 ## Never (Joey-specific tells that broke his voice in real PRs)
 
 The generic AI tells (em dashes, emoji, heavy bold, hedging filler, "->" arrows in
-prose) are already covered by the `avoid-ai-writing` skill. Run that pass too; don't
-re-list those here. What follows is only what's specific to Joey's PRs, where the
-recent AI-generated Veracode/npm security-fix writeups gave him away:
+prose) are covered by the writing rules in `CLAUDE.md`; don't re-list those here.
+What follows is only what's specific to Joey's PRs, where the recent AI-generated
+Veracode/npm security-fix writeups gave him away:
 
 - No `## Finding` / `## Fix` / `## Risk` / `## Verification` / `## What` / `## How`
   section scaffolding. He uses at most a bare "Before:/After:" or a plain paragraph.

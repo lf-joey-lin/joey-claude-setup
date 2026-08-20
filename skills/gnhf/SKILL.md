@@ -279,9 +279,8 @@ more than the fact.
 `digest.md` in the run folder, ranked by what deserves the first sip. Publish it
 as an Artifact and save the URL to `digest-url.txt`, so it can be read on a phone.
 If a push notification tool is available, send one line with the count of branches
-waiting. Writing rules apply: this is prose Joey reads, so run the
-`avoid-ai-writing` rules over it, keep it compact, and cut anything the diff
-already says.
+waiting. Writing rules apply: this is prose Joey reads, so keep it compact and cut
+anything the diff already says.
 
 ```markdown
 # gnhf 2026-08-19
