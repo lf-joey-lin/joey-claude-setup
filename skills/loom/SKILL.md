@@ -38,8 +38,10 @@ workspace for the same slug.
 Every stage is one synchronous subagent, seeded per the contract's delegation
 section (worktree path, ledger path, mode line, read the contract plus its own
 skill file). Gate each stage on the ledger entries it appended - the evidence
-lines, never the subagent's prose. Record your own gate decision in the ledger
-before moving on.
+lines, never the subagent's prose - by reading **only that stage's section**
+of the ledger, per the contract's context-economy rules; never re-read the
+whole file mid-run. Record your own gate decision in the ledger before moving
+on.
 
 1. **Scout** (`loom-scout`). Gate: ledger exists, Brief `[x]`, lane decided,
    branch and worktree named.
@@ -119,7 +121,9 @@ as judgment dictates.
 
 - The orchestrator owns the ledger's gate decisions and nothing else; every
   read of source and every edit happens in a stage subagent.
-- Gate on ledger evidence (commands, exit codes, red records), never on prose.
+- Gate on ledger evidence (commands, exit codes, red records), never on
+  prose, and read it by stage section - the contract's context-economy rules
+  are what keep a twenty-round run inside one context window.
 - One slice at a time; the pipeline is sequential by design and stages are
   never fanned out across each other.
 - The bar is identical attended and solo; attendance only changes who answers

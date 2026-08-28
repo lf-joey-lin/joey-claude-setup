@@ -131,6 +131,23 @@ The bff slice always comes first, the skeleton second. An upstream that
 belongs to neither realm is a blocker (api-integrator's "no new realm"
 boundary) - that is a spec-driven feature, not a loom run.
 
+## Context economics (why a long run does not drown)
+
+Every stage runs in a fresh subagent, so the expensive noise - file reads,
+test output, diffs, upstream source reading - dies with the stage that made
+it. What survives is the flight ledger, and the ledger is state, not a log:
+evidence lines are one line each, and anything longer (a failing suite, a
+conflict listing) goes to a sidecar file under `logs/loom/<slug>/` with the
+path in the ledger. The orchestrator itself holds almost nothing: stage
+returns are capped at about fifteen lines, and mid-run it verifies a stage by
+reading only that stage's ledger section, never the whole file - so its
+context grows linearly with the stage count, not with the size of the work.
+Only land reads the full ledger, once, in its own fresh context, to write the
+report. If a very long run gets its orchestrator context summarized anyway,
+nothing is lost: the ledger on disk is the authoritative state and the run
+re-grounds from it, which is the same mechanism that makes a killed run
+resumable.
+
 ## Using the stages standalone
 
 Each stage is a normal skill and useful alone:

@@ -100,6 +100,11 @@ point, and the source the final report is generated from. Rules:
   records what command proved it (with its exit code or output reference) and
   what observation would disprove it. The orchestrator gates on the evidence
   line, never on prose.
+- **Distilled, never pasted.** An evidence line is one line: the command and
+  its exit code or the number that matters. Output worth keeping beyond
+  roughly twenty lines (a failing suite, a conflict listing, coverage tables)
+  goes to a sidecar file under `src/ui-app/logs/loom/<slug>/` and the ledger
+  carries the path. The ledger is state, not a log.
 - **Resume**: a ledger already existing for the slug means continue from the
   first stage not marked done. Never restart a stage marked `[x]`.
 - **Decisions are logged where they are made**: the choice, the alternative,
@@ -186,6 +191,28 @@ during the merge. Depth never exceeds orchestrator, stage, conflict-file.
 Every stage seed carries: the absolute worktree path, the ledger path, the
 mode line (`attended` or `solo`), and the instruction to read this contract
 file plus its own skill file before acting.
+
+## Context economy
+
+A long run must not drown the orchestrator. Three rules keep it flat:
+
+- **Stage returns are capped.** A stage returns at most about fifteen lines,
+  and nothing in the return may claim what the ledger does not carry - the
+  return is a pointer to evidence, not a second copy of it. Tool noise
+  (build logs, file contents, diffs) never leaves the stage that made it.
+- **The orchestrator reads ledger sections, not the ledger.** Mid-run it
+  verifies a stage by reading only that stage's section (search for the
+  stage's heading and read from there). The whole file is read exactly
+  twice: at resume, and never otherwise by the orchestrator - land reads it
+  in full inside its own fresh context to write the report.
+- **Re-ground from the file, not from memory.** If the orchestrator's
+  context is summarized mid-run, the ledger is the state; continue from it
+  and trust nothing recalled that it does not confirm.
+
+If the runtime cannot spawn subagents at all, run the stages inline and
+sequentially, in strict order, finishing each stage's ledger section before
+starting the next - slower and heavier, but the ledger discipline still
+bounds what later stages need to re-read.
 
 ## Text rules
 
