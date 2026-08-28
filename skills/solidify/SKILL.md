@@ -150,13 +150,7 @@ git diff --stat origin/main               # size of the change
 git ls-files --others --exclude-standard  # new untracked files
 ```
 
-The Windows checkout of this repo is jj-colocated (the WSL worktrees are plain git),
-so `git branch --show-current` can come back empty and HEAD can sit detached one
-commit behind jj's working copy. The commands above do not care: they compare the
-working tree against `origin/main` directly. Ranges like `origin/main..HEAD` are
-still fine for the commit story; they can miss the newest jj working-copy commit,
-but its content shows up in the diff anyway. Sanity-check the file list looks like
-the work the user described.
+Sanity-check the file list looks like the work the user described.
 
 If there is no diff against `origin/main`, say so and stop - there is nothing to
 review. If the user named a specific file, class, or component instead, review that

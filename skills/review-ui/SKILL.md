@@ -74,7 +74,7 @@ and new) changes. Run from the repo root (`C:\code2\momentum`):
 
 ```bash
 git fetch origin main -q
-BASE=$(git merge-base origin/main HEAD)      # jj-colocated repo: HEAD/merge-base are the reliable pair; see root CLAUDE.md
+BASE=$(git merge-base origin/main HEAD)
 git diff --name-only origin/main             # tracked files changed (committed + staged + unstaged)
 git ls-files --others --exclude-standard     # new untracked files
 ```

@@ -103,11 +103,6 @@ git diff --name-only origin/main...HEAD          # committed
 git status --porcelain                            # uncommitted and untracked
 ```
 
-The repo is jj-colocated, so `git rev-parse HEAD` and `git branch
---show-current` can lie. If the three-dot diff comes back empty or obviously
-wrong, fall back to `git diff --name-only origin/main` before concluding nothing
-changed.
-
 Two things come out of that file list:
 
 1. **The changed components**, for the path-triggered checks in Step 2. A
