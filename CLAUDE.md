@@ -22,7 +22,8 @@ Workflow for the `momentum` GitHub repo (org `Laserfiche`).
 - **Session start, before modifying any code:** confirm the working tree is clean and on a branch pulled fresh from `origin/main` (see Git above — `git fetch origin` then a new `--no-track` branch off `origin/main`). Don't start editing on a stale or dirty checkout.
 - **Concurrent work / dirty default worktree:** if the default worktree at `C:\code2\momentum` has modified content or another branch's in-progress work, don't disturb it — create a new worktree under `C:\code2` (i.e. `C:\code2\momentum-<feature>`) and work there instead.
 - **Localized strings: edit `en.json` and nothing else.** `fr.json`, `es.json`, `en-XA.json` and the XLIFF memory are pipeline output. Never hand-edit them, never hand-prune keys a change removed, and never reach for `translate.ts --pseudo` to quiet a check — that writes fake accented text into real catalogs.
-- **`pr-i18n-parity` is mine to clear, not yours.** It fails on any branch that changed an `en.json`, which is the point: I add the **`to-be-translated`** label to the PR and the pipeline commits the regenerated catalogs back to the branch. It needs `MTRANS_*` credentials, so it cannot run locally anyway. Don't run `check-parity.ts` in a pre-push check, don't report it as a failure, and don't let it block a "ready to push" verdict — just remind me the label is still needed. A pre-push check earns its keep on unit tests, the 100% coverage gates, lint, build and a11y.
+- **`pr-i18n-parity` is cleared by a label, never by editing catalogs.** It fails on any branch that changed an `en.json`, which is the point: the **`to-be-translated`** label goes on the PR and the pipeline commits the regenerated catalogs back to the branch. It needs `MTRANS_*` credentials, so it cannot run locally anyway. Don't run `check-parity.ts` in a pre-push check, don't report it as a failure, and don't let it block a "ready to push" verdict.
+  - The one place that label gets added for me is `paperwork --pr`, when it opens a ready-for-review PR and the branch changed an `en.json`. Everywhere else, including a draft PR, just remind me the label is still needed and give me the command. A pre-push check earns its keep on unit tests, the 100% coverage gates, lint, build and a11y.
 - **On creating a PR — link both directions:** (write the PR title/body per Writing below)
   - PR -> work item: the PR body carries a `## Related` hyperlink to the TFS work item.
   - work item -> PR: add the GitHub PR as a **Hyperlink relation in the work item's Links tab** — not a comment. The ADO `wit_link_work_item_to_pull_request` MCP tool only links ADO-hosted PRs, so it can't be used for a GitHub PR. The `wit_update_work_item` MCP tool can't add it either (it only accepts string field values, not a relation object). Add it via the TFS REST API with Windows integrated auth:
@@ -67,20 +68,33 @@ an LLM. Internal skill, doc, and config files are out of scope.
 - `joey-writing-style.md` carries the per-genre length targets and the TFS work
   item rules. Read it when writing something longer than a commit subject.
 
+# Ad-hoc implementation
+
+Implementation with me in the loop is iterative: many rounds of edit, look, rework. Most
+of what an edit touches gets reworked or thrown away, so anything written around the code
+is wasted at that point.
+
+**Default for ad-hoc implementation work: code only.** After each edit run the cheap
+checks on what you touched — compile / typecheck / lint — then stop and hand back. Don't
+volunteer the next step.
+
+Until I ask for it by name, don't:
+
+- write or update tests, or run the test suite
+- update docs, READMEs, changelogs, storybook stories, or comments elsewhere in the repo
+- chase coverage gates or run the a11y suite
+- refactor or tidy code the request didn't ask about
+
+`wrap-it-up` is where all of that lands. It runs once at the end, after I've verified the
+behavior, and it covers the whole session. Leaving that gap is correct, not sloppy. Say
+what's still outstanding if it's worth knowing, but don't fill it in.
+
 # Testing
 
-Testing is its own phase, not part of every edit. **Default: edit only.** Don't write
-or run the test suite after each change. A session is usually edit + edit + edit, then
-test once at the end — many of those edits are experimental and get reworked or thrown
-away, so tests written per-edit are wasted and get rewritten anyway.
-
-Start the testing pass when I ask for it ("add tests", "cover this", "run the tests"),
-or when I say I'm ready to commit or open a PR. Cover everything the session changed in
-one pass at that point.
-
-After an individual edit, do the cheap checks only: compile / typecheck / lint on what
-you touched, so the code I'm reading is known to build. Those are not tests. Then stop
-and hand back — don't volunteer the next step.
+Testing is its own phase, not part of every edit (see Ad-hoc implementation above). Start
+the pass when I ask for it ("add tests", "cover this", "run the tests"), when I say I'm
+ready to commit or open a PR, or as part of `wrap-it-up`. Cover everything the session
+changed in one pass at that point.
 
 When the testing pass does run, match verification to risk and say which level you chose
 and why:
