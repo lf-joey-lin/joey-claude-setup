@@ -28,9 +28,20 @@ pwsh -File bootstrap.ps1
 
 Symlink creation needs Windows Developer Mode on, or an elevated shell.
 
+Bootstrap only does the symlinks. The language servers behind the `LSP` tool are a
+separate install and are easy to forget, because nothing complains when they are
+missing: the tool just reports "No LSP server available" and never gets used. See
+[`language-servers/README.md`](language-servers/README.md), or on WSL just run:
+
+```bash
+bash language-servers/setup.sh
+```
+
 ## Not tracked here
 
 Everything else under `~/.claude` is local runtime state or secrets and stays out of the repo: `.credentials.json`, session/history/cache/daemon files, `plugins/`, `agent-memory/`, and so on.
+
+`local-plugins/` is in that group too, but for a different reason: it holds the `vue-lsp` config, which needs an absolute machine-specific path. `language-servers/setup.sh` generates it rather than the repo carrying it.
 
 ## Caveat to watch
 

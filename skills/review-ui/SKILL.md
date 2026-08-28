@@ -153,6 +153,14 @@ changed `src/ui-app/` files, and the diff). Tell it to:
   loaded, so the orchestrator embeds the shared dimensions verbatim in this seed:
   read [`../shared/ui-quality-dimensions.md`](../shared/ui-quality-dimensions.md)
   ("The dimensions" and "Ground truth first") and paste that text into the prompt.
+- Also paste this into the seed, since the subagent will not have it either: *for a
+  symbol rather than a string, use the LSP tool rather than grep - load it once with
+  `ToolSearch("select:LSP")`, then `findReferences` for who reaches an export,
+  `goToDefinition` to get through `index.ts` barrels, `hover` for a resolved type.
+  `.vue` needs a separate Vue language server that not every machine has, so try one
+  `.vue` path first: if it answers "No LSP server available for file type", treat the
+  reference list as a floor and grep the `.vue` files too before claiming a count or
+  that nothing uses something. Cite `path:line`.*
 - Return a **ranked findings list**, most to least impactful, and make **no code
   changes** - discovery is read-only in both modes. Group trivia (a lone unused
   import) into one finding rather than many headlines. For each finding return:

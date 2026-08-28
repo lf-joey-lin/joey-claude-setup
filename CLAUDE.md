@@ -45,6 +45,40 @@ Workflow for the `momentum` GitHub repo (org `Laserfiche`).
 - Verify before claiming something works — don't assert unchecked success. What
   "verify" means per edit is compile/lint, not the test suite (see Testing).
 
+# Code intelligence
+
+The `typescript-lsp` plugin covers `.ts`/`.tsx`/`.js`/`.jsx`/`.mts`/`.cts`/`.mjs`/`.cjs`.
+`.vue` needs a **separate** Vue language server, which is a per-machine install (set
+up on WSL, see the local `~/.claude/CLAUDE.md`). Either way the LSP is a deferred
+tool: load it with `ToolSearch("select:LSP")` before the first call, or it looks
+unavailable.
+
+**Check before trusting a reference count in `ui-app`.** If `.vue` comes back "No LSP
+server available for file type", then a `findReferences` on a composable or util
+export cannot see usage inside any `.vue` file, and the result is a floor rather than
+the list. In that case grep the `.vue` files too, and never conclude "nothing uses
+this any more" from the LSP alone. Where the Vue server is running, the list is whole.
+
+Where it is genuinely better than grep:
+
+- `findReferences` before changing a shared export. Grep on a common name (`value`,
+  `update`, `props`) is noise; this is the real binding sites.
+- `goToDefinition` to get through `index.ts` barrels in one hop.
+- `hover` for a resolved type, including inference and generics, which grep cannot
+  reach at all.
+- `incomingCalls` for the blast radius of a change to a shared function.
+
+Grep stays right for text, config, `en.json` keys, `data-testid`, and every non-code
+file. The LSP is a lookup tool, not a checker: `tsc` and lint still verify an edit.
+It does nothing for C#.
+
+Setup, the version pins and why they matter, and the failure modes are in
+[`language-servers/README.md`](language-servers/README.md). Short version: both
+servers are global npm installs bound to the active nvm node version, and both are
+pinned (`typescript@6`, `@vue/language-server@2`) because the current majors do not
+work here. If the LSP tool starts answering "No LSP server available", re-run
+`language-servers/setup.sh` rather than debugging it.
+
 # Writing
 
 Any outward-facing prose I author or edit — code comments, commit messages, PR

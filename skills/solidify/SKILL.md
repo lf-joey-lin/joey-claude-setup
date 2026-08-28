@@ -204,6 +204,14 @@ finding:
   SOLID for new code, no em dash / emoji / arrows / box-drawing characters.
 - For a duplication claim, **grep for the other copies** and cite each one by
   `path:line`. A DRY finding without the other locations named is not a finding.
+- For a TypeScript symbol, the LSP tool answers "who reaches this" exactly where grep
+  guesses. Load it once with `ToolSearch("select:LSP")`, then use `findReferences` on
+  the export and `goToDefinition` to get through `index.ts` barrels.
+  `.vue` needs a separate Vue language server that not every machine has. Try one
+  `.vue` path first: if it answers "No LSP server available for file type", the
+  reference list is a floor and not the whole set, so grep the `.vue` files as well
+  before any "nothing reaches this any more" or "these four places do the same thing"
+  claim. Cite `path:line` either way. For C# this tool does nothing; grep as before.
 
 Never assert that an API, type, or helper exists without having read it. A wrong
 "there is already a helper for this" is worse than saying nothing.
