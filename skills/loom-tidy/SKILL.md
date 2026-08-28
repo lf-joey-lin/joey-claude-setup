@@ -55,11 +55,12 @@ Four questions, in order of payoff:
 ## Fixing
 
 Apply what survives, smallest diff first, one concern per commit
-(`[ui-app] <imperative>`). A deletion removes the whole thread found in
-question 1 in one commit, `en.json` included (only `en.json` - the generated
-catalogs are untouchable per the contract). After each fix, re-run the spec
-files covering the touched code and `npx eslint --fix` on the paths; a fix
-that turns a slice check red is reverted, not negotiated with.
+(`[<component>] <imperative>` per the contract). A deletion removes the whole
+thread found in question 1 in one commit, `en.json` included (only `en.json` -
+the generated catalogs are untouchable per the contract). After each fix,
+re-run the spec files covering the touched code and the cheap check for that
+side (`npx eslint --fix` on ui paths, the BFF build for C#); a fix that turns
+a slice check red is reverted, not negotiated with.
 
 Convergence migrations and anything sized beyond a small diff are **recorded,
 not done**: the ledger's Tidy section lists them as follow-ups with the sites

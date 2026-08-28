@@ -1,6 +1,6 @@
 ---
 name: loom-gate
-description: Gate stage of the loom pipeline - run the ui-app CI checks locally (lint, typecheck, unit suite with the 100% coverage thresholds, build, storybook a11y), fix only lint and coverage shortfalls, and return a scorecard on real exit codes. Invoke via /loom normally; directly for a quick "will ui-app CI pass" check.
+description: Gate stage of the loom pipeline - run the ui-app CI checks locally (lint, typecheck, unit suite with the 100% coverage thresholds, build, storybook a11y) plus the BFF build and coverage-threshold targets when a slice touched acs-bff or app-bff, fix only lint and coverage shortfalls, and return a scorecard on real exit codes. Invoke via /loom normally; directly for a quick "will CI pass" check on those components.
 ---
 
 # loom-gate: the local CI mirror
@@ -12,13 +12,15 @@ they are listed there once and not retyped here.
 
 Scope check first: `git diff --name-only origin/main...HEAD` plus
 `git status --porcelain` (uncommitted work counts). Files outside `src/ui-app`
-mean this gate covers only part of the branch - say so and point the rest at
-`prepare-to-ship`; do not silently certify half a branch as whole.
+and the realm BFFs (`src/acs-bff`, `src/app-bff`) mean this gate covers only
+part of the branch - say so and point the rest at `prepare-to-ship`; do not
+silently certify half a branch as whole.
 
 ## The checks, in cheap-first order
 
-All from `src/ui-app`, all run even after one fails, so the scorecard is
-complete in one pass:
+All run even after one fails, so the scorecard is complete in one pass.
+
+For `src/ui-app` changes, from `src/ui-app`:
 
 1. lint
 2. typecheck
@@ -29,6 +31,13 @@ complete in one pass:
    On a first run in a fresh worktree, a missing-browser error is not an a11y
    failure: `npx playwright install --with-deps chromium` once, re-run, and
    say that is what happened.
+
+For a changed BFF, from the repo root (the contract's BFF command table):
+
+6. `dotnet build src/<bff>/<bff>.slnx -c Release`
+7. `npx nx run-many -t test,coverage-threshold --projects=<bff test
+   projects>` - the `coverage-threshold` target is the enforced .NET gate
+   (100% line + branch on the BFFs); running `test` alone enforces nothing.
 
 ## The fix lane, and its edges
 
@@ -43,6 +52,8 @@ stitched from partial re-runs):
   this test is after-the-fact it does not carry born-red evidence - prove it
   with one targeted mutation (break the covered line, see red, restore,
   confirm `git status` clean). Never a contrived assert to move a number.
+  Same rule on the .NET side, in the BFF's existing harness; reach internals
+  through `InternalsVisibleTo`, never by widening access.
 
 Everything else stops the gate:
 

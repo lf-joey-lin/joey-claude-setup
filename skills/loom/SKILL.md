@@ -1,6 +1,6 @@
 ---
 name: loom
-description: Orchestrate a full loom run - a slice-based dev pipeline for momentum ui-app work that builds one verifiable increment at a time, checks-first, with an adversarial probe after every slice and a flight ledger recording every claim with its evidence. Attended by default with exactly two ask moments; --solo runs unattended end to end without pushing. Invoke when the user types /loom <request>, or asks to "loom this", "run loom on <feature>", or wants a ui-app change built through the loom pipeline.
+description: Orchestrate a full loom run - a slice-based dev pipeline for momentum ui-app work (including the acs-bff/app-bff route a slice needs, built through api-integrator) that builds one verifiable increment at a time, checks-first, with an adversarial probe after every slice and a flight ledger recording every claim with its evidence. Attended by default with exactly two ask moments; --solo runs unattended end to end without pushing. Invoke when the user types /loom <request>, or asks to "loom this", "run loom on <feature>", or wants a ui-app change built through the loom pipeline.
 ---
 
 # loom: the orchestrator
@@ -49,16 +49,22 @@ before moving on.
      the workspace is kept. Solo: skip; scout already defaulted everything or
      blocked.
 2. **Plan** (`loom-plan`, feature lane only). Gate: every slice has Behavior,
-   numbered Checks each naming a channel, Touches, Attack.
+   numbered Checks each naming a channel, Touches, Attack; a bff slice also
+   has its Upstream / Route / DTO / Status map fields filled from the real
+   legacy source (the contract's "BFF slices" section).
    - **Ask moment 2 (attended only)**: the slice list, one line each, plus any
-     custom component justification (approve / adjust / abort). This is the
-     last planned pause before land.
+     custom component justification (approve / adjust / abort). When the plan
+     has a bff slice, this question also carries its browser-contract design -
+     it doubles as api-integrator's approval gate, so show the route, verb,
+     DTO cuts, and status map, not just the slice name. This is the last
+     planned pause before land.
 3. **The slice loop.** For each slice in order (a patch-lane run has exactly
    one, defined in the brief):
-   - `loom-slice`. Gate: a red record exists for every check, a green commit
-     exists, typecheck and eslint report exit 0. A slice summary claiming
-     green with no red evidence in the ledger fails the gate - send it back
-     once; twice is a blocker.
+   - `loom-slice` (bff mode when the slice's Kind is bff). Gate: a red record
+     exists for every check, a green commit exists, the slice's cheap verify
+     lines report exit 0 (typecheck and eslint for ui; the BFF build and test
+     class for bff). A slice summary claiming green with no red evidence in
+     the ledger fails the gate - send it back once; twice is a blocker.
    - `loom-probe` quick, scoped to the slice. Gate: findings carry
      reproductions and severities, probe specs are cleaned up or flagged
      promote.

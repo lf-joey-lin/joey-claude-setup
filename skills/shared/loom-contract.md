@@ -23,10 +23,12 @@ loom is a dev pipeline for momentum `ui-app` work. The roster:
   (`uname -s`: Linux means WSL). Default worktree `<root>/momentum`, feature
   worktrees `<root>/momentum-<slug>`. On WSL, worktrees stay on the Linux
   filesystem, never under `/mnt/c`.
-- **Scope**: `src/ui-app` (Nuxt 4 / Vue 3 / `@nuxt/ui` v4 / Tailwind v4). A
-  branch that touches other components is outside loom's gate; hand those
-  checks to `prepare-to-ship`.
-- **Commands**, all from `src/ui-app`:
+- **Scope**: `src/ui-app` (Nuxt 4 / Vue 3 / `@nuxt/ui` v4 / Tailwind v4),
+  plus the realm BFFs (`src/acs-bff`, `src/app-bff`) when a slice needs a new
+  browser-facing route - see "BFF slices" below. A branch that touches
+  anything else (`sso-auth`, `bff-platform`, another C# service, infra) is
+  outside loom's gate; hand those checks to `prepare-to-ship`.
+- **Commands**, from `src/ui-app`:
 
   | Check | Command |
   | --- | --- |
@@ -40,6 +42,26 @@ loom is a dev pipeline for momentum `ui-app` work. The roster:
   | a11y | `npm run build-storybook && npm run test:a11y` |
   | dev server | `npm run dev` |
 
+  For a BFF slice, from the repo root:
+
+  | Check | Command |
+  | --- | --- |
+  | build | `dotnet build src/acs-bff/acs-bff.slnx -c Release` (or the app-bff pair) |
+  | one test class | `dotnet test src/<bff>/tests/<Assembly>.Tests/<Assembly>.Tests.csproj --filter "FullyQualifiedName~<TestClass>"` |
+  | coverage gate | `npx nx run-many -t test,coverage-threshold --projects=<bff test projects>` - the .NET gate lives in the `coverage-threshold` target (100% line + branch on the BFFs); `test` alone enforces nothing |
+
+- **BFF slices**: when the data path a slice needs does not exist, the slice
+  builds it in `acs-bff` or `app-bff` through the **`api-integrator` skill**,
+  which is the single source for that work (upstream contract reading, the
+  narrowed wire/mapper/bridge/endpoint shape, the status mapping, the
+  invariant checklist). loom splits it across its own stages: api-integrator
+  Steps 0 to 4 (read the upstream from source, design the browser contract)
+  run at plan time, its Step 5 human gate is loom's ask moment 2, and Steps 6
+  to 8 (build, cheap verify, optional thin ui-app service composable) run at
+  slice time under loom's born-red discipline. Its "stop and hand back" points
+  are replaced by loom's own gates; everything else in that file is binding.
+  An upstream that is neither realm (api-integrator's "no new realm" boundary)
+  is a blocker, not a workaround.
 - **Ground truth for the component API**: the installed types under
   `src/ui-app/node_modules/@nuxt/ui/dist/runtime/` (`components/*.vue.d.ts`,
   `composables/*.d.ts`). Never name a Nuxt UI component or prop you have not
@@ -56,8 +78,9 @@ loom is a dev pipeline for momentum `ui-app` work. The roster:
   it is on, cannot run locally, and is never a local failure to report.
 - **Git**: branch `veryShortCamelCaseDesc` off fresh `origin/main` with
   `--no-track`; publish with `git push -u origin HEAD`; commit subjects
-  `[ui-app] Imperative summary`, no trailers; merge main, never rebase; never
-  commit to `main`, never force-push, never stash review state.
+  `[<component>] Imperative summary` (`[ui-app]`, `[acs-bff]`, `[app-bff]`),
+  no trailers; merge main, never rebase; never commit to `main`, never
+  force-push, never stash review state.
 - **Hard stops, every skill, every mode**: anything that looks like a secret;
   a hand-edited generated catalog; the branch being `main`. Stop and report,
   never work around.
@@ -99,10 +122,12 @@ Template (stages append their own sections; keep this spine):
 - Decisions: <question> - chose <x> over <y>, <why> (asked | defaulted)
 
 ## Plan - [ ]            (feature lane only)
-### S1 <name> - [ ]
+### S1 <name> - [ ]    Kind: ui | bff
 - Behavior: <what a user sees>
 - Checks: C1 <assertion> (channel: <what a caller looks at>)
 - Touches: <paths>    Attack: <what probe will try>
+- (bff only) Upstream: <verb + path, read from source>    Route: <verb /bff/...>
+  DTO: <fields kept / dropped>    Status map: <reused outcome type>
 
 ## Slices
 ### S1 - [ ]

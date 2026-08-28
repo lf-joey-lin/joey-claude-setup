@@ -3,7 +3,10 @@
 loom builds a ui-app feature the way a careful engineer works when nobody is
 making them do paperwork: in small vertical slices, each proven before the
 next starts, with a skeptic trying to break each one while the context is
-still hot. It was built from scratch as an alternative to the
+still hot. When a slice needs a data path that does not exist yet, the slice
+reaches through the realm BFF too - the browser route is built via the
+`api-integrator` skill inside the same run, so a vertical slice is actually
+vertical. It was built from scratch as an alternative to the
 spec/design/implement/test/review pipeline, after a critical review of that
 pipeline; it deliberately fixes the problems that review found.
 
@@ -97,13 +100,45 @@ loom-slice in fix mode (the reproduction becomes a failing spec, then a fix),
 capped at two turns per probe. A must-fix that survives the cap stops the run
 rather than accumulating - loom never carries a known-broken slice forward.
 
+## Full-stack slices (the BFF half)
+
+When scout finds the feature needs data no BFF route serves yet, the plan
+gets a **bff slice**, and the run takes the feature lane even if the UI half
+is trivial - the browser contract is a real design decision. The knowledge
+stays in `api-integrator` (loom carries no copy); loom just schedules its
+parts:
+
+- **Plan time** runs api-integrator's Steps 0 to 4: read the upstream
+  contract from the ACS or BPM source, pick the BFF, design the narrowed
+  browser contract (verb normalized, fields cut, statuses mapped onto the
+  reused outcome type).
+- **Ask moment 2 is its approval gate**: the plan shows the route, verb, DTO
+  cuts, and status map next to the slice list, so you approve the contract
+  and the slices in one question. Solo runs log the full contract design in
+  the ledger instead.
+- **Slice time** runs its Steps 6 to 8 under loom's born-red rule: the
+  harness tests (happy projection plus every promised failure mapping) are
+  written and seen red before the wire/mapper/bridge/endpoint files exist.
+  The thin ui-app service composable ships in the same slice, so the next
+  slice (the walking skeleton) consumes a real endpoint.
+- **Probe attacks the seam**: scripted upstream failures (`IsError` in a
+  200, missing `Value`, wire drift), the cross-tenant id attempt, log-leak
+  sweeps, and api-integrator's invariant checklist as a static sweep.
+- **Gate adds the .NET rows**: the BFF build and the `coverage-threshold`
+  nx target (the enforced 100% line + branch gate).
+
+The bff slice always comes first, the skeleton second. An upstream that
+belongs to neither realm is a blocker (api-integrator's "no new realm"
+boundary) - that is a spec-driven feature, not a loom run.
+
 ## Using the stages standalone
 
 Each stage is a normal skill and useful alone:
 
 - `/loom-probe` - "try to break this branch". The adversarial pass on
   anything, loom-built or not.
-- `/loom-gate` - "will ui-app CI pass". The local mirror in one shot.
+- `/loom-gate` - "will CI pass" for ui-app and the BFFs. The local mirror in
+  one shot.
 - `/loom-tidy` - the maintainability pass with the over-engineering veto.
 - `/loom-slice` - hand it one small verifiable change and it will build it
   checks-first.
@@ -153,7 +188,8 @@ ux-review or spec-ui first and loom the approved spec.
 
 ## Limitations, stated plainly
 
-- ui-app only. A branch touching BFFs or C# gets loom for its ui-app half
+- ui-app plus the realm BFFs, nothing further. A branch touching sso-auth,
+  bff-platform, another C# service, or infra gets loom for the parts it owns
   and `prepare-to-ship` for the rest; the gate says so explicitly.
 - Probe attacks through the unit-test harness, not a live browser. Live
   verification is deliberately out: chrome-devtools MCP cannot launch Chrome

@@ -19,10 +19,16 @@ Plan section of the ledger.
 - **Vertical, not horizontal.** "The route renders the table with real data"
   is a slice. "All the composables" is not - a layer proves nothing on its
   own and cannot go red or green as a behavior.
+- **Two kinds.** A slice is `ui` (the default) or `bff` - the browser-facing
+  route plus its thin ui-app service composable, built when scout found the
+  data path missing. A bff slice is still vertical: its behavior is "the
+  browser can ask for X and gets the narrowed shape", provable on its own
+  through the BFF test harness before any screen exists.
 - **Slice 1 is always the walking skeleton**: the route exists, the page
   shell renders inside the app's layout, and the real data path is wired far
-  enough to show the empty state. Everything integration-shaped that can go
-  wrong goes wrong here, in the cheapest slice.
+  enough to show the empty state. When the run has a bff slice, that slice
+  comes first and the skeleton is slice 2, consuming it - everything
+  integration-shaped that can go wrong goes wrong in the cheapest slice.
 - **Each later slice adds one behavior**: the populated list, then filtering,
   then row actions, then the error and edge states if they are not already
   forced by earlier checks. Two to six slices; more means the feature should
@@ -46,6 +52,28 @@ something in the app already do this, and does this supersede anything? A hit
 changes the plan now, for one line, instead of surfacing in tidy after the
 code exists. Cite `path:line` for what you found.
 
+## Grounding a bff slice (api-integrator, steps 0 to 4)
+
+The browser contract is the most consequential decision in the plan, so it is
+designed here, where the human gate can see it - not improvised mid-build.
+Read [`../api-integrator/SKILL.md`](../api-integrator/SKILL.md) and run its
+**Steps 0 through 4** now: ground in the as-built BFF code, pin down the ask,
+read the upstream contract from its own source (never guess a shape), pick
+the BFF, and design the narrowed browser-facing contract - verb normalized,
+fields cut to what the browser reads, the reused outcome type, the status
+map. That file is the single source for all of it; follow it rather than a
+summary, with two loom-specific overrides:
+
+- Its Step 5 approval gate is **not** run as its own pause. The plan entry
+  carries the same material (upstream route with where you read it, the
+  route and verb, the DTO field for field with what is dropped, the status
+  map, config or chart changes), and loom's ask moment 2 is the gate.
+  In solo mode the contract design is the one decision that never defaults
+  silently: log it in full in the ledger so the report shows exactly what
+  shape was chosen.
+- Its "no new realm" boundary is a loom blocker: if the upstream is neither
+  realm, mark the run `[!]` with the reason and stop planning.
+
 ## Each slice's entry
 
 Write into the ledger's Plan section, per slice:
@@ -61,6 +89,13 @@ Write into the ledger's Plan section, per slice:
 - **Attack** - what loom-probe should try to break it with, drawn from the
   brief's awkward cases: the empty list, the 400-character label, the missing
   field, the double-click, the narrow viewport behavior a unit test can reach.
+- **For a bff slice, additionally** (the contract's ledger template has the
+  fields): the upstream route as read from source, the browser route and
+  verb, the DTO with what is deliberately dropped, and the status map. Its
+  checks are xUnit assertions through the BFF's existing test harness
+  (`AcsTestHarness` or the app-bff equivalent), and its attack line covers
+  the upstream failure shapes: non-2xx, `IsError` inside a 200, missing
+  `Value`, the empty collection, wire drift.
 
 ## Finish
 

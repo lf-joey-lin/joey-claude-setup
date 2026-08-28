@@ -43,6 +43,18 @@ change), not on "nothing happened".
 - `data-testid` values built from array indexes
 - an `en.json` key added but never referenced, or referenced but never added
 
+**Bff attacks (when the branch has a bff slice).** Same executed discipline,
+through the BFF's own harness (xUnit probe tests, throwaway unless promoted):
+script the upstream to answer with each failure shape - non-2xx, `IsError`
+inside a 200, a missing `Value`, the empty collection, a renamed field (wire
+drift) - and assert the status map holds and no upstream `Message` leaks into
+the response or a log line. Try the cross-tenant move: a browser-supplied id
+outside the session's granted set must 403, not silently rewrite. Static
+sweep on the C# diff: api-integrator's invariant checklist is the list -
+`no-store` on every branch, the `switch` falling through to 502, no `var`,
+nothing bound beyond what the browser reads, `openapi.yaml` updated. A
+checklist line the diff violates is a must-fix finding citing that line.
+
 **Test attacks (targeted, deep only unless suspicious).** The born-red ledger
 evidence covers most specs. Attack the exceptions: any test whose ledger entry
 lacks a red record, and any negative assertion (`toEqual([])`,

@@ -46,7 +46,12 @@ before anyone is asked.
 - `src/ui-app/CLAUDE.md` for the house rules that apply.
 - The data source, if the feature is data-driven: which BFF endpoint or
   composable feeds it, and the real shape of the data (fields, volume,
-  nullability). Read the types, not a guess.
+  nullability). Read the types, not a guess. **If the data path does not
+  exist yet** - no BFF route serves what the feature shows - the run needs a
+  bff slice (contract, "BFF slices"): note which upstream (ACS or BPM) likely
+  owns the data and the closest existing BFF route as its model. Naming the
+  exact upstream action is plan-time work; scout just establishes that the
+  path is missing and roughly where it comes from.
 - The awkward cases the data forces: zero, one, very many, long labels,
   missing values. These become probe attacks later, so name them concretely.
 
@@ -58,8 +63,11 @@ slice stages ground component choices. Scout grounds the problem.
 Route on what the change actually is, not on how it was phrased:
 
 - **patch** - the change fits an existing pattern, touches roughly one
-  component or page, adds no new route and no new shared state. It gets no
-  plan; the brief itself defines the single slice (behavior plus checks).
+  component or page, adds no new route and no new shared state, and its data
+  path already exists. It gets no plan; the brief itself defines the single
+  slice (behavior plus checks). A change that needs new BFF surface is never
+  a patch - the browser contract is a real design decision, so it takes the
+  feature lane even when the UI half is trivial.
 - **feature** - a new screen, flow, or anything with more than one
   independently verifiable behavior. It gets a `loom-plan` pass.
 - **too big** - more than one feature in the request. Stop and propose the

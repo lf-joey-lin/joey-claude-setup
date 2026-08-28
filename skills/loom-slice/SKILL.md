@@ -78,6 +78,35 @@ the verify lines, and one claim per check with its channel.
 Do not run the full suite, the coverage gate, or a11y here - that is
 loom-gate, once, at the end.
 
+## Bff mode (a slice whose Kind is bff)
+
+The plan already designed the browser contract (api-integrator's Steps 0 to
+4, gated at ask moment 2). You build it. Read
+[`../api-integrator/SKILL.md`](../api-integrator/SKILL.md) and follow its
+**Steps 6 through 8** - the file table, the non-negotiable C# conventions,
+the thin ui-app service composable shape - plus its **invariant checklist**,
+which you walk before committing. Two loom-specific overrides:
+
+- **Born red still holds, in xUnit.** Before the production files exist,
+  write the slice's checks as tests in the BFF's existing harness
+  (`AcsTestHarness` scripts the upstream; handlers are named methods so
+  tests call them directly): the happy projection, and the failure mapping
+  the plan's status map promises (`IsError` in a 200 becomes 502, expiry
+  becomes 401 before the 403 branch). Run the test class, see it fail for
+  the right reason, then build to green. Record the red run in the ledger
+  exactly as for a ui slice.
+- **Verify** is the BFF pair, from the repo root: `dotnet build
+  src/<bff>/<bff>.slnx -c Release` and the new test class via `dotnet test
+  ... --filter`. Then the ui-app cheap pair (`npx nuxt typecheck`,
+  `npm run lint`) if the slice included the service composable. Commit
+  subject `[acs-bff]` or `[app-bff]` (both halves in one commit when the
+  composable rode along - it is one contract).
+
+api-integrator's own step 7/8 hand-back points do not apply; loom's
+orchestrator is the one you return to. Its "ask before the client slice"
+question defaults to yes here - the composable is what makes the slice
+vertical, and the next slice consumes it.
+
 ## Fix mode
 
 When seeded with probe findings instead of a plan slice: each finding arrives
