@@ -1,6 +1,6 @@
 ---
 name: solidify
-description: Review the current branch's work for SOLID, DRY, and code maintainability quality only, and report the findings as one flat list ranked most to least important. REVIEW ONLY, no edits unless separately asked. Language-agnostic across the momentum monorepo (C# services and ui-app alike). Judges the branch in the context of the whole app rather than the diff alone, so it also catches superseded code the change left behind and existing code that should converge on a shared unit the branch introduced. Every finding must first survive a strict over-engineering veto, so what comes back is a short list of real maintainability defects, not textbook advice. Functional bugs, security, tests, performance, and accessibility are out of scope and get handed to the skills that own them. Invoke when the user types /solidify, or asks to "check this for SOLID", "review for DRY", "am I duplicating anything", "is this maintainable", "code quality pass on my branch", or hands over a branch and asks whether the design holds up.
+description: Review the current branch's work for SOLID, DRY, and code maintainability quality only, and report the findings as one flat list ranked most to least important. REVIEW ONLY, no edits unless separately asked. Language-agnostic across the momentum monorepo (C# services and ui-app alike). Judges the branch in the context of the whole app rather than the diff alone, so it also catches superseded code the change left behind and existing code that should converge on a shared unit the branch introduced. Discovery fans out one subagent per review lens (duplication and convergence, superseded code, responsibility and structure, contracts and seams, coupled constants and blast radius) so no dimension gets dropped, then merges and dedupes what they return. Every finding must first survive a strict over-engineering veto, so what comes back is a short list of real maintainability defects, not textbook advice. Functional bugs, security, tests, performance, and accessibility are out of scope and get handed to the skills that own them. Invoke when the user types /solidify, or asks to "check this for SOLID", "review for DRY", "am I duplicating anything", "is this maintainable", "code quality pass on my branch", or hands over a branch and asks whether the design holds up.
 ---
 
 # solidify Skill
@@ -219,7 +219,9 @@ Never assert that an API, type, or helper exists without having read it. A wrong
 ### The app-context pass
 
 Run this for every added file and every new exported unit (component, composable,
-helper, endpoint, type, constant). It is the part a diff-only review skips.
+helper, endpoint, type, constant). It is the part a diff-only review skips. In Step 3 it
+is split across two lenses: bullets 1, 3 and 4 below belong to lens A, bullet 2 to lens
+B. If you are a lens, run your own bullets properly rather than all four lightly.
 
 - **Does something already do this?** Search by name, by the distinctive strings and
   props it carries, and by the shape of the markup or logic - not just the filename.
@@ -351,28 +353,106 @@ importantly, what not to.
     caller, say they are not the same thing and drop it. Size the migration honestly and
     call it follow-up work when it is bigger than the branch.
 
-## Step 3 - Discover the findings
+## Step 3 - Discover the findings (one subagent per lens)
 
 Discovery is **read-only**. It makes no edits, in any mode.
 
-- **A small change** (one component, a handful of files) - review it inline. Do not
-  spin up machinery for a 200-line diff.
-- **A change spanning several components** - dispatch one `general-purpose` subagent
-  per component, run concurrently, each seeded with that component's changed files,
-  its `CLAUDE.md` path, and the instruction to first read this skill file at
-  `~/.claude/skills/solidify/SKILL.md` (the veto and the dimensions) - the subagent
-  does not have it loaded, and a paraphrased veto is a weakened one. Keep the diff
-  reading out of your own context and let each report back.
+One reviewer holding twelve dimensions at once quietly drops most of them, and the
+dimensions do not even want the same kind of looking: duplication is an app-wide grep,
+superseded code is a reference thread pulled through barrels and routes, responsibility
+is a whole-file read. So discovery **fans out - one `general-purpose` subagent per
+lens**, all launched concurrently in a single message, each one covering the whole
+change set rather than a slice of it.
 
-Whichever route you take, the app-context pass from Step 1 has to actually run. When
-the change adds files or a new reusable unit, give it its own concurrent
-`general-purpose` subagent so it is not squeezed in at the end of a per-component
-review: seed it with the list of added files and new exported units, the instruction to
-first read this skill file (dimensions 6, 11 and 12 and veto rules 1, 7 and 8 are its
-brief), and the instruction to search the whole app for prior art, orphaned
-predecessors, and hand-rolled copies, reporting each hit as `path:line` with the
-search that found it. Its job is locations and evidence; you apply the veto to what comes
-back.
+Launch all of them even for a small change. The cost is one round of concurrent reads;
+the thing this skill keeps getting wrong is misses, not spend. The only exception is a
+change too small to have structure - a single file, a handful of lines - and even then
+run lenses A and B, because those two are the ones that read outside the diff.
+
+### The lenses
+
+| Lens | Dimensions it owns | How it looks |
+| --- | --- | --- |
+| **A. Duplication and convergence** | 6, 12 (veto 1, 3, 8) | App-wide search. For every new unit, grep the app by name, by distinctive strings and props, and by the shape of the logic, then open each hit and decide same behavior or same silhouette. Count copies across the app, not inside the diff. |
+| **B. Superseded and dead code** | 11, the dead-code half of 8 (veto 7) | Reference threading. For every added file and unit, find what it replaced, then follow every thread: imports, barrel and `index` re-exports, auto-import globs, routes, nav entries, DI registrations, `en.json` keys, `data-testid`, stories, config, feature flags, openapi entries. Zero live references is a deletion finding; live references on both paths is the worse finding. |
+| **C. Responsibility and structure** | 1, 2, the naming and readability half of 8 | Whole-file reads of every changed and added file, top to bottom. Two disjoint clusters of state, a method that decides and performs, the second or third parallel arm added to a conditional, names that mislead, flag parameters, comments that narrate the code. |
+| **D. Contracts and seams** | 3, 4, 5, 9 (veto 2) | Follow the types. Read each interface, base type, props contract and public member the change touched or added, and every implementation of it. Contracts that lie, members a consumer never uses, a concrete dependency built inline where the component takes its dependencies through DI, access widened past what a consumer needs. |
+| **E. Coupled constants and blast radius** | 7, 10 | Trace values and call sites. For every new or changed literal, find what its correctness silently depends on and confirm they agree. For every shared unit the change touched, grep the call sites and open each - the design has to hold for the sibling that never appears in the diff. |
+
+Nothing is left uncovered: every dimension in Step 2 sits in exactly one lens.
+
+### Seeding a lens subagent
+
+Each seed carries all of this. The subagent has none of it loaded, and a paraphrased
+veto is a weakened veto.
+
+- **Read this skill file first**: `~/.claude/skills/solidify/SKILL.md`. The veto, the
+  Step 1 ground-truth rules, the app-context pass and the dimensions all live there and
+  are binding. Quote none of it from memory.
+- **The scope from Step 0**: the added, modified and deleted file lists, the component
+  roots, the nearest `CLAUDE.md` paths, the worktree root, and the one-line summary of
+  what the change is meant to do or replace.
+- **Its lens**: the dimensions it owns, how it looks (the row above, verbatim), and this
+  boundary - *everything outside your lens belongs to another reviewer running right now.
+  Do not report it and do not go looking for it. Depth on your own dimensions is the
+  whole reason you exist.*
+- **The LSP note**: *for a symbol rather than a string, load the LSP once with
+  `ToolSearch("select:LSP")`, then `findReferences` for who reaches an export,
+  `goToDefinition` through `index.ts` barrels, `hover` for a resolved type. `.vue` needs
+  a separate Vue language server that not every machine has, so try one `.vue` path
+  first: if it answers "No LSP server available for file type", the reference list is a
+  floor, and grep the `.vue` files too before any count or any "nothing uses this".
+  For C# it does nothing; grep. Cite `path:line` either way.*
+- **Apply the veto yourself before reporting anything**, and return what you vetoed as
+  well as what survived. A lens that reports everything it noticed has just moved the
+  work, not done it.
+- **Read-only**: make no edits, write no files.
+
+Ask each lens to return three lists:
+
+1. **Findings** in the field shape below (severity, location, principle, finding, code
+   context, proposal, cost, outside the diff), each surviving the veto.
+2. **Searched** - what it actually covered: the files read in full, the greps and
+   `findReferences` run and what they returned, and any claim it could not verify. An
+   empty findings list with a real searched list is a good result and says so.
+3. **Deliberately not flagged** - what it considered and vetoed, one line each with the
+   rule that killed it.
+
+Scale by lens, not by component: a lens covers the whole change. Split one lens across
+components only when its own file list is genuinely too big for one agent (roughly more
+than fifteen changed files, or components with conflicting conventions), and say in the
+report that you did.
+
+### When you cannot spawn subagents
+
+`wrap-it-up` and `joey-bot` run this skill inside a subagent already, and nesting has a
+floor. If the Agent tool is unavailable, run the five lenses **sequentially in your own
+context** instead - one lens at a time, finishing its searches and writing its three
+lists before you start the next, and never holding two lenses open at once. That is
+slower and it is still the point: one pass per lens is what stops the dimensions from
+being dropped. Say in the report that the lenses ran sequentially.
+
+### Step 3b - Merge what comes back
+
+The lenses find; you decide. Do this before writing a single line of report.
+
+1. **Dedupe.** The same defect reaches you from two lenses often - a duplicated block is
+   both a DRY finding and a responsibility finding. One entry, the better evidence, the
+   dimension that describes it most directly.
+2. **Run the veto again over the merged set.** Five reviewers each want to have found
+   something, so the merged list is longer than the branch deserves. Rule 4 in
+   particular only makes sense across the whole set: two proposals that each pay for
+   themselves separately may not pay for themselves together on the same file.
+3. **Resolve contradictions.** Lens A asking for a shared unit and lens C asking to split
+   the same code are the same lines pulled two ways. Decide, keep one, and say in
+   "Deliberately not flagged" which you dropped and why.
+4. **Never forward an unverified count.** Any "nothing references this any more" or
+   "these four places do the same thing" that arrives without the search behind it goes
+   back to that lens or gets dropped. This is the one place a fan-out can make the report
+   worse than a single reviewer, because the claim arrives pre-packaged and reads as
+   checked.
+5. **Keep the coverage.** Merge the five searched lists into the report's "App context
+   checked", including the lenses that came back empty.
 
 For each surviving finding, produce:
 
@@ -418,10 +498,12 @@ Then close with:
 
 - **Verdict** - one or two sentences: is the design sound, and what must-fix items
   are open. Say so plainly when it is sound.
-- **App context checked** - one or two lines on what the wider read covered: which added
-  units you searched prior art for, what you confirmed is now orphaned, and what you
-  confirmed is still live. This is how the reader knows the wider pass ran, and it is
-  worth writing even when it found nothing.
+- **Coverage** - the merged "searched" lists from the five lenses, a line or two each:
+  which added units prior art was searched for, what was confirmed orphaned, what was
+  confirmed still live, which call sites were opened, and anything a lens could not
+  verify. Name any lens that came back empty, and say so if a lens was split or skipped.
+  This is how the reader knows the whole pass ran, and it is worth writing even when it
+  found nothing.
 - **Deliberately not flagged** - the things you considered and vetoed, one line each
   with the reason (usually "one call site and not generic enough to move", "only
   implementation", "shape not logic",
@@ -461,6 +543,8 @@ Two extra rules for the fixes that reach outside the diff:
 
 ## Conventions
 
+- Discovery fans out by lens, not by file. The lenses find; you dedupe, re-run the
+  veto over the merged set, and rank. Never forward a lens's count without its search.
 - The veto outranks the dimensions. A dimension violation that fails the veto is not
   reported as a finding.
 - Read the code before claiming anything; cite `path:line`. No reviewing from a diff
