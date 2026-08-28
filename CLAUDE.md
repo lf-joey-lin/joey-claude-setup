@@ -79,6 +79,17 @@ pinned (`typescript@6`, `@vue/language-server@2`) because the current majors do 
 work here. If the LSP tool starts answering "No LSP server available", re-run
 `language-servers/setup.sh` rather than debugging it.
 
+# Browser automation
+
+The `chrome-devtools` MCP is the way to drive a browser. On WSL, if every call fails
+with `Protocol error (Target.setDiscoverTargets): Target closed`, it is pointed at a
+Chrome that is not installed: re-run `chrome-devtools-mcp/setup.sh` and restart, rather
+than debugging it. A plugin update undoes the fix, so expect this to recur.
+
+For a one-off page load without restarting the session, momentum has playwright at
+`src/ui-app/node_modules/playwright`; `chromium.launch` from a script in that directory
+works.
+
 # Writing
 
 Any outward-facing prose I author or edit — code comments, commit messages, PR

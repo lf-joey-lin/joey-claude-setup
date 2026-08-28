@@ -37,6 +37,18 @@ missing: the tool just reports "No LSP server available" and never gets used. Se
 bash language-servers/setup.sh
 ```
 
+The `chrome-devtools` MCP plugin is a similar case on WSL: it installs clean, then
+fails every tool call with "Target closed" because it tries to launch a Chrome stable
+that is not there. See
+[`chrome-devtools-mcp/README.md`](chrome-devtools-mcp/README.md), or just run:
+
+```bash
+bash chrome-devtools-mcp/setup.sh
+```
+
+Both need a Claude Code restart, and both have to be re-run after a plugin or nvm
+change rather than being set once.
+
 ## Not tracked here
 
 Everything else under `~/.claude` is local runtime state or secrets and stays out of the repo: `.credentials.json`, session/history/cache/daemon files, `plugins/`, `agent-memory/`, and so on.
