@@ -1,0 +1,168 @@
+# loom contract (shared)
+
+The one file every loom skill reads. It holds the repo facts, the flight ledger
+format, and the attendance contract, so no loom skill carries its own copy of
+any of them. When a fact here changes, it changes once.
+
+loom is a dev pipeline for momentum `ui-app` work. The roster:
+
+| Skill | Job |
+| --- | --- |
+| `loom` | the orchestrator: drives a whole run, delegates every stage |
+| `loom-scout` | workspace setup, recon, the brief, lane routing |
+| `loom-plan` | slice plan (feature lane only) |
+| `loom-slice` | build one slice, checks first (born red) |
+| `loom-probe` | adversarial verification: attack, reproduce, report |
+| `loom-tidy` | one maintainability pass over the finished branch |
+| `loom-gate` | local mirror of the ui-app CI checks |
+| `loom-land` | merge main, push, write the report from the ledger |
+
+## Repo facts (single source of truth)
+
+- **Workspace root**: `~/m-code` on WSL/Linux, `C:\code2` on Windows
+  (`uname -s`: Linux means WSL). Default worktree `<root>/momentum`, feature
+  worktrees `<root>/momentum-<slug>`. On WSL, worktrees stay on the Linux
+  filesystem, never under `/mnt/c`.
+- **Scope**: `src/ui-app` (Nuxt 4 / Vue 3 / `@nuxt/ui` v4 / Tailwind v4). A
+  branch that touches other components is outside loom's gate; hand those
+  checks to `prepare-to-ship`.
+- **Commands**, all from `src/ui-app`:
+
+  | Check | Command |
+  | --- | --- |
+  | lint | `npm run lint` (autofix: `npx eslint --fix <paths>`) |
+  | typecheck | `npx nuxt typecheck` (there is no npm script for it) |
+  | one spec file | `npx vitest run --project=unit <path>` |
+  | unit suite | `npx vitest run --project=unit` |
+  | coverage, iterating | `npm run test:coverage` |
+  | coverage gate | `npm run test:ci` (100% statements + branches, enforced) |
+  | build | `npm run build` |
+  | a11y | `npm run build-storybook && npm run test:a11y` |
+  | dev server | `npm run dev` |
+
+- **Ground truth for the component API**: the installed types under
+  `src/ui-app/node_modules/@nuxt/ui/dist/runtime/` (`components/*.vue.d.ts`,
+  `composables/*.d.ts`). Never name a Nuxt UI component or prop you have not
+  confirmed there.
+- **Conventions**: `src/ui-app/CLAUDE.md` is binding - i18n through `t()` with
+  keys in `en.json` only, theme palette tokens never hex, `<script setup
+  lang="ts">`, semantic HTML first and `data-testid` (naming
+  `<feature>-<element>-<qualifier>`, entity ids not indexes) only where
+  role/label cannot locate.
+- **Translations**: only `en.json` is ever hand-edited. `fr.json`, `es.json`,
+  `en-XA.json` and the XLIFF memory are pipeline output - never edit, never
+  hand-prune, never `translate.ts --pseudo`. A branch that changed `en.json`
+  needs the `to-be-translated` label on its PR; `pr-i18n-parity` fails until
+  it is on, cannot run locally, and is never a local failure to report.
+- **Git**: branch `veryShortCamelCaseDesc` off fresh `origin/main` with
+  `--no-track`; publish with `git push -u origin HEAD`; commit subjects
+  `[ui-app] Imperative summary`, no trailers; merge main, never rebase; never
+  commit to `main`, never force-push, never stash review state.
+- **Hard stops, every skill, every mode**: anything that looks like a secret;
+  a hand-edited generated catalog; the branch being `main`. Stop and report,
+  never work around.
+- **LSP**: for a TypeScript symbol, load with `ToolSearch("select:LSP")`, then
+  `findReferences` / `goToDefinition` / `hover`. If a `.vue` path answers "No
+  LSP server available", the reference list is a floor - grep the `.vue` files
+  too before any count. Cite `path:line`.
+
+## The flight ledger
+
+One markdown file per run at `src/ui-app/logs/loom/<slug>.md` (gitignored;
+create the folder if missing). It is the interface between stages, the resume
+point, and the source the final report is generated from. Rules:
+
+- **Append after every stage**, never in a batch at the end.
+- **Claims carry evidence and a falsifier.** A stage that asserts something
+  records what command proved it (with its exit code or output reference) and
+  what observation would disprove it. The orchestrator gates on the evidence
+  line, never on prose.
+- **Resume**: a ledger already existing for the slug means continue from the
+  first stage not marked done. Never restart a stage marked `[x]`.
+- **Decisions are logged where they are made**: the choice, the alternative,
+  one line of why, and whether it was asked or defaulted.
+
+Template (stages append their own sections; keep this spine):
+
+```markdown
+# loom: <feature name>
+
+- Request: <verbatim>
+- Lane: patch | feature    Mode: attended | solo
+- Branch: <branch>    Worktree: <absolute path>
+- Started: <yyyy-mm-dd>
+- Legend: [ ] pending  [~] in progress  [x] done  [!] blocked
+
+## Brief (scout) - [ ]
+- Intent / users / data shape / awkward cases
+- Precedent: <path> - <what it settles>
+- Decisions: <question> - chose <x> over <y>, <why> (asked | defaulted)
+
+## Plan - [ ]            (feature lane only)
+### S1 <name> - [ ]
+- Behavior: <what a user sees>
+- Checks: C1 <assertion> (channel: <what a caller looks at>)
+- Touches: <paths>    Attack: <what probe will try>
+
+## Slices
+### S1 - [ ]
+- Red: <spec path> failed as expected before implementation
+- Green: <commit hash> <subject>
+- Verify: typecheck exit 0 | eslint exit 0 | slice specs n/n
+- Claims: C1 - evidence: <cmd + result> - falsifier: <what would disprove>
+
+## Probe
+### P1 (quick, after S1) - [ ]
+- F1: <input -> observed vs expected> (must-fix | polish)
+- Promoted specs: <paths | none>
+### P-deep - [ ]
+
+## Fixes
+- F1: fixed in <commit> | deferred - <reason>
+
+## Tidy - [ ]
+## Gate - [ ]
+- <scorecard>    Verdict: READY | NOT READY
+
+## Land - [ ]
+- Merge: <sha | up to date>    Push: <yes | local only>    Report: <path>
+
+## Needs human eyes
+## Blockers
+```
+
+## The attendance contract
+
+One bar, two modes. The quality bar - what gets checked, probed, fixed, and
+gated - is identical whether a human is watching or not. The only thing
+attendance changes is who answers questions.
+
+- **Attended** (default): the run pauses at exactly two ask moments - after
+  the brief (scout) and after the plan. Each is one `AskUserQuestion`. Nothing
+  else pauses except a hard stop or a blocker. The push at land is confirmed.
+- **Solo** (`--solo`, and any background run): zero asks. Every question takes
+  its documented default, logged in the ledger as `(defaulted)` with the
+  alternative. Land never pushes solo. A genuine blocker - contradictory
+  input, a red acceptance check that two fix turns could not clear, a gate
+  that stays NOT READY - stops the run with a ledger entry; it is never
+  guessed past.
+- Default order for any open question: this app's precedent, then the house
+  conventions in `src/ui-app/CLAUDE.md`, then the most idiomatic Nuxt UI
+  shape. Record which level answered it.
+
+## Delegation and nesting
+
+The orchestrator delegates every stage to one subagent and never reads source
+or edits code in its own context; it gates on ledger evidence. A stage skill
+invoked as that subagent runs its work inline and spawns no further subagents,
+with one exception: `loom-land` may fan out one subagent per conflicted file
+during the merge. Depth never exceeds orchestrator, stage, conflict-file.
+
+Every stage seed carries: the absolute worktree path, the ledger path, the
+mode line (`attended` or `solo`), and the instruction to read this contract
+file plus its own skill file before acting.
+
+## Text rules
+
+No em dash, emojis, arrows, or box-drawing characters in anything written -
+ledger, report, code, commits. Sentence-case headings. Short plain sentences.
