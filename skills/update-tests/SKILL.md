@@ -1,6 +1,6 @@
 ---
 name: update-tests
-description: Write and verify the unit test suite for work done on the current branch of the momentum monorepo, in any component (C#/xUnit or ui-app/Vitest). Scopes itself to the code the branch actually added or changed, then covers it comprehensively - every case, every branch, every edge - not just enough to clear the repo's 100% coverage gate. Every test it writes stands alone: state is constructed or reset per test, so no test depends on another having run first or on the order the suite runs in, and it verifies that by running each new test on its own and the suite in a shuffled order. Runs the real nx/dotnet/vitest commands and reports actual numbers. Proposes a UI end-to-end test only for an integration point the branch added that no existing spec crosses, one thin test per seam rather than one per page, and never writes one without human approval (or autonomous mode). Invoke when the user asks to "add tests", "update tests", "cover this", "write the specs", "test what I changed", or "get coverage back to 100" for any part of momentum.
+description: Write and verify the unit test suite for work done on the current branch of the momentum monorepo, in any component (C#/xUnit or ui-app/Vitest). Scopes itself to the code the branch actually added or changed, then covers it comprehensively - every case, every branch, every edge - not just enough to clear the repo's 100% coverage gate. Every test it writes stands alone: state is constructed or reset per test, so no test depends on another having run first or on the order the suite runs in, and it verifies that by running each new test file on its own and the suite in a shuffled order. Runs the real nx/dotnet/vitest commands and reports actual numbers. Unit tests only, no end-to-end. Every test it writes has to be able to fail: it names the channel a behavior is actually observable on, refuses an assertion that would hold whatever the code did, and proves each new test is real by breaking the line it guards and watching it go red. Invoke when the user asks to "add tests", "update tests", "cover this", "write the specs", "test what I changed", or "get coverage back to 100" for any part of momentum.
 ---
 
 # update-tests Skill
@@ -16,7 +16,11 @@ any CDK app under `infrastructure/`. Two toolchains, and a branch can touch both
 | .NET component | `src/<component>/tests/<Assembly>.Tests/`, mirroring the source folder layout | xUnit, plain `Assert.*` |
 | `ui-app` | co-located `*.spec.ts` next to the code | Vitest + Vue Test Utils |
 
-End-to-end tests are a separate, gated question - see "UI end-to-end tests" below.
+End-to-end tests are **out of scope**. The Playwright suite at
+`tests/e2e/ui-app-e2e/` is a separate package with its own `CLAUDE.md`, and this
+skill neither writes nor proposes a spec there. If the branch added a seam only a
+real browser can prove, name it in the summary under what a human should verify
+and move on.
 
 Run in a **fresh context**. Your inputs are the branch diff and the code, plus a
 design handoff if the feature had one (`src/<component>/specs/design.md`, or
@@ -33,11 +37,6 @@ git diff origin/main...HEAD          # the actual changes, read them
 
 Also check `git status` for uncommitted work: on this repo an unstaged change is
 Joey's review state and counts as part of the branch.
-
-The repo is **jj-colocated**, so `git branch --show-current` and `git rev-parse
-HEAD` can lie (detached HEAD, not tracking jj's working-copy commit). If the
-three-dot diff looks empty or wrong, fall back to `git diff origin/main` and
-`jj diff` before concluding nothing changed.
 
 Group the changed production files by component (**the path segment right after
 `src/`**, never the basename - a component's projects nest arbitrarily deep).
@@ -64,16 +63,48 @@ Read, in this order:
      `authz` is `Threshold=100 ThresholdType=branch`; `sso-auth` is
      `ThresholdType=line,branch` with a generated-code exclusion. Read it, do not
      assume.
-   - `ui-app`: `vitest.config.ts` (the only place `coverage` is read - `include`
-     is `app/**/*.{ts,vue}`, with `plugins/`, `middleware/`, `nuxt-config/`,
-     `mock-*.ts`, specs and stories excluded) and `package.json`'s `test:ci`,
-     which enforces `statements=100 branches=100` on the `unit` project.
+   - `ui-app`: `vitest.config.ts` - the only place `coverage` is read, and the
+     only current account of what `include` and `exclude` cover. Read it rather
+     than assuming; every exclusion there carries a comment saying why it is
+     out. `package.json`'s `test:ci` is the gate it feeds: `statements=100
+     branches=100` on the `unit` project.
 
 Reach internals via `InternalsVisibleTo`, which these components already use.
 **Never widen a member's access to make it testable** - that is called out as a
 rule in multiple component guides.
 
-## Step 3 - build the case matrix, then write to it
+## Step 3 - name the channels, build the case matrix, then write to it
+
+### Name the channel before you write the assert
+
+For each behavior the branch added, write down the **channel** it is observable
+on: the one thing a caller could look at to tell whether the behavior happened. A
+returned value, a thrown exception, an emitted event, a router push, a request
+that went out, a DOM attribute, a method called on another object, a rule in a
+stylesheet. Then assert on *that* channel.
+
+What this prevents: a spec file settles on the channel that is easiest to read
+(`wrapper.emitted('...')`, a return value) and every behavior that does not use
+that channel gets an assertion which reads fine and can never fail. A
+double-click whose whole effect is pressing a link emits nothing, so
+`expect(emitted()).toEqual([])` after one holds whether or not the double-click
+is wired at all. Its channel is the link's `click`, and the test has to watch
+that.
+
+Channels that are easy to miss:
+
+- A gesture whose whole effect is calling something else: `element.click()`,
+  `focus()`, `preventDefault()`, `scrollIntoView()`, a callback prop.
+- A binding in a `.vue` template. Its channel is that the handler runs at all
+  when the event reaches the component from outside it.
+- Something CSS decides: which of two competing rules wins, a `:not()` guard,
+  specificity. The unit project runs the `nuxt` environment (happy-dom), which
+  computes none of it, so the channel is the stylesheet. Read the rule out of the
+  CSS file and assert on it.
+- Suppression, where the code's job is that something did *not* happen. Then the
+  channel has to be one you have separately shown can report that it did.
+
+### The case matrix
 
 The coverage gate is the floor, not the target. 100% branch coverage is
 reachable with a handful of contrived tests that assert almost nothing; that is
@@ -87,9 +118,8 @@ and the spec/design if there is one, then write a test per case:
   optional chaining, default parameter values, `try`/`catch`/`finally` paths,
   short-circuit operands, pattern-match arms, and the fall-through nobody wrote
   a case for.
-- **Boundaries**: zero, one, many; empty and single-element collections; first
-  and last element; min/max and just-past-max; empty string vs whitespace vs
-  null; duplicate and unordered input.
+- **Boundaries**: the usual set - zero/one/many, first and last, min/max and one
+  past it, empty vs whitespace vs null, duplicate and unordered input.
 - **Failure paths**: what the code does when a dependency throws, times out, is
   cancelled (`CancellationToken`), returns nothing, or returns something
   malformed. Assert the observable outcome, including that the right exception
@@ -102,9 +132,6 @@ and the spec/design if there is one, then write a test per case:
   fails before the fix. If the branch is a fix, that test is mandatory.
 - **Concurrency / idempotency** where the code is reentrant, cached, retried, or
   rotated (`db-auth`'s rotating data sources are the local precedent).
-
-Test the **public contract and observable behavior**, not the implementation.
-Rewriting the internals of a method should not break its tests.
 
 ### Every test stands alone
 
@@ -143,6 +170,25 @@ broken test.
   component already does (its own xUnit collection, a per-test reset helper),
   rather than ordering the tests around it.
 
+### A test that cannot fail is not a test
+
+Three shapes pass forever no matter what the code does. Each has a rule:
+
+- **A negative assertion with no positive sibling.** `expect(x).toBe(false)`,
+  `toEqual([])`, `not.toHaveBeenCalled()`. Every one of these needs a sibling
+  test, on the same channel, where the thing does happen and the assertion
+  flips. Without that sibling you have not shown the channel can report anything
+  at all. A whole `describe` block that only asserts absence is the tell.
+- **A test that never reaches production code.** Building a stand-in object with
+  hardcoded returns and then asserting those returns checks the fake against
+  itself. Where a stand-in is the point (a caller's own policy, a custom
+  implementation of an interface), hand it to the real code that consumes it and
+  assert what the real code does with it.
+- **A claim about types written as a runtime assert.** "This interface is
+  sufficient on its own", "these fields are optional", "the generic resolves".
+  The compiler already decides those and `expect` over a literal cannot. Leave
+  it to the type system, or prove it at a real call site.
+
 Do not chase coverage with a test that asserts nothing meaningful. If a branch is
 genuinely unreachable, say so and justify it, or mark it the way the component
 already marks such code (`[ExcludeFromCodeCoverage]` for a member that needs a
@@ -161,85 +207,19 @@ explaining why) rather than papering over it.
   localized text.
 - Cover every state the design lists: loading, empty, error, disabled,
   validation.
+- **Cover combinations of independent state, not only each state on its own.**
+  Two flags that can both be on are four cases, not two. Where the branch adds a
+  state a row, cell or control can wear at the same time as an existing one, test
+  the overlap and assert which one wins.
+- **A changed `.vue` file gets its own binding tests, separate from the
+  composable it calls.** A composable's spec mounts its own harness host, so
+  every line of the composable can read 100% covered while the real component
+  never binds it. For each event, prop or callback the component wires to a
+  composable, drive it from the component's own spec through the DOM the way a
+  user reaches it, and check the effect. The test that matters is the one that
+  goes red when the binding is deleted from the template.
 
-## Step 4 - UI end-to-end tests (gated, and add only what earns its place)
-
-The Playwright suite is a standalone package at `tests/e2e/ui-app-e2e/` (its own
-`CLAUDE.md` owns the conventions: 3-tier page-objects / steps / specs,
-`test-cases/*.md` as the statement of intent, `test-cases/MANIFEST.md` as the
-catalog). It is **not** part of the unit pass.
-
-What an end-to-end test buys you here is the **integration point**: the seam the
-unit suite has to fake. A unit spec mounts a component with a stubbed fetch, a
-stubbed router, and a fake clock. It proves the logic and it cannot prove the
-wiring. The end-to-end test proves the wiring is real - the request goes out, the
-route resolves, the browser does the thing. Once a seam is proven to work, the
-behavior behind it is already covered by the comprehensive unit work above, so
-one passing test per seam is enough.
-
-So the unit of coverage is the integration point, **not the page**. Don't add a
-test because the branch touched a page, and don't skip one because the page
-already has a spec. Add one when the branch introduced a seam nothing exercises
-yet. On most branches that is zero, and "no new integration points" is the whole
-answer.
-
-### What counts as an integration point
-
-Something that leaves the app's own JavaScript and can only be proven by running
-it for real:
-
-- A call to a backend service the suite has never made: a new endpoint, a changed
-  contract, a new error shape the UI has to react to.
-- The auth or session boundary: sign-in, sign-out, token refresh, a route a
-  permission gate can turn away.
-- Routing that has to resolve for real: a new route, a deep link, a navigation
-  guard or middleware, state carried in the URL, a reload that has to land back
-  where it was.
-- A browser capability a unit test can only fake: file upload or download,
-  clipboard, storage that has to survive a reload, iframe or new-window handoff,
-  drag and drop.
-- A multi-step flow whose steps hand off to each other and that no single unit
-  test owns end to end: a wizard, create-then-see-it-in-the-list,
-  edit-then-navigate-away.
-- The SSR / hydration boundary, when the branch adds server-rendered state the
-  client has to pick up.
-
-### What does not
-
-Cover these in unit tests and move on:
-
-- A control added to a page whose seam an existing spec already crosses.
-- Presentational or layout work, theming, responsive behavior, copy, i18n.
-- Validation rules, formatting, computed state, error messages the component
-  produces itself.
-- Loading, empty, error, and disabled states a unit test can drive by controlling
-  the stub.
-- A second path through a seam a passing spec already crosses. One crossing is
-  the proof; the variations are unit work.
-
-### The decision
-
-1. List the integration points this branch added or changed, using the two lists
-   above. Empty list, add nothing, say so.
-2. For each one, look for an existing spec that crosses it: read
-   `tests/e2e/ui-app-e2e/test-cases/MANIFEST.md` and grep `tests/` for the route,
-   the endpoint, the flow. **Search by seam, not by page name** - the spec that
-   already covers it may sit under a different area than the page you changed.
-3. Propose one thin test per still-uncovered integration point. Usually that is
-   zero or one. Propose more only when the branch really did add several distinct
-   seams, and then say what makes each distinct.
-4. Keep each one at the happy path, at the smoke level. Failure modes belong in
-   unit tests against mocked failures, unless the failure *is* the integration (a
-   permission gate turning a route away is the integration).
-5. **Do not write it without approval.** Ask the human (`AskUserQuestion`) with
-   the integration point, the proposed test-case title, and the evidence that
-   nothing crosses it today. Only autonomous mode (below) may skip the ask.
-
-If approved, follow that suite's own `CLAUDE.md`: write the `test-cases/*.md`
-intent first, then the spec, keep the tiers strict, resolve URLs through
-`src/helpers/TestConfig.ts`, and update `MANIFEST.md`.
-
-## Step 5 - verify, and report the real output
+## Step 4 - verify, and report the real output
 
 Never claim a suite passes unchecked. Run what CI runs, from the repo root:
 
@@ -248,6 +228,10 @@ Never claim a suite passes unchecked. Run what CI runs, from the repo root:
 npx nx run-many -t test,coverage-threshold --projects=<affected projects>
 ```
 
+Only the .NET test projects define `coverage-threshold`. `ui-app`'s gate rides on
+its own `test` target, which runs `test:ci`. nx skips a target a project does not
+define, so that one command is still right for a branch touching both.
+
 Per component, while iterating:
 
 ```bash
@@ -255,9 +239,10 @@ Per component, while iterating:
 cd src/<component> && dotnet test tests/<Assembly>.Tests/<Assembly>.Tests.csproj -c Release \
   --settings coverage.runsettings --collect:"XPlat Code Coverage"
 
-# .NET: the enforced gate itself (copy the exact flags from the test project's
-# project.json coverage-threshold target - Include/Exclude/Threshold differ per component)
-dotnet test --no-restore "/p:CollectCoverage=true" "/p:CoverletOutputFormat=cobertura" ...
+# .NET: the enforced gate. Run the nx target, do not retype its flags -
+# Include/Exclude/Threshold differ per component, and a mis-copied flag reports a
+# gate that is not the one CI runs.
+npx nx run <Assembly>.Tests:coverage-threshold
 
 # ui-app
 cd src/ui-app && npm run test:coverage   # iterating: see uncovered lines/branches
@@ -268,22 +253,75 @@ Then prove the new tests are independent, because a full in-order suite run does
 not:
 
 ```bash
-# ui-app: each new spec file on its own, then the suite in a randomized order
+# ui-app: every spec file you touched, on its own, then the suite shuffled
 cd src/ui-app && npx vitest run --project=unit <path/to/new.spec.ts>
 cd src/ui-app && npx vitest run --project=unit --sequence.shuffle
 
-# .NET: each new test on its own, then its class on its own
+# .NET: each test class you touched, on its own
 cd src/<component> && dotnet test tests/<Assembly>.Tests/<Assembly>.Tests.csproj \
-  --filter "FullyQualifiedName~<TestClass>.<TestMethod>"
+  --filter "FullyQualifiedName~<TestClass>"
 ```
 
-Run the single-test check on every test you added, not a sample. A test that
-passes in the full suite but fails alone is depending on state another test left
-behind: fix the test, do not reorder the file. If a shuffled run fails, report it
-and fix it before reporting coverage - order-dependent tests that pass today are
-a broken gate tomorrow. A shuffled run prints its seed; re-run with
-`--sequence.shuffle --sequence.seed=<seed>` to reproduce the same order while you
-fix it.
+The unit here is the **spec file** for `ui-app` and the **test class** for .NET,
+not the individual test. The file is the process boundary: the shuffled full run
+catches what leaks across files, the isolated file run catches what leaks within
+one, and between them nothing is left for a per-test run to find. Do it for every
+file you touched, not a sample.
+
+A file that passes in the full suite but fails alone is depending on state
+another file left behind: fix the test, do not reorder it. If a shuffled run
+fails, report it and fix it before reporting coverage - order-dependent tests
+that pass today are a broken gate tomorrow. A shuffled run prints its seed
+(`Running tests with seed "..."`); re-run with `--sequence.shuffle
+--sequence.seed=<seed>` to reproduce that order while you fix it.
+
+### Then break the code
+
+The two checks above prove the tests are *stable*. Neither proves a test can
+*fail*, and a test that cannot fail passes a green suite off as coverage. So
+every test you added has to be seen going red against a broken version of the
+code it covers.
+
+**Batch by mutated line, not by test.** One broken line should take several tests
+down with it, and booting the test environment costs far more than running the
+tests does, so mutate once and run the whole spec file. That is one run per
+changed line instead of two per test. Work from the list of production lines the
+branch added or changed:
+
+1. Break one. Flip the boolean, delete the binding, drop the guard clause, return
+   early, remove the `preventDefault`.
+2. Run every spec that should notice, in a single run. Record which tests went
+   red.
+3. Restore the line and re-run those specs green.
+
+```bash
+# ui-app: one mutation, every spec that should notice it
+cd src/ui-app && npx vitest run --project=unit <spec> [<spec>...]
+```
+
+The bar at the end: **every test you added must have gone red under at least one
+mutation.** Any test green through the whole pass is the finding - wrong channel,
+or asserting nothing. Confirm with a targeted mutation of the exact line it
+claims to cover, then fix it by finding the channel the behavior is really
+observable on (Step 3), not by adding a second assertion beside the one that did
+not fail.
+
+For a `.vue` binding the mutation is deleting the binding itself -
+`@dblclick="onDblclick"` removed, suite still green, means nothing was testing
+it.
+
+**Never leave a mutation behind.** The branch diff is this skill's entire output,
+so a stray edit to production code is the worst thing it can ship. Record the
+baseline before the first mutation:
+
+```bash
+git status --porcelain && git diff --stat        # this is what you restore to
+```
+
+Copy each file before breaking it and restore from that copy, never from an
+inverse edit made from memory. At the end of the pass re-run both commands and
+confirm nothing outside the test files moved. If anything differs, restore it
+before reporting a single number.
 
 Report exit codes and actual numbers, not a paraphrase of the log. `imaging`
 needs its Rust toolchain (`cargo test --workspace` in `native/`) and
@@ -291,22 +329,24 @@ needs its Rust toolchain (`cargo test --workspace` in `native/`) and
 excluded from the PR gates for that reason. If you cannot run something, name the
 command and say why rather than reporting around it.
 
-## Step 6 - summarize
+## Step 5 - summarize
 
 Report:
 
 - Test files added or edited, and which component each belongs to.
-- The case matrix you covered, grouped by behavior, so a reviewer can see the
-  edges were considered and not just the lines.
+- The case matrix you covered, grouped by behavior and naming the channel each
+  behavior is asserted on, so a reviewer can see the edges were considered and
+  not just the lines.
 - Final coverage numbers per component, and whether the enforced threshold holds.
-- The independence check: that every new test passed run on its own, and that the
-  shuffled-order run passed. Name any test that needed a reset hook to get there.
+- The independence check: that every spec file and test class you touched passed
+  run on its own, and that the shuffled run passed. Name any test that needed a
+  reset hook to get there.
+- The mutation check: which lines you broke, and that every test you added went
+  red under at least one of them. Name any test whose channel had to change to
+  get there, any binding that turned out to have nothing testing it, and confirm
+  the tree is back to its pre-mutation state.
 - Any branch you deliberately left uncovered, with the justification.
 - Any missing test hook you had to flag back to a component.
-- The end-to-end decision, as the list of integration points the branch added and
-  what happened to each: already crossed by `<spec>`, proposed and awaiting
-  approval, or not an integration point. "No new integration points" is a
-  complete answer.
 - What a human should still verify by hand: visual, responsive, and third-party
   behavior that no unit test can assert.
 
@@ -319,16 +359,16 @@ human review comes later, at the final joey-bot gate. Proceed anyway:
 
 - Write the suite against the diff, the code, and the design handoff as usual,
   and hold the component's real coverage gate.
-- **The end-to-end approval gate becomes a decision you make.** The same rule
-  applies: one thin happy-path test per integration point the branch added that
-  no existing spec crosses, and nothing at all when it added none. Since nobody
-  will click through the feature by hand, resolve a borderline seam toward
-  writing the test - a new backend call or a new multi-step flow gets its one
-  test rather than a note to check it manually. That leniency is about how
-  readily you call something an integration point, not a licence to add a test
-  for a seam already covered or for behavior the unit suite owns. You own the
-  unit/coverage and E2E rungs of the autonomous testing ladder; live browser
-  verification is a separate joey-bot stage, so do not drive a browser here.
+- **There is no approval gate to stand in for.** This skill asks the human
+  nothing, so nothing here is suppressed. You own the unit and coverage rung of
+  the autonomous testing ladder and no other: end-to-end is out of scope for this
+  skill entirely, and live browser verification is its own joey-bot stage, so do
+  not drive a browser here.
+- **The mutation check is not optional headless.** Interactively a reviewer
+  eventually spots a test that cannot fail; unattended, nobody does, and a green
+  100% number is the only thing the report carries. Run the full pass, and say in
+  the summary both that every test went red under some mutation and that the tree
+  was restored.
 - Behavior has not been human-confirmed, so be conservative: test what the spec
   specifies and the code implements, and do not invent requirements. Note in the
   summary that the suite locks in behavior still pending manual verification.
@@ -346,11 +386,13 @@ Do not commit here - commit policy for the run belongs to joey-bot.
 
 ## Conventions
 
-- C# test code follows the repo-root style: `net10.0`, `Nullable enable`, no
-  `var` (explicit types), 4-space indent, `Laserfiche.*` namespaces, xUnit with
-  plain `Assert.*`.
-- TypeScript for all `ui-app` and Playwright test code; `<script setup lang="ts">`
-  patterns as in existing specs. The repo's C# style rules do not apply there.
+Test code follows the same style rules as production code, which step 2 already
+sent you to read: the repo-root `CLAUDE.md` for C#, the existing sibling specs
+for `ui-app` (TypeScript throughout, and the C# rules do not apply there). What
+those files do not cover:
+
+- xUnit with plain `Assert.*`. The repo has no fluent assertion library and does
+  not want one.
+- `Laserfiche.*` namespaces, mirroring the source folder layout.
 - Test names state the behavior and the condition, matching the sibling files'
   existing pattern.
-- No em dash, emojis, arrows, or box-drawing characters in code or text.
