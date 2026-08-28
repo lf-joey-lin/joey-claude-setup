@@ -68,19 +68,9 @@ git -C "<root>/momentum" status --porcelain          # empty == clean tree
 git -C "<root>/momentum" branch --show-current        # expect: main
 ```
 
-This repo is **jj-colocated**, so `git branch --show-current` can be stale or
-detached (see the CI/CD gotchas in the repo CLAUDE.md). If `jj` is present,
-cross-check the working-copy state before trusting git:
-
-```bash
-jj -R "<root>/momentum" log -r @ --no-graph -T 'bookmarks.join(",") ++ "\n"'
-jj -R "<root>/momentum" status
-```
-
 - **Clean tree AND on `main`** -> branch in place (step 4a).
-- **Anything else** (dirty tree, or on a feature branch, or jj shows an
-  in-progress change) -> new worktree (step 4b). Do not stash, reset, or check
-  out over the top of whatever is there.
+- **Anything else** (dirty tree, or on a feature branch) -> new worktree (step
+  4b). Do not stash, reset, or check out over the top of whatever is there.
 
 Also check the target names are free before creating:
 
@@ -150,10 +140,29 @@ Two things to get right:
   remote rejects the name), the branch and worktree are still good. Report the
   actual error and carry on to step 6 rather than unwinding anything.
 
-In the jj-colocated repo, `git push` is fine; jj picks up the new remote bookmark
-on its next command.
+## 6. End up in the worktree
 
-## 6. Report
+The whole point of the setup is to work in the new worktree, so finish there
+rather than leaving the human to `cd` by hand and restart Claude.
+
+If step 4b created a new worktree, move this session into it with the
+`EnterWorktree` tool:
+
+```
+EnterWorktree(path: "<root>/momentum-<shortdesc>")
+```
+
+- Skip it after 4a. The session is already where the work is.
+- It needs the session's current directory to be inside a git repo. Launched at
+  `<root>` it fails with "the current directory is not in a git repository";
+  launched at `<root>/momentum` it works. A failure here is not a setup failure -
+  report the path and let the human move.
+- It asks to confirm once. If that is declined, carry on to the report.
+- Never call `ExitWorktree` after it. Git created this worktree, not the tool, so
+  the tool cannot remove it and `keep` would only bounce the session back to
+  where it started.
+
+## 7. Report
 
 State plainly what was set up so the next steps are obvious:
 
@@ -161,7 +170,8 @@ State plainly what was set up so the next steps are obvious:
 - whether it was created in place at `<root>/momentum` or in a new worktree at
   `<root>/momentum-<shortdesc>`, and why (default worktree was clean vs. busy) -
   print the resolved absolute path, not the `<root>` placeholder
-- the working directory to run subsequent commands from
+- the working directory to run subsequent commands from, and whether this
+  session already moved there or the human still has to
 - that the branch is published and tracking `origin/<branch>`, or, if the push
   failed, that it is local-only and why
 
@@ -172,5 +182,7 @@ State plainly what was set up so the next steps are obvious:
   is the one push this skill makes, and it carries no commits.
 - One piece of work per invocation - it maps to exactly one branch and, at most,
   one worktree.
-- This is setup only. It does not create the TFS work item (that is `create-tfs`)
-  or open a PR.
+- This is setup only. It creates no TFS work item and opens no PR. Both are
+  `paperwork`'s job at the end of the session, once there is a branch worth
+  filing paperwork for. The flow is `new-work` -> implement -> `wrap-it-up` ->
+  `paperwork`.
