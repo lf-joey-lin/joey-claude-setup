@@ -1,6 +1,6 @@
 ---
 name: joey-bot
-description: Run a full round of ui-app dev work autonomously, the way Joey (a senior engineer) would - from a brief spec through to a tested, ready-to-PR branch on its own worktree, then hand to a human to review and ship. joey-bot is a pure orchestrator: it owns a markdown state file and spawns one subagent per pipeline stage (new-work, spec-ui, design-ui, implement-ui, update-tests, review-ui, prepare-to-ship, a self-review, live browser verification), driving each headless via the shared autonomous-pipeline contract, and never does the work itself. Two modes - the default is full auto, running end to end with a single final review gate (and is the mode to spawn several of in parallel); `--interactive` adds one checkpoint after the spec. Invoke when the user types /joey-bot, or asks to "have joey-bot build/implement <feature>", "do an autonomous dev run on <feature>", or "run the whole pipeline on <feature>" for the ui-app.
+description: Run a full round of ui-app dev work autonomously, the way Joey (a senior engineer) would - from a brief spec through to a tested, ready-to-PR branch on its own worktree, then hand to a human to review and ship. joey-bot is a pure orchestrator: it owns a markdown state file and spawns one subagent per pipeline stage (new-work, spec-ui, design-ui, implement-ui, update-tests, review-ui, prepare-to-ship, a self-review, live browser verification), driving each headless via the shared autonomous-pipeline contract, and never does the work itself. It stops at a pushed, reviewed branch: the TFS work item and the PR are the paperwork skill's job, run only after the human approves. Two modes - the default is full auto, running end to end with a single final review gate (and is the mode to spawn several of in parallel); `--interactive` adds one checkpoint after the spec. Invoke when the user types /joey-bot, or asks to "have joey-bot build/implement <feature>", "do an autonomous dev run on <feature>", or "run the whole pipeline on <feature>" for the ui-app.
 ---
 
 # joey-bot: autonomous senior-engineer dev run for a ui-app feature
@@ -9,8 +9,8 @@ Take a brief spec, and drive the full `ui-app` pipeline to a tested, ready-to-PR
 branch without a human in the loop, then stop and hand it back for review. The
 deliverable is a branch on its own worktree, built and reviewed and passing the
 repo's gates, plus a readable state file explaining every decision made along the
-way. Housekeeping (the TFS work item and the PR) happens only after the human
-approves.
+way. Housekeeping (the TFS work item and the PR) is not part of the run: it is one
+`paperwork` call, made only after the human approves.
 
 You (the invoked agent) are the **orchestrator**. You do none of the work
 yourself. You build the state file, spawn one subagent per stage, gate each stage
@@ -157,14 +157,12 @@ expensive, and go as high as the feature allows:
 2. **Unit / component** - Vitest + Vue Test Utils at the repo's 100% statement and
    branch gate (update-tests).
 3. **Accessibility** - the Storybook a11y suite (ship gate).
-4. **End-to-end** - one thin Playwright happy-path spec per **integration point**
-   the work added that no existing spec crosses: a real backend call, the auth
-   boundary, a route that has to resolve, a browser capability the unit tier can
-   only fake, a multi-step flow (update-tests). Not one per page - the page is not
-   the unit of coverage, the seam is, and once a seam is proven the unit tier
-   proves the rest. Work that adds no seam gets no spec. Autonomous runs resolve a
-   borderline seam toward writing the test, since no one is clicking through by
-   hand.
+4. **End-to-end** - **no stage in this pipeline writes one.** update-tests is unit
+   only, and rung 5 drives the real app, so an autonomous run proves the wiring
+   there instead. Where the work added a seam only a Playwright spec can hold (a
+   real backend call, the auth boundary, a route that has to resolve, a browser
+   capability the unit tier can only fake, a multi-step flow), name it in the
+   report as a follow-up for the human rather than writing it here.
 5. **Live verification** - drive the actually-running app with the Chrome DevTools
    MCP: load the feature, exercise its routes and states, check the rendered DOM,
    console, and network, and capture screenshots as evidence (the live-verify
@@ -175,8 +173,8 @@ expensive, and go as high as the feature allows:
    left here, say in the report **why** it cannot be automated.
 
 Every rung that runs must land in the report with its real result and evidence
-(coverage numbers, a11y outcome, E2E pass/fail, screenshots and console/network
-observations). A rung that could not run (e.g. no browser available for rung 5)
+(coverage numbers, the mutation check, a11y outcome, screenshots and console/
+network observations). A rung that could not run (e.g. no browser available for rung 5)
 is recorded as such, and its checks move to rung 6 with the reason - never
 silently skipped.
 
@@ -216,10 +214,10 @@ Stages:
    Seed: points it at `logs/feature-design.md`.
 4. **Test** (update-tests, sonnet) -> writes co-located specs; holds the 100%
    coverage gate. Seed: the design handoff and the implemented code, and tell it
-   this is an unattended run, so it decides the end-to-end question itself instead
-   of asking: one thin happy-path spec per integration point the work added that
-   no existing spec crosses, nothing when it added no seam. Tell it to end its
-   summary with an explicit `## Handbacks` list, `none` if it has no items.
+   this is an unattended run, so no reviewer will read the tests: it runs its
+   mutation check on every test it writes and reports the result, because a green
+   100% is the only evidence the report carries. Tell it to end its summary with
+   an explicit `## Handbacks` list, `none` if it has no items.
    - **Handbacks are the code changes update-tests cannot make itself.** It owns
      tests, not components, so three things it legitimately finds fall outside its
      scope: an element it cannot locate without a **missing `data-testid`**, a
@@ -282,7 +280,7 @@ test, review fixes, self-review fixes) and passed its verification, make one loc
 commit on the feature branch with a clear imperative subject (writing rules
 applied, no trailers). This is git bookkeeping the orchestrator owns, like the
 state file - it does not count as "doing the work". **Never push.** The branch is
-the review artifact; pushing and the PR are Phase 2, after the human approves.
+the review artifact; the push and the PR are Phase 2, after the human approves.
 
 ## The final review gate
 
@@ -294,7 +292,7 @@ gate. The report states:
 - one line per stage: what it did and its outcome;
 - the ship-gate scorecard (build / unit+100% / a11y) with the real verdict;
 - the **testing ladder performed**, rung by rung, with evidence: coverage numbers,
-  a11y outcome, E2E pass/fail, and for live verification the behaviors checked with
+  the mutation check, a11y outcome, and for live verification the behaviors checked with
   their screenshots and console/network observations. This is the proof the code
   was actually exercised, not just built;
 - **needs human verification** - only the checks that genuinely could not be
@@ -320,16 +318,23 @@ reads it in the main session and runs Phase 2 there.
 
 ## Phase 2 - housekeeping (only after the human approves)
 
-Never automatic. Each step confirmed with the human, in the main session:
+Never automatic, and not this skill's to improvise. Two calls, in this order,
+confirmed with the human in the main session:
 
-1. **Work item** - run the `create-tfs` skill to create the story/bug on Joey's
-   board.
-2. **PR** - push the branch (`git push -u origin HEAD`) and open the PR with `gh`:
-   title `[ui-app] <imperative summary>`, body = bullets + a `## Related` link to
-   the TFS work item (writing rules applied).
-3. **Link back** - add the PR as a **Hyperlink relation** on the work item's Links
-   tab via the TFS REST API (the `wit_*` MCP tools cannot add a GitHub PR
-   relation) - use the `Invoke-RestMethod` snippet in the root `CLAUDE.md`.
+1. **Push the branch.** The run's commits are local by design. `ship-it` from the
+   run's worktree, or `git push -u origin HEAD` if there is nothing left to commit.
+2. **`paperwork --pr`.** It creates the story or bug on Joey's board from what the
+   branch actually did, opens the PR from the repo's own template with the item
+   linked in the body, and adds the PR back as a Hyperlink relation on the item's
+   Links tab.
+
+`paperwork` owns the work-item fields, the AC rules, the PR template and the link
+back. Do not reimplement any of it here, and do not call `create-tfs` or `gh pr
+create` directly.
+
+Seed `paperwork` with the state-file path and the ready-for-review report, since
+those are the closest thing this run has to a `wrap-it-up` report and are what it
+writes the description and acceptance criteria from.
 
 ## The state file
 
@@ -369,9 +374,9 @@ never in a batch at the end.
 
 ## Testing ladder (what ran + evidence)
 - 1 Static (compile/lint): -
-- 2 Unit + coverage: -  (numbers)
+- 2 Unit + coverage: -  (numbers, and the mutation check on every new test)
 - 3 Accessibility: -
-- 4 E2E (Playwright): - (warranted? which flows)
+- 4 E2E (Playwright): not written by this pipeline (seams to follow up, or none)
 - 5 Live verification (Chrome MCP): - (behaviors checked, screenshot paths,
   console/network notes; or "could not run - <reason>")
 
@@ -437,5 +442,6 @@ stage ends, so two runs never fight over one port.
   with no documented default gets the most-recommended option plus a note in the
   report that this file needs a rule for it.
 - Never push, and never do Phase 2 (work item, PR) without explicit human
-  approval, confirmed each time.
+  approval, confirmed each time. Phase 2 is a `paperwork` call, not inline work:
+  this skill creates no board item and opens no PR itself.
 - No em dash, emojis, arrows, or box-drawing characters in anything written.

@@ -1,6 +1,6 @@
 ---
 name: wrap-it-up
-description: Finish a momentum branch after the code is written and the human has verified it behaves correctly, and hand back a pushed branch plus a plain-language report of everything that changed. A pure orchestrator: it merges the latest origin/main into the branch and resolves any conflicts, fans out the read-only review passes (solidify, /code-review, /security-review, and review-ui when ui-app changed), fixes only the findings that are real and obvious, writes the suite with update-tests, runs the prepare-to-ship gate (lint, unit tests, the 100% coverage thresholds, build, a11y), commits and pushes with ship-it, then writes an eli5-style walkthrough explaining file by file what changed and why, so the human can read the branch and open the PR themselves. Low-priority nitpicks that would cost code simplicity are deliberately not fixed and land in the report instead. It never opens a PR and never creates a work item. Invoke when the user types /wrap-it-up, or asks to "wrap it up", "wrap this up", "finish this off", "close this out", "final pass before PR", or "get this branch ready for review" once implementation is done.
+description: Finish a momentum branch after the code is written and the human has verified it behaves correctly, and hand back a pushed branch plus a plain-language report of everything that changed. A pure orchestrator: it merges the latest origin/main into the branch and resolves any conflicts, fans out the read-only review passes (solidify, /code-review, /security-review, and review-ui when ui-app changed), fixes only the findings that are real and obvious, writes the suite with update-tests, runs the prepare-to-ship gate (lint, unit tests, the 100% coverage thresholds, build, a11y), commits and pushes with ship-it, then writes an eli5-style walkthrough explaining file by file what changed and why, so the human can read the branch before anything goes out. Low-priority nitpicks that would cost code simplicity are deliberately not fixed and land in the report instead. It never opens a PR and never creates a work item: that is the paperwork skill, which the human runs next and which reads this skill's report to write the work item and the PR. Invoke when the user types /wrap-it-up, or asks to "wrap it up", "wrap this up", "finish this off", "close this out", "final pass before PR", or "get this branch ready for review" once implementation is done.
 ---
 
 # wrap-it-up Skill
@@ -25,9 +25,12 @@ Two deliverables, and nothing else:
 2. `artifacts/wrap-it-up/<branch>-report.md`, a plain-language walkthrough of the
    branch, also presented inline.
 
-It stops there. The PR and the TFS work item stay with the human on purpose: they
-are about to read the diff file by file, and the report exists to make that read
-fast and to show them what changed after they last looked.
+It stops there. The PR and the TFS work item are `paperwork`'s job, and the human
+runs it once they have read the report: they are about to read the diff file by
+file, and the report exists to make that read fast and to show them what changed
+after they last looked. So the report is also `paperwork`'s input - it writes the
+work item's description and acceptance criteria and the PR body out of sections 1,
+2 and 6. Write it well enough to be read twice.
 
 ## Invocation
 
@@ -36,7 +39,7 @@ fast and to show them what changed after they last looked.
 /wrap-it-up --no-push        # commit, but leave the branch local
 ```
 
-`hint` is optional context for the report and the PR draft ("this is the second
+`hint` is optional context for the report ("this is the second
 half of the widget story", "the config bit is a follow-up"). It never widens the
 scope of what gets fixed.
 
@@ -118,12 +121,6 @@ git fetch origin
 git diff --name-only origin/main...HEAD      # committed
 git status --porcelain                        # uncommitted and untracked
 ```
-
-The repo is jj-colocated, so `git branch --show-current` and `git rev-parse HEAD`
-can lie (empty, stale, detached). Cross-check with
-`jj log -r @ --no-graph -T 'bookmarks.join(",") ++ "\n"'`, and if the three-dot
-diff comes back empty or obviously wrong fall back to `git diff origin/main`
-before concluding anything.
 
 **Uncommitted work counts.** On this repo an unstaged change is review state, so it
 is part of the branch and part of every pass's scope. Say so in each seed.
@@ -380,9 +377,11 @@ Structure, in this order:
    pass raised it and why it was dropped.
 7. **Still needs your eyes** - what no check can assert (visual polish, subjective
    UX feel, third-party behavior), each with what to look at and where.
-8. **PR draft** - a title in the repo's `[area] Imperative summary` form and a
-   short bullet body, plus the `## Related` work-item placeholder. Their PR to
-   open; this is just the text ready to paste.
+8. **Next step** - one line: `/paperwork` once they are happy with the read, which
+   creates the work item and opens a draft PR, or `/paperwork --pr` to open it
+   ready for review. No PR draft here. `paperwork` writes the title, the bullets
+   and the acceptance criteria off this report and the real template in the repo,
+   and drafting them twice is how the two versions drift.
 
 Then present it inline: the "what this branch does" paragraph, the read-order list,
 "what changed after you last looked", the scorecard, and the not-fixed list. Point
@@ -392,7 +391,9 @@ screen.
 Two lines that always appear if they apply:
 
 - any `en.json` changed - the PR needs the **`to-be-translated`** label before
-  `pr-i18n-parity` can pass. Never try to fix parity locally.
+  `pr-i18n-parity` can pass. `paperwork --pr` puts it on when it opens a
+  ready-for-review PR, so this is a note, not a task. Never try to fix parity
+  locally.
 - what CI still owns that the local gate cannot: the container builds, the
   migration apply, `pr-metadata`, the contract breaking-change check. So a green
   scorecard is not read as "CI will be green".
@@ -462,8 +463,8 @@ including every stop, is unchanged.
   because it was raised, and never drop a real defect because the fix is dull.
 - Never change behavior the human verified. That is a stop with a report, not a
   fix.
-- No PR, no work item, no TFS edits. Deliberate: the human opens the PR after
-  reading the report.
+- No PR, no work item, no TFS edits, not even a draft of the PR body. Deliberate:
+  the human reads the report, then runs `paperwork`, which owns all of it.
 - Merge `origin/main` in, never rebase onto it. Never resolve a conflict by
   dropping a side, and never guess at one where the two sides genuinely disagree
   about behavior - that is `git merge --abort` and a report.

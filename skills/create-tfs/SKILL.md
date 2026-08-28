@@ -151,6 +151,11 @@ adjust anything you guessed. Do not claim it worked without the returned id.
   check with `search_workitem` before re-creating).
 - If `System.AssignedTo` errors as an unknown identity, the domain form is wrong
   for the environment - stop and ask rather than guessing other forms.
-- Linking a PR to the item later is a separate flow (see the Momentum section of
-  the global CLAUDE.md - GitHub PRs attach as a Hyperlink relation via the TFS
-  REST API, not through the MCP link tools).
+- **This skill is also `paperwork`'s item-creation step**, so it stays the single
+  place the board's field table lives. When `paperwork` calls it the work is
+  already done and a PR is about to go up, and it says so: create the item in
+  `Active`, not `New`/`Open`. A direct `/create-tfs` for work not yet started
+  keeps the first-state default above.
+- Linking a PR to the item is not this skill's job - `paperwork` does it, as a
+  Hyperlink relation via the TFS REST API (the MCP link tools cannot attach a
+  GitHub PR). See that skill, or the Momentum section of the global CLAUDE.md.

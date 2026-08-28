@@ -400,7 +400,8 @@ Nothing in a worker file may relax the three promises or the caps.
   no stash, no reset, no writes.
 - Never push to `main`. Push only `gnhf/*` branches, only after a green gate.
 - Never open a PR and never create or edit a TFS work item. Handover is a pushed
-  branch and a digest line; the decision is Joey's.
+  branch and a digest line; the decision is Joey's. When he keeps a branch, he
+  runs `paperwork` on it himself - do not run it, and do not seed it.
 - Localized strings: `en.json` only. Never touch `fr.json`, `es.json`,
   `en-XA.json`, or the XLIFF memory, never run `translate.ts --pseudo`, and never
   report `pr-i18n-parity` as a failure. A branch that changed an `en.json` gets a

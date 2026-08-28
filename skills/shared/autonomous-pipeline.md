@@ -52,9 +52,9 @@ When headless:
    sloppy.
 6. **Test as high up the ladder as the work allows.** An unattended run has no
    human clicking through, so testing is not optional: cover the code with unit /
-   component tests at the repo's coverage gate, warrant E2E for real flows, and
-   leave for human verification only what genuinely cannot be automated, with the
-   reason. joey-bot owns the full testing ladder (its "Testing ladder" section);
+   component tests at the repo's coverage gate, prove the real app runs where a
+   browser is available, and leave for human verification only what genuinely
+   cannot be automated, with the reason. joey-bot owns the full testing ladder (its "Testing ladder" section);
    these skills supply the rungs they own and never quietly downgrade rigor
    because no one is watching.
 7. **Surface, do not swallow, a genuine blocker.** If the input is
@@ -74,7 +74,7 @@ summary the orchestrator relies on.
 | spec-ui | Step 5 clarification rounds + Step 6 approval | answer each open question from app precedent, then Manta, then the house default, then the most-recommended option; still run the Step 3 ux-review pass (it is what catches a request that does not make sense, and nothing downstream repeats it); record each choice and the alternative in "Resolved design questions" / "Conventions & deviations", departures from the request first; write `feature-spec.md` without stopping |
 | design-ui | Step 1/2 clarifying questions + Step 9 approve-then-write | resolve open questions most-recommended, record alternatives in "Open questions / risks", write `feature-design.md` without stopping |
 | implement-ui | Step 4 hand off to human to test and iterate | after compile + lint pass, do not stop for manual testing; list the manual checks for the final review gate and return |
-| update-tests | Step 4's end-to-end approval question (assumes prior human approval of the code) | run immediately after implement; enforce the component's real coverage gate; decide the end-to-end question yourself under the same "one thin happy path per new integration point no existing spec crosses, nothing if the branch added no seam" rule, resolving a borderline seam toward writing it since nobody clicks through; note that manual verification was deferred |
+| update-tests | none, the skill asks the human nothing (it does assume prior human approval of the code) | run immediately after implement; enforce the component's real coverage gate; run its mutation check on every test it wrote and report the result, since unattended nobody catches a test that cannot fail; end-to-end is out of scope for the skill; note that manual verification was deferred |
 | review-ui | section 1 bulk gate + per-finding keep/revert/commit | auto-accept must-fix + recommended, apply and verify each, record; defer minor findings with a note; handle findings **inline** (no extra subagent layer) to cap nesting depth; make no commit here |
 | prepare-to-ship | (already non-interactive) | unchanged; run the local checks the changed components trigger (no Docker, no PR-level checks), fix test/coverage/lint failures in place within its own bound, return the scorecard and verdict |
 
@@ -97,3 +97,9 @@ keeps the depth at orchestrator -> stage subagent, not a third level.
   the run as a whole belongs to the host orchestrator, not to these skills -
   `joey-bot` commits per stage and never pushes, `wrap-it-up` pushes only through
   its `ship-it` phase once the gate is green.
+- The board and the pull request: no skill creates a TFS work item or opens a PR
+  except `paperwork`. It always does both, and headless it opens the PR as a
+  **draft** - only an explicit `--pr` in the invocation opens one ready for review,
+  because that is what pulls in a human and the review bot. An orchestrator that
+  wants the housekeeping done calls `paperwork` as a phase; it never calls
+  `create-tfs` or `gh pr create` itself.
