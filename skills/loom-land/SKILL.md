@@ -50,15 +50,36 @@ just failed.
 - A rejected push is reported with the real error and the commits left in
   place - never pull-rebase or force to get past it.
 
-## Step 4 - the report, from the ledger
+## Step 4 - close the clock
+
+Read `date -Iseconds` now, before writing a word of the report, and put it in
+the ledger header's `Finished:`. **The run's finish is the moment the report
+starts being written**, because a report cannot time its own writing. Then
+fill the header's two totals, both from the shell, never by hand:
+
+- `Wall:` header `Started:` to header `Finished:`.
+- `Active:` every stage's `- Timing:` line summed, fix turns and re-probes
+  included.
+
+They differ by the orchestrator's gating between stages, and on a resumed run
+they differ by however long the run sat idle. That gap is the point of
+carrying both, so never report one as the other, and never quietly reconcile
+them. If a stage's timing line is missing, say so in the report and leave it
+out of `Active:` rather than estimating it - a made-up duration is worse than
+an admitted hole.
+
+## Step 5 - the report, from the ledger
 
 Write `src/ui-app/logs/loom/<slug>-report.md` **from the ledger, not from
 memory** - every claim in the report must trace to a ledger entry with
-evidence. Structure:
+evidence. Under the title, one line: the branch, and
+`started <iso>, finished <iso>, wall <hh:mm:ss>, active <hh:mm:ss>`.
+Structure:
 
 1. **What this branch does** - two or three sentences in user terms.
 2. **The slices, in order** - one short block each: the behavior, the commit,
-   the checks that lock it in (born red, per the ledger).
+   the checks that lock it in (born red, per the ledger), and the slice's
+   started, finished and took, copied from its `- Timing:` line.
 3. **What probe found and what happened to it** - each finding with its
    reproduction in one line, fixed-in-commit or deferred-with-reason.
    Promoted probe specs named: these are the regression tests the run earned.
@@ -71,9 +92,16 @@ evidence. Structure:
    `en.json` changed, the `to-be-translated` note per the contract.
 7. **Decisions taken** - everything marked `(defaulted)` in the ledger, so
    the reader sees what was assumed versus asked.
-8. **Next step** - one line: `/paperwork` for the work item and PR (it reads
+8. **Timing** - a table, one row per stage in the order they ran, slices and
+   fix turns and probes alike: stage, started, finished, took. Then the two
+   totals from the header, labelled as step 4 defines them. Copy every cell
+   from a `- Timing:` line; compute nothing here. Keep it factual - it is a
+   record of where the run spent itself, not a performance claim, so do not
+   editorialise about which stage was slow.
+9. **Next step** - one line: `/paperwork` for the work item and PR (it reads
    this report), or the push command if the branch is still local.
 
-Present sections 1, 5, and 6 inline in the conversation; point at the file
-for the rest. Mark Land `[x]` in the ledger with the merge result, push
-state, and report path.
+Present sections 1, 5, and 6 inline in the conversation, plus the two totals
+from section 8 as one line; point at the file for the rest. Mark Land `[x]`
+in the ledger with the merge result, push state, report path, and its own
+`- Timing:` line.

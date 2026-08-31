@@ -17,6 +17,10 @@ on the patch lane), and any probe findings assigned to you in fix mode.
 
 ## Step 0 - ground
 
+Read the clock first: `date -Iseconds`, kept for the slice's `- Timing:` line.
+It is the one thing that cannot be recovered afterwards, and a slice that
+forgets it has to report the time as unrecorded rather than invent one.
+
 - Confirm every Nuxt UI component and prop the slice will use against the
   installed types before writing it. The plan named them; trust but verify -
   the install is what ships.
@@ -72,8 +76,10 @@ npx eslint --fix <touched paths>
 
 Real exit codes into the ledger. Then one commit for the slice - code, its
 specs, and its `en.json` keys together, subject `[ui-app] <imperative>`, no
-trailers. The slice's ledger entry gets: the red evidence, the green commit,
-the verify lines, and one claim per check with its channel.
+trailers. Read the clock again once that write is done, and record the
+contract's `- Timing:` line from the two readings. The slice's ledger entry
+gets: the timing, the red evidence, the green commit, the verify lines, and
+one claim per check with its channel.
 
 Do not run the full suite, the coverage gate, or a11y here - that is
 loom-gate, once, at the end.
@@ -115,9 +121,10 @@ reproduction into a failing spec (red), then fix to green - same discipline,
 smallest change, nothing the finding does not concern. Promote that spec into
 the suite; it is now a regression test that earned its place. Commit as
 `[ui-app] Fix <what>` and record against the finding id in the ledger's Fixes
-section. If a finding turns out to be wrong or the fix would change behavior a
-check locks in, do not force it - record the disagreement and return; the
-orchestrator decides.
+section, with its own `- Timing:` line - a fix turn is stage time and the run
+total has to account for it. If a finding turns out to be wrong or the fix
+would change behavior a check locks in, do not force it - record the
+disagreement and return; the orchestrator decides.
 
 ## Return
 

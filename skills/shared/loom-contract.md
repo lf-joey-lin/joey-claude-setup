@@ -110,6 +110,16 @@ point, and the source the final report is generated from. Rules:
   first stage not marked done. Never restart a stage marked `[x]`.
 - **Decisions are logged where they are made**: the choice, the alternative,
   one line of why, and whether it was asked or defaulted.
+- **Timing is read from the clock, never estimated.** Every stage stamps its
+  own section: run `date -Iseconds` when it starts acting, again once its
+  ledger write is done, and record one line,
+  `- Timing: started <iso>, finished <iso>, took <hh:mm:ss>`. Never write a
+  timestamp or a duration you did not read from `date` - a remembered or
+  guessed time is worse than no time at all. Get a duration from the shell
+  too, not by hand:
+  `d=$(( $(date -d '<finish>' +%s) - $(date -d '<start>' +%s) )); printf '%02d:%02d:%02d\n' $((d/3600)) $((d%3600/60)) $((d%60))`.
+  Scout stamps the run's start in the header, land its finish. A fix turn or a
+  re-probe stamps itself like any other stage.
 
 Template (stages append their own sections; keep this spine):
 
@@ -119,7 +129,8 @@ Template (stages append their own sections; keep this spine):
 - Request: <verbatim>
 - Lane: patch | feature    Mode: attended | solo
 - Branch: <branch>    Worktree: <absolute path>
-- Started: <yyyy-mm-dd>
+- Started: <iso8601>    Finished: <iso8601>
+- Wall: <hh:mm:ss> (start to finish)    Active: <hh:mm:ss> (stage timings summed)
 - Legend: [ ] pending  [~] in progress  [x] done  [!] blocked
 
 ## Brief (scout) - [ ]
@@ -137,6 +148,7 @@ Template (stages append their own sections; keep this spine):
 
 ## Slices
 ### S1 - [ ]
+- Timing: started <iso>, finished <iso>, took <hh:mm:ss>
 - Red: <spec path> failed as expected before implementation
 - Green: <commit hash> <subject>
 - Verify: typecheck exit 0 | eslint exit 0 | slice specs n/n

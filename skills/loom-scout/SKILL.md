@@ -79,7 +79,10 @@ thing costs one short section, a missing plan for a big thing costs rework.
 
 ## Step 4 - the brief
 
-Create the ledger from the contract's template and fill the Brief section:
+Create the ledger from the contract's template and fill the Brief section.
+Fill the header's `Started:` with `date -Iseconds`, read now, not remembered.
+Leave `Finished:`, `Wall:` and `Active:` as placeholders; land fills them.
+Stamp your own `- Timing:` line on the Brief section like any other stage.
 
 - **Intent** - one or two sentences, who uses it and for what.
 - **Data shape and awkward cases** - from recon, concretely.
