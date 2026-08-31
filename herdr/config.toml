@@ -1,14 +1,60 @@
+# No prefix. Every binding here is a single chord on the ctrl+alt layer, which is
+# the one layer nothing else in a pane wants: Claude Code binds no ctrl+alt letter,
+# readline binds none, and Windows Terminal only takes ctrl+alt+1..9. Plain
+# ctrl+letter is out because Claude Code uses nearly all of them, ctrl+w and ctrl+n
+# included.
 [keys]
-next_agent = "prefix+a"
-previous_agent = "prefix+shift+a"
-focus_agent = "prefix+alt+1..9"
-switch_workspace = "prefix+shift+1..9"
-open_worktree = "prefix+shift+o"
+# Parked, not typed. The prefix survives only as the escape hatch for the actions
+# left on their defaults (f12 then shift+t to rename a tab, and so on).
+prefix = "f12"
+
+help = "f1"
+settings = "ctrl+alt+s"
+reload_config = "ctrl+alt+r"
+detach = "ctrl+alt+q"
+
+next_agent = "ctrl+alt+a"
+previous_agent = "ctrl+alt+shift+a"
+open_notification_target = "ctrl+alt+enter"
+toggle_sidebar = "ctrl+alt+b"
+goto = "ctrl+alt+g"
+
+# Digits go to spaces rather than agents. A space is a worktree and stays put; the
+# agent panel reorders itself by priority, so "agent 3" is not a stable target.
+switch_workspace = "alt+1..9"
+new_workspace = "ctrl+alt+shift+n"
+open_worktree = "ctrl+alt+o"
+new_worktree = "ctrl+alt+shift+g"
+
+new_tab = "ctrl+alt+n"
+close_tab = "ctrl+alt+x"
+previous_tab = "ctrl+alt+comma"
+next_tab = "ctrl+alt+period"
+
+# herdr splits on an axis, not a side, so right and down are the only two
+# directions there are. win+arrow is not an option: Windows snaps the window and
+# the key never reaches the terminal.
+split_vertical = "ctrl+alt+right"
+split_horizontal = "ctrl+alt+down"
+close_pane = "ctrl+alt+w"
+zoom = "ctrl+alt+z"
+edit_scrollback = "ctrl+alt+e"
+focus_pane_left = "ctrl+alt+h"
+focus_pane_down = "ctrl+alt+j"
+focus_pane_up = "ctrl+alt+k"
+focus_pane_right = "ctrl+alt+l"
+
+# These four need the kitty keyboard protocol to reach herdr. If they go quiet,
+# resize mode is still on f12+r.
+resize_pane_left = "ctrl+alt+shift+left"
+resize_pane_down = "ctrl+alt+shift+down"
+resize_pane_up = "ctrl+alt+shift+up"
+resize_pane_right = "ctrl+alt+shift+right"
 
 # m-dev is a full-screen table and only one stack can run at a time, so it gets
 # a modal popup rather than a pane of its own.
 [[keys.command]]
-key = "prefix+alt+d"
+key = "ctrl+alt+d"
 type = "popup"
 command = "bash -lic m-dev"
 width = "90%"

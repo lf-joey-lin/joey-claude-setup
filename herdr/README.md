@@ -33,7 +33,7 @@ constraint, and it shapes the herdr layout: **many agent spaces, one stack**.
 
 `m-dev` launches the stack under `setsid` with no controlling terminal, so the stack
 outlives the pane it was started from, and even a herdr restart. That is why it does
-not get a pane of its own. `prefix+alt+d` opens it in a popup instead.
+not get a pane of its own. `ctrl+alt+d` opens it in a popup instead.
 
 Every worktree lands on the same URLs (ui-app on :3000, the Aspire dashboard on
 :18888), so switching the stack between worktrees is the serialization point in the
@@ -47,7 +47,7 @@ gate, then walk the stack through them.
 | one per active worktree  | that worktree's Claude             |
 | `momentum`               | ux-review, spec-ui, makeagoal, TFS |
 | `manta`                  | precedent lookups                  |
-| none for the dev server  | `prefix+alt+d` popup               |
+| none for the dev server  | `ctrl+alt+d` popup                 |
 
 Worktree spaces carry Git provenance, so their sidebar rows show the branch and the
 git status, and herdr groups them under the parent repo space.
@@ -64,12 +64,12 @@ m-work fix inbox scroll jump   # branch + worktree + its own space + claude in i
 ```
 
 Then leave it running and start another. When any of them needs you, the sidebar says
-so and a toast fires; `prefix+a` walks to it.
+so and a toast fires; `ctrl+alt+a` walks to it.
 
 Attended loom has exactly two ask moments. Both render as `blocked`, which is the
 state this layout is built around. Permission prompts do too.
 
-When a run reaches human verification: `prefix+alt+d`, switch the stack to that
+When a run reaches human verification: `ctrl+alt+d`, switch the stack to that
 worktree, check :3000, come back.
 
 At the end, `m-teardown` sweeps the merged worktrees as before. Close the matching
@@ -102,24 +102,59 @@ the checkout under `<worktrees.directory>/<repo>/<branch-slug>`, and `m-dev` and
 
 ## Keys
 
-Prefix is `ctrl+b`. `prefix+?` lists everything.
+No prefix. Every binding is a single chord on `ctrl+alt`, which is the one layer
+nothing inside a pane wants: Claude Code binds no `ctrl+alt` letter, readline binds
+none, and Windows Terminal only takes `ctrl+alt+1..9`. Plain `ctrl+letter` was never
+an option, because Claude Code uses nearly all of them, `ctrl+w` and `ctrl+n`
+included, and a global `ctrl+w` costs you delete-word in every pane.
 
-Added in `config.toml`, because herdr ships them unbound and they are most of the
-agent panel's value:
+| Key                     | Does                              |
+| ----------------------- | --------------------------------- |
+| `ctrl+alt+a`            | next agent                        |
+| `ctrl+alt+shift+a`      | previous agent                    |
+| `ctrl+alt+enter`        | jump to whatever just toasted     |
+| `ctrl+alt+b`            | sidebar                           |
+| `ctrl+alt+g`            | goto                              |
+| `alt+1..9`              | switch space                      |
+| `ctrl+alt+shift+n`      | new space                         |
+| `ctrl+alt+o`            | open an existing worktree         |
+| `ctrl+alt+shift+g`      | new worktree                      |
+| `ctrl+alt+n`            | new tab                           |
+| `ctrl+alt+x`            | close tab                         |
+| `ctrl+alt+,` / `.`      | previous / next tab               |
+| `ctrl+alt+right`        | split right                       |
+| `ctrl+alt+down`         | split down                        |
+| `ctrl+alt+w`            | close pane                        |
+| `ctrl+alt+z`            | zoom                              |
+| `ctrl+alt+hjkl`         | focus pane                        |
+| `ctrl+alt+shift+arrows` | resize pane                       |
+| `ctrl+alt+e`            | scrollback in `$EDITOR`           |
+| `ctrl+alt+d`            | `m-dev` in a popup                |
+| `f1`                    | help, lists everything            |
+| `ctrl+alt+q`            | detach (panes keep running)       |
+| `ctrl+alt+r`            | reload config                     |
+| `ctrl+alt+s`            | settings                          |
 
-| Key                  | Does                        |
-| -------------------- | --------------------------- |
-| `prefix+a`           | next agent                  |
-| `prefix+shift+a`     | previous agent              |
-| `prefix+alt+1..9`    | jump to agent N             |
-| `prefix+shift+1..9`  | switch space                |
-| `prefix+shift+o`     | open an existing worktree   |
-| `prefix+alt+d`       | `m-dev` in a popup          |
+Digits go to spaces rather than agents. A space is a worktree and stays put, while
+the agent panel reorders itself by priority, so "agent 3" is not a stable target.
+`focus_agent` is left unbound for that reason; `ctrl+alt+1..9` would be the natural
+home for it, but Windows Terminal owns those for its own tabs.
 
-Worth knowing from the defaults: `prefix+b` sidebar, `prefix+q` detach (panes keep
-running, `herdr` reattaches), `prefix+shift+g` new worktree, `prefix+e` opens a
-pane's scrollback in `$EDITOR`, which is the fast way to get a long loom-probe report
-into VS Code.
+The prefix is parked on `f12`. It is not a key to type any more, it is the escape
+hatch for the actions still on their defaults: `f12` then `shift+t` renames a tab,
+`f12+r` is resize mode, `f12+1..9` switches tabs. Moving it off `ctrl+b` also hands
+`ctrl+b` back to Claude Code and to bash.
+
+Two chords to check by pressing them, because neither is guaranteed here:
+
+- `ctrl+alt+shift+arrows` needs the kitty keyboard protocol end to end. Windows
+  Terminal 1.24 and herdr's client both do it, so it should hold. Resize mode on
+  `f12+r` is the fallback.
+- `ctrl+alt+arrow` is taken by the Intel graphics driver for screen rotation on some
+  machines.
+
+`herdr config check` validates key names and catches two actions on the same chord,
+so run it after any edit here.
 
 ## The rest of config.toml
 
@@ -177,7 +212,7 @@ The socket API is the interesting end of herdr. From any pane:
 ```bash
 herdr agent prompt <name> "..." --wait --until blocked
 herdr agent read <name> --source recent-unwrapped --lines 120
-herdr agent attach <name>          # one agent full screen, ctrl+b q to leave
+herdr agent attach <name>          # one agent full screen, ctrl+alt+q to leave
 ```
 
 That is enough to kick `/loom` in three worktrees from one loop and wait on each.
@@ -204,7 +239,7 @@ Re-run setup after a herdr update if `herdr integration status` reports the clau
 integration as outdated.
 
 `config.toml` is a symlink and herdr writes to it (`herdr config reset-keys`, and the
-`prefix+s` settings screen). If a write ever replaces the file instead of editing it,
+`ctrl+alt+s` settings screen). If a write ever replaces the file instead of editing it,
 the symlink turns into a plain local file and edits stop showing up in `git status`.
 Fix by re-running `setup.sh`. `herdr config check` validates the file, and
 `herdr server reload-config` applies it without a restart.
