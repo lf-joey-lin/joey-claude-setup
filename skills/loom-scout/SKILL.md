@@ -23,15 +23,16 @@ from the request. Then:
    a resume: report the ledger path and stop - the orchestrator continues from
    it. Do not create a second workspace.
 2. `git -C "<root>/momentum" fetch origin`.
-3. **Attended, default worktree clean and on main**: branch in place with
-   `git checkout -b <branch> --no-track origin/main`.
-   **Otherwise** (dirty, on a feature branch, or any solo/background run):
+3. **Always a new worktree**, whatever state the default one is in:
    `git -C "<root>/momentum" worktree add --no-track -b <branch>
-   "<root>/momentum-<slug>" origin/main`. Solo runs always take a worktree so
-   parallel runs never collide on the default checkout.
-4. Publish the empty branch: `git push -u origin HEAD`. It carries no commits
-   and triggers no CI; it just sets the upstream so the editor shows outgoing
-   work. A failed push is not a failed setup - note it and continue.
+   "<root>/momentum-<slug>" origin/main`. `<root>/momentum` is a read-only
+   reference checkout that stays on main - never branch, commit, or edit
+   there, even when it is clean. Every run gets its own worktree so parallel
+   runs never collide.
+4. Publish the empty branch: `git -C "<root>/momentum-<slug>" push -u origin
+   HEAD`. It carries no commits and triggers no CI; it just sets the upstream
+   so the editor shows outgoing work. A failed push is not a failed setup -
+   note it and continue.
 5. If a name is already taken, stop and report; never clobber.
 
 ## Step 2 - recon

@@ -1,6 +1,6 @@
 ---
 name: new-work
-description: Set up the local git environment for a new story or bug fix in the momentum repo. Takes a short description, fetches origin, and either branches in place in the default momentum worktree (when it is clean and on main) or spins up a fresh worktree at <root>/momentum-<shortdesc> so in-progress work is never disturbed. Publishes the new branch right away so it tracks origin from the start and unpushed commits show up as outgoing changes in the editor. The workspace root is ~/m-code on WSL/Linux and C:\code2 on Windows. Invoke when the user types /new-work, or asks to "start new work", "set up a branch for", "begin a story", or "start a bug fix".
+description: Set up the local git environment for a new story or bug fix in the momentum repo. Takes a short description, fetches origin, and always spins up a fresh worktree at <root>/momentum-<shortdesc> with a branch cut off origin/main. The default worktree at <root>/momentum is never branched in and never written to - it stays on main as a read-only reference checkout. Publishes the new branch right away so it tracks origin from the start and unpushed commits show up as outgoing changes in the editor. The workspace root is ~/m-code on WSL/Linux and C:\code2 on Windows. Invoke when the user types /new-work, or asks to "start new work", "set up a branch for", "begin a story", or "start a bug fix".
 model: sonnet
 effort: low
 ---
@@ -8,13 +8,24 @@ effort: low
 # new-work: set up the local env for new work
 
 Prepare a clean starting point for a new story or bug fix: a feature branch cut
-fresh from `origin/main`, placed either in the default worktree or in a new one
-depending on what the default worktree is currently doing. This is the front half
-of the workflow that `teardown` closes out.
+fresh from `origin/main`, checked out in a **new worktree of its own**. This is
+the front half of the workflow that `teardown` closes out.
 
-Creating a branch or worktree is cheap and reversible, so this skill acts rather
+Creating a branch and worktree is cheap and reversible, so this skill acts rather
 than asking at every step. It only pauses when a name already exists or the
 derived branch name looks wrong.
+
+## The default worktree is read-only
+
+`<root>/momentum` is the reference checkout. It stays on `main`, and the only git
+command this skill runs there is `fetch` (a `pull` is the one other thing allowed
+to touch it, from `teardown`). Every piece of dev work gets its own worktree, no
+matter how clean or idle the default one looks.
+
+Never, in the default worktree: `checkout -b`, `switch -c`, `commit`, `stash`,
+`reset`, or an edit to a tracked file. "It was clean, so I branched there" is the
+failure this rule exists to prevent - it leaves the agent's read-only view of
+`main` sitting on someone's feature branch.
 
 ## Invocation
 
@@ -46,8 +57,8 @@ path rather than relying on a variable:
 uname -s   # Linux == WSL root ~/m-code; anything MINGW/MSYS/CYGWIN == C:/code2
 ```
 
-The rest of this skill writes the root as `<root>`: the default worktree is
-`<root>/momentum` and a new one is `<root>/momentum-<shortdesc>`.
+The rest of this skill writes the root as `<root>`: the reference checkout is
+`<root>/momentum` and the new worktree is `<root>/momentum-<shortdesc>`.
 
 ## 2. Fetch the latest remote base
 
@@ -57,22 +68,10 @@ Always branch off the freshest `origin/main`, never a stale local ref:
 git -C "<root>/momentum" fetch origin
 ```
 
-## 3. Decide: branch in place, or new worktree
+This is the only command that touches the default worktree. It moves no files and
+changes no branch.
 
-Inspect the default worktree at `<root>/momentum`. It is safe to reuse **only**
-when it is clean and sitting on `main` - anything else is treated as in-progress
-work that must not be disturbed.
-
-```bash
-git -C "<root>/momentum" status --porcelain          # empty == clean tree
-git -C "<root>/momentum" branch --show-current        # expect: main
-```
-
-- **Clean tree AND on `main`** -> branch in place (step 4a).
-- **Anything else** (dirty tree, or on a feature branch) -> new worktree (step
-  4b). Do not stash, reset, or check out over the top of whatever is there.
-
-Also check the target names are free before creating:
+## 3. Check the target names are free
 
 ```bash
 git -C "<root>/momentum" branch --list <branch>       # branch must not exist
@@ -82,40 +81,36 @@ git -C "<root>/momentum" worktree list                # path must not be taken
 If the branch already exists or the worktree path is occupied, stop and report it
 - do not clobber. Let the user pick a different `<shortdesc>` or confirm reuse.
 
-## 4a. Branch in place (default worktree is clean)
+Do not inspect the default worktree's status to decide anything. It has no say in
+where the work goes; the answer is always a new worktree.
 
-```bash
-git -C "<root>/momentum" checkout -b <branch> --no-track origin/main
-```
+## 4. Create the worktree
 
-The `--no-track` is required: without it the branch inherits `origin/main` as
-upstream, a bare `git push` fails under `push.default=simple` on the branch name
-mismatch, and until step 5 runs the tree reads as "ahead of origin/main" rather
-than as a branch of its own.
-
-## 4b. New worktree (default worktree is busy)
-
-Create the worktree directly under `<root>`, alongside the primary checkout -
-never inside `.claude/worktrees` or under the repo itself:
+Create it directly under `<root>`, alongside the reference checkout - never
+inside `.claude/worktrees` or under the repo itself:
 
 ```bash
 git -C "<root>/momentum" worktree add --no-track -b <branch> "<root>/momentum-<shortdesc>" origin/main
 ```
 
 That single command creates the branch off `origin/main` and checks it out into
-the new worktree in one step. `cd` into `<root>/momentum-<shortdesc>` for the
-rest of the session's work.
+the new worktree in one step, without disturbing the default worktree's checkout.
 
-On WSL, keep the worktree on the Linux filesystem under `~/m-code`. Do not put
-it on a `/mnt/c` path: the 9p mount is slow enough to break tooling that assumes
+The `--no-track` is required: without it the branch inherits `origin/main` as
+upstream, a bare `git push` fails under `push.default=simple` on the branch name
+mismatch, and until step 5 runs the tree reads as "ahead of origin/main" rather
+than as a branch of its own.
+
+On WSL, keep the worktree on the Linux filesystem under `~/m-code`. Do not put it
+on a `/mnt/c` path: the 9p mount is slow enough to break tooling that assumes
 local-disk speed (node_modules loads, watchers, dotnet builds).
 
 ## 5. Publish the branch immediately
 
-Push the new branch straight away, from whichever worktree it landed in:
+Push the new branch straight away, from the new worktree:
 
 ```bash
-git -C "<the worktree from step 4a or 4b>" push -u origin HEAD
+git -C "<root>/momentum-<shortdesc>" push -u origin HEAD
 ```
 
 This is the setup step, not a "push my work" step. The branch is still sitting on
@@ -145,14 +140,10 @@ Two things to get right:
 The whole point of the setup is to work in the new worktree, so finish there
 rather than leaving the human to `cd` by hand and restart Claude.
 
-If step 4b created a new worktree, move this session into it with the
-`EnterWorktree` tool:
-
 ```
 EnterWorktree(path: "<root>/momentum-<shortdesc>")
 ```
 
-- Skip it after 4a. The session is already where the work is.
 - It needs the session's current directory to be inside a git repo. Launched at
   `<root>` it fails with "the current directory is not in a git repository";
   launched at `<root>/momentum` it works. A failure here is not a setup failure -
@@ -167,20 +158,20 @@ EnterWorktree(path: "<root>/momentum-<shortdesc>")
 State plainly what was set up so the next steps are obvious:
 
 - the branch name (and that it is off fresh `origin/main`)
-- whether it was created in place at `<root>/momentum` or in a new worktree at
-  `<root>/momentum-<shortdesc>`, and why (default worktree was clean vs. busy) -
-  print the resolved absolute path, not the `<root>` placeholder
-- the working directory to run subsequent commands from, and whether this
-  session already moved there or the human still has to
+- the resolved absolute path of the new worktree, not the `<root>` placeholder
+- the working directory to run subsequent commands from, and whether this session
+  already moved there or the human still has to
 - that the branch is published and tracking `origin/<branch>`, or, if the push
   failed, that it is local-only and why
 
 ## Notes
 
+- Every invocation creates a worktree. There is no in-place branching path, and
+  no condition under which the default worktree is a valid place to work.
 - Never branch off a stale local `main`; the `fetch` in step 2 is not optional.
 - Never push to `main` directly. Publishing the feature branch at setup (step 5)
   is the one push this skill makes, and it carries no commits.
-- One piece of work per invocation - it maps to exactly one branch and, at most,
+- One piece of work per invocation - it maps to exactly one branch and exactly
   one worktree.
 - This is setup only. It creates no TFS work item and opens no PR. Both are
   `paperwork`'s job at the end of the session, once there is a branch worth

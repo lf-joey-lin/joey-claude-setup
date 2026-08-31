@@ -20,9 +20,10 @@ loom is a dev pipeline for momentum `ui-app` work. The roster:
 ## Repo facts (single source of truth)
 
 - **Workspace root**: `~/m-code` on WSL/Linux, `C:\code2` on Windows
-  (`uname -s`: Linux means WSL). Default worktree `<root>/momentum`, feature
-  worktrees `<root>/momentum-<slug>`. On WSL, worktrees stay on the Linux
-  filesystem, never under `/mnt/c`.
+  (`uname -s`: Linux means WSL). `<root>/momentum` is a read-only reference
+  checkout that stays on main - never branch, commit or edit there. All work
+  happens in a feature worktree `<root>/momentum-<slug>`, one per run. On WSL,
+  worktrees stay on the Linux filesystem, never under `/mnt/c`.
 - **Scope**: `src/ui-app` (Nuxt 4 / Vue 3 / `@nuxt/ui` v4 / Tailwind v4),
   plus the realm BFFs (`src/acs-bff`, `src/app-bff`) when a slice needs a new
   browser-facing route - see "BFF slices" below. A branch that touches
