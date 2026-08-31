@@ -16,6 +16,9 @@ Linked paths:
 | `joey-writing-style.md`| `joey-writing-style.md` |
 | `skills/`              | `skills/`               |
 
+Two more links live outside `~/.claude` and are made by `herdr/setup.sh` rather than
+the bootstrap script: `~/.config/herdr/config.toml` and `~/.local/bin/cc`.
+
 ## Setting up a new machine
 
 Clone the repo, then run the bootstrap script. It recreates the symlinks above and moves any existing local file aside as `*.pre-bootstrap` instead of overwriting it.
@@ -48,6 +51,16 @@ bash chrome-devtools-mcp/setup.sh
 
 Both need a Claude Code restart, and both have to be re-run after a plugin or nvm
 change rather than being set once.
+
+`herdr` is the terminal workspace manager the momentum worktree workflow runs in: one
+space per worktree, one attention queue across the parallel loom runs. It is a
+separate install, and it needs its config linked, the `cc` launcher fixed and the
+Claude integration installed before it can see an agent at all. See
+[`herdr/README.md`](herdr/README.md), or run:
+
+```bash
+bash herdr/setup.sh
+```
 
 ## Not tracked here
 

@@ -1,0 +1,32 @@
+[keys]
+next_agent = "prefix+a"
+previous_agent = "prefix+shift+a"
+focus_agent = "prefix+alt+1..9"
+switch_workspace = "prefix+shift+1..9"
+open_worktree = "prefix+shift+o"
+
+# m-dev is a full-screen table and only one stack can run at a time, so it gets
+# a modal popup rather than a pane of its own.
+[[keys.command]]
+key = "prefix+alt+d"
+type = "popup"
+command = "bash -lic m-dev"
+width = "90%"
+height = "85%"
+
+[ui]
+agent_panel_sort = "priority"
+prompt_new_tab_name = false
+status_indicators = "symbols"
+
+# Claude puts the current task in its terminal title, which is the only thing
+# that tells four loom runs apart in the sidebar.
+[ui.sidebar.agents.rows_by_agent]
+claude = [["state_icon", "workspace", "tab"], ["terminal_title_stripped"], ["agent"]]
+
+[ui.toast]
+delivery = "herdr"
+
+[theme]
+name = "terminal"
+auto_switch = false
