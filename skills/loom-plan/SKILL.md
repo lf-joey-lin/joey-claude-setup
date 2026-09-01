@@ -39,12 +39,64 @@ Plan section of the ledger.
 
 ## Grounding
 
-Before naming any Nuxt UI component or composable in a slice, confirm it in
-the installed types (`node_modules/@nuxt/ui/dist/runtime/`, per the
-contract). Prefer the stock component, then composition of stock components,
-then custom - and a custom component costs a one-line written justification
-in the plan. Check `app/components/` for an existing app component first;
-reusing one beats both.
+This is where the run's component and composable choices are really made. A
+slice inherits them and builds; nothing downstream reopens them. So the sweep
+below runs before you write a single slice entry, and it is a search, not a
+check on names you already chose.
+
+### The platform sweep (per behavior, not per component)
+
+Write down the behaviors the brief asks for, in plain words, before naming any
+file. Include the effects underneath the visible ones: loading more as a list
+ends, debouncing a search box, trapping focus in an overlay, reading an
+element's size, watching an element enter the viewport, persisting a
+preference, copying to the clipboard, reacting to the page going hidden. Those
+are the ones that get hand-rolled, because nobody thinks of them as a
+component.
+
+For each behavior, find what already does it, in the contract's order: an app
+component or composable, a Nuxt UI component, a Nuxt or Vue built-in, a VueUse
+composable, composition of those, custom. Search by behavior, not by the name
+you expect to find. The rosters are in the contract and `grep -i` over them is
+the whole technique:
+
+```bash
+ls src/ui-app/app/components/ src/ui-app/app/composables/
+ls src/ui-app/node_modules/@nuxt/ui/dist/runtime/components/
+grep -i 'scroll\|debounce\|clipboard' src/ui-app/.nuxt/imports.d.ts
+grep -i 'scroll\|debounce\|clipboard' src/ui-app/node_modules/@vueuse/core/dist/index.d.ts
+```
+
+A behavior is not planned until you can name which of those answered it, at a
+`path:line`. Nothing here is a component-only rule: a stock `UTable` with sixty
+lines of hand-written observer wiring beside it is the exact defect the sweep
+exists to catch, and it passes every check that only looks at component names.
+
+### Writing the choice down
+
+Every slice entry carries a `Platform:` line, per the contract's template:
+either the unit taken with the `path:line` that confirmed it, or the hand-roll
+with the platform unit it passed over and what that unit could not do. A
+hand-roll with no named alternative means the sweep did not run, and the plan
+is not done.
+
+Two things that are **not** a trade-off on their own, because both were used as
+one before:
+
+- **"It is not a declared dependency yet."** `@vueuse/core` is installed and
+  undeclared by design; the contract says what that costs and how to decide it.
+  Attended, it goes in ask moment 2 as its own line so the human answers it.
+  Solo, hand-roll, log the unit passed over, and add the line under "Needs
+  human eyes".
+- **"It is only about fifteen lines."** Fifteen lines of lifecycle and
+  teardown is where the edge cases live - the server render with no observer,
+  the double fire in one frame, the listener that outlives the element. That
+  is an argument for the platform unit, not against it.
+
+A custom component still costs its own one-line justification on top of the
+`Platform:` line.
+
+### Prior art
 
 While grounding, run one cheap prior-art check per new unit the plan
 introduces (component, composable, state key, group of `en.json` keys): does
@@ -79,12 +131,16 @@ summary, with two loom-specific overrides:
 Write into the ledger's Plan section, per slice:
 
 - **Behavior** - one sentence, what a user sees or does afterward.
+- **Platform** - what the sweep answered each of the slice's behaviors with,
+  confirmed at `path:line`, plus any hand-roll with the unit it passed over and
+  why. Required on every slice; "all stock" is a valid answer, an empty line is
+  not.
 - **Checks** - the acceptance assertions, numbered C1..Cn. Each names its
   **channel**: the one observable thing a caller or test looks at (a rendered
   role/text, an emitted event, a request that goes out, a route change, a DOM
   attribute). A check with no channel is not a check. These become the specs
   loom-slice writes first, so phrase them as testable facts, not intentions.
-- **Touches** - the files it will create or edit, with the Nuxt UI pieces
+- **Touches** - the files it will create or edit, with the platform pieces
   confirmed above.
 - **Attack** - what loom-probe should try to break it with, drawn from the
   brief's awkward cases: the empty list, the 400-character label, the missing
@@ -100,7 +156,10 @@ Write into the ledger's Plan section, per slice:
 ## Finish
 
 Mark the Plan `[x]` and return a summary: the slice list with one line each,
-any custom component and its justification, prior art found, and any decision
-you defaulted (logged in the ledger per the contract). In attended mode this
+every hand-roll with the platform unit it passed over, any custom component and
+its justification, prior art found, and any decision you defaulted (logged in
+the ledger per the contract). A hand-roll whose only obstacle is an undeclared
+dependency is called out by name in the return, because that one is the
+human's to answer, not yours. In attended mode this
 is the orchestrator's second ask moment; in solo mode there is nothing to
 ask - the defaults are logged and the run continues.

@@ -21,9 +21,14 @@ Read the clock first: `date -Iseconds`, kept for the slice's `- Timing:` line.
 It is the one thing that cannot be recovered afterwards, and a slice that
 forgets it has to report the time as unrecorded rather than invent one.
 
-- Confirm every Nuxt UI component and prop the slice will use against the
+- Confirm every component, composable and prop the slice will use against the
   installed types before writing it. The plan named them; trust but verify -
   the install is what ships.
+- The slice's `Platform:` line is binding. Build what it named. If the code in
+  front of you makes that unit wrong, run the contract's ordering again before
+  writing the effect yourself, and record the swap in the ledger with the unit
+  passed over. A hand-roll that first appears at build time is a decision, so
+  it is logged like one.
 - Read the sibling specs nearest the code you will touch and match their
   style: locator priority (`getByRole`/`getByLabel`/`getByText`, then
   `getByTestId`, never `:nth-child` or XPath), fixture shape, naming.
@@ -58,8 +63,9 @@ conventions throughout: i18n keys in `en.json` (never a hardcoded user-facing
 string), palette tokens (never hex), `<script setup lang="ts">`, semantic HTML
 first with `data-testid` only where role/label cannot locate, mobile-first
 responsive, keyboard operability. Reuse before writing: the app's own
-components, then stock Nuxt UI, then composition - custom only where the plan
-justified it.
+components and composables, then Nuxt UI, then a Nuxt or Vue built-in, then a
+VueUse composable, then composition of those - custom only where the plan
+justified it. That ordering covers the effects too, not just the markup.
 
 While the specs are red you may iterate freely. Do not weaken a spec to reach
 green: if a check turns out to be wrong once the code is in front of you,

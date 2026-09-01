@@ -9,7 +9,9 @@ loom is a dev pipeline for momentum `ui-app` work. The roster:
 | Skill | Job |
 | --- | --- |
 | `loom` | the orchestrator: drives a whole run, delegates every stage |
+| `loom-finish` | the orchestrator for baking a prototype in, in place |
 | `loom-scout` | workspace setup, recon, the brief, lane routing |
+| `loom-adopt` | read a prototype diff as the spec, revert it, size the round |
 | `loom-plan` | slice plan (feature lane only) |
 | `loom-slice` | build one slice, checks first (born red) |
 | `loom-probe` | adversarial verification: attack, reproduce, report |
@@ -63,10 +65,32 @@ loom is a dev pipeline for momentum `ui-app` work. The roster:
   are replaced by loom's own gates; everything else in that file is binding.
   An upstream that is neither realm (api-integrator's "no new realm" boundary)
   is a blocker, not a workaround.
-- **Ground truth for the component API**: the installed types under
-  `src/ui-app/node_modules/@nuxt/ui/dist/runtime/` (`components/*.vue.d.ts`,
-  `composables/*.d.ts`). Never name a Nuxt UI component or prop you have not
-  confirmed there.
+- **Ground truth for the platform API**: the installed packages under
+  `src/ui-app/`, never memory. Nuxt UI components and composables are typed at
+  `node_modules/@nuxt/ui/dist/runtime/` (`components/*.vue.d.ts`,
+  `composables/*.d.ts`); the Nuxt and Vue auto-import roster is
+  `.nuxt/imports.d.ts`; the VueUse roster is
+  `node_modules/@vueuse/core/dist/index.d.ts`. Never name a component,
+  composable or prop you have not confirmed in one of those.
+- **Platform before hand-rolled, for behavior as much as for markup.** The
+  order is: an app component or composable that already does it, then a Nuxt UI
+  component, then a Nuxt or Vue built-in, then a VueUse composable, then
+  composition of those, then custom. Run it on the behavior itself - load more
+  as a list ends, debounce an input, trap focus, read an element's size, watch
+  the clipboard or the page's visibility - not only on the components someone
+  already thought to name. A stock component with a hand-written effect wired
+  up beside it reads as idiomatic and is the thing this ordering exists to
+  catch. Hand-rolling what the platform provides costs a written trade-off
+  naming the unit passed over and what it could not do. "Nothing here imports
+  it yet" is not a trade-off, and neither is a line count.
+- **`@vueuse/core` is installed but undeclared.** It arrives as a dependency of
+  `@nuxt/ui`, nothing in `app/` imports it, and there is no `@vueuse/nuxt`, so
+  its composables are present but not auto-imported. Taking one means an
+  explicit `import { x } from '@vueuse/core'` plus promoting `@vueuse/core` to
+  a direct dependency in `src/ui-app/package.json`. That is a human decision
+  and never a silent one: attended, the stage that wants it carries it into its
+  own ask moment; solo, the run hand-rolls, records the unit it passed over,
+  and adds a line under "Needs human eyes".
 - **Conventions**: `src/ui-app/CLAUDE.md` is binding - i18n through `t()` with
   keys in `en.json` only, theme palette tokens never hex, `<script setup
   lang="ts">`, semantic HTML first and `data-testid` (naming
@@ -81,7 +105,10 @@ loom is a dev pipeline for momentum `ui-app` work. The roster:
   `--no-track`; publish with `git push -u origin HEAD`; commit subjects
   `[<component>] Imperative summary` (`[ui-app]`, `[acs-bff]`, `[app-bff]`),
   no trailers; merge main, never rebase; never commit to `main`, never
-  force-push, never stash review state.
+  force-push, never stash review state. The one stash this pipeline makes is
+  `loom-adopt`'s, which is the opposite of hiding state: it is announced, its
+  ref goes in the ledger, the same content is written to a patch file first,
+  and no skill ever drops it.
 - **Hard stops, every skill, every mode**: anything that looks like a secret;
   a hand-edited generated catalog; the branch being `main`. Stop and report,
   never work around.
@@ -108,6 +135,13 @@ point, and the source the final report is generated from. Rules:
   carries the path. The ledger is state, not a log.
 - **Resume**: a ledger already existing for the slug means continue from the
   first stage not marked done. Never restart a stage marked `[x]`.
+- **Rounds**: a `loom-finish` round appends `## Round <n>` with every stage
+  nested under it, rather than reopening a finished section. One ledger per
+  branch however many rounds it takes; slice ids carry the round prefix
+  (`R2.S1`) so they stay unique. A round whose stages are all `[x]` is history,
+  not a resume point - the next round is `<n>+1`. Branch-scoped stages (probe
+  deep, tidy, gate, land) still read the whole branch, so a later round
+  re-covers the earlier ones; that is intended, not waste.
 - **Decisions are logged where they are made**: the choice, the alternative,
   one line of why, and whether it was asked or defaulted.
 - **Timing is read from the clock, never estimated.** Every stage stamps its
@@ -141,6 +175,8 @@ Template (stages append their own sections; keep this spine):
 ## Plan - [ ]            (feature lane only)
 ### S1 <name> - [ ]    Kind: ui | bff
 - Behavior: <what a user sees>
+- Platform: <unit taken, confirmed at path:line> | hand-rolled <what> - passed
+  over <unit>, <what it could not do>
 - Checks: C1 <assertion> (channel: <what a caller looks at>)
 - Touches: <paths>    Attack: <what probe will try>
 - (bff only) Upstream: <verb + path, read from source>    Route: <verb /bff/...>
@@ -172,6 +208,30 @@ Template (stages append their own sections; keep this spine):
 
 ## Needs human eyes
 ## Blockers
+```
+
+A `loom-finish` round nests the same stages one level down, under its own
+heading, and adds two things scout's brief does not have - where the spec came
+from, and what the prototype skipped:
+
+```markdown
+## Round <n> (loom-finish) - [ ]
+### Adopt - [ ]
+- Timing: started <iso>, finished <iso>, took <hh:mm:ss>
+- Source: <uncommitted | --from ...>    Patch: <path>    Stash: <ref>
+- Behavior: <one line each, with the channel that proves it>
+- Prototype gaps: <one line each> - owner: slice R<n>.S<k> | probe | out of scope
+### Slices
+#### R<n>.S1 - [ ]    Kind: ui | bff
+### Probe
+#### R<n>.P1 (quick, after R<n>.S1) - [ ]
+### Reconcile - [ ]
+- Hunks: <compared> - present <n>, dropped with record <n>, missing <n>
+- M1: <file> - <what it did> (fixed in <commit> | recorded)
+### Fixes
+### Tidy - [ ]
+### Gate - [ ]
+### Land - [ ]
 ```
 
 ## The attendance contract

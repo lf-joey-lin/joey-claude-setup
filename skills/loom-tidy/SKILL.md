@@ -18,7 +18,7 @@ responsibility claim from a diff alone is a guess.
 
 ## What you look for
 
-Four questions, in order of payoff:
+Five questions, in order of payoff:
 
 1. **Did the branch leave a superseded path live?** For each unit the plan
    introduced, find what it replaced and follow the threads: imports, barrel
@@ -35,7 +35,13 @@ Four questions, in order of payoff:
    changes there. If absorbing them needs a flag per caller, they are not the
    same thing - drop it. A migration bigger than the branch is a follow-up
    note, not a fix.
-4. **Local warts the slices left**: a name that misleads, a prop or return no
+4. **Did the branch hand-roll something the platform provides?** The backstop
+   for the plan's sweep, and the one question a diff answers well: for each
+   effect the branch wrote by hand - a listener, an observer, a timer, a
+   lifecycle pair - check the contract's rosters for a unit that already does
+   it. The veto still binds, so a swap that adds a direct dependency is
+   recorded rather than done, with the unit named.
+5. **Local warts the slices left**: a name that misleads, a prop or return no
    consumer reads, two disjoint responsibilities in one component, a constant
    that must silently agree with a value somewhere else (name it once or
    derive it).
