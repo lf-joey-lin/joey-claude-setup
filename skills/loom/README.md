@@ -131,6 +131,58 @@ The bff slice always comes first, the skeleton second. An upstream that
 belongs to neither realm is a blocker (api-integrator's "no new realm"
 boundary) - that is a spec-driven feature, not a loom run.
 
+## Finishing a prototype (loom-finish)
+
+The other way in. `/loom` starts from a request; `/loom-finish` starts from
+code that already works, which is what you have after a `/prototype` session.
+It is `wrap-it-up`'s counterpart inside loom, and the difference is where the
+tests come from.
+
+```
+/prototype ...          # rough it in, click it, iterate
+/loom-finish            # bake it in
+```
+
+`loom-adopt` reads the uncommitted diff as the spec, separates the behavior it
+demonstrates from the gaps it skipped, writes the patch to
+`logs/loom/<slug>/round-N.patch`, verifies the patch replays, and only then
+stashes the tree. With the code out of the way the specs go genuinely red, so
+the born-red proof survives intact rather than degrading to an after-the-fact
+mutation check. Then the normal stages run unchanged: slice, probe, tidy, gate,
+land.
+
+Three things it does differently:
+
+- **No worktree.** It runs in place, on the branch you are standing on, so a
+  prototype round after a finished loom run does not need a second workspace.
+  `loom-adopt` still refuses the read-only default checkout and `main`.
+- **Rounds.** Run it again after the next round of prototyping and it appends
+  `## Round 2` to the same ledger. Probe deep, tidy and gate are branch-scoped,
+  so a later round re-covers the earlier ones. Land regenerates one report over
+  the whole branch.
+- **Reconcile.** After the slice loop, adopt runs again and diffs the stash
+  against the rebuilt branch. Every prototype hunk is present, deliberately
+  dropped with a record, or a miss that goes back as a fix turn. Without it,
+  "the rebuild quietly lost a behavior you liked" is invisible until you click
+  the app again, and that is the one thing that would make handing your working
+  prototype to a pipeline unwise.
+
+The ceremony it cuts, against a normal patch-lane run: scout's workspace setup
+and recon (the diff and its neighbors are the recon), `loom-plan` (the diff
+supplies each slice's Touches for free), and both ask moments (you approved the
+shape by clicking it). The only planned pause is when the diff touches a realm
+BFF, because a browser contract is a design decision a diff cannot approve for
+itself. Probe deep stays: it is the review stage and it reads the whole branch.
+
+Be honest about the saving. `loom-gate` dominates the wall clock on a small
+change and none of this touches it, so this is a shorter path, not a different
+order of magnitude. The bigger win is that you stop re-deciding a design you
+already settled by clicking it.
+
+**Your prototype is never deleted.** The patch is on disk, the stash ref is in
+the ledger, and no skill drops either. If a round blocks, the blocker message
+carries both.
+
 ## Context economics (why a long run does not drown)
 
 Every stage runs in a fresh subagent, so the expensive noise - file reads,
@@ -161,6 +213,8 @@ Each stage is a normal skill and useful alone:
   checks-first.
 - `/loom-land` - merge main, push, and write the report for a finished
   branch.
+- `/loom-adopt` - turn working changes into a slice list and get them out of
+  the tree, without running the rest of a round.
 
 Standalone runs still read `skills/shared/loom-contract.md`, which is the
 single place the repo facts (commands, coverage gate, translation rules, git
@@ -175,6 +229,8 @@ never creates a work item, never opens a PR, never deletes a worktree:
   files the TFS item and the PR.
 - `/teardown` sweeps the worktree after the merge.
 - `/pr-review-fixer` still owns working reviewer comments on the PR.
+- `/loom-finish` picks the branch back up for the next round of changes,
+  in place, without opening a second run.
 
 It coexists with the existing pipeline rather than replacing it: spec-ui and
 design-ui remain the right tools when the open question is what to build

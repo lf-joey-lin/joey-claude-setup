@@ -51,11 +51,18 @@ on.
      the workspace is kept. Solo: skip; scout already defaulted everything or
      blocked.
 2. **Plan** (`loom-plan`, feature lane only). Gate: every slice has Behavior,
-   numbered Checks each naming a channel, Touches, Attack; a bff slice also
+   Platform, numbered Checks each naming a channel, Touches, Attack. A
+   `Platform:` line that is missing, or that hand-rolls with no unit named as
+   passed over, fails the gate - send it back once; the sweep is cheap and
+   nothing downstream reopens the choice. A bff slice also
    has its Upstream / Route / DTO / Status map fields filled from the real
    legacy source (the contract's "BFF slices" section).
-   - **Ask moment 2 (attended only)**: the slice list, one line each, plus any
-     custom component justification (approve / adjust / abort). When the plan
+   - **Ask moment 2 (attended only)**: the slice list, one line each, plus
+     every hand-roll with the platform unit it passed over, and any custom
+     component justification (approve / adjust / abort). A hand-roll whose only
+     obstacle is promoting `@vueuse/core` to a direct dependency gets its own
+     line in the question; that is the human's call and this is the moment for
+     it. When the plan
      has a bff slice, this question also carries its browser-contract design -
      it doubles as api-integrator's approval gate, so show the route, verb,
      DTO cuts, and status map, not just the slice name. This is the last
@@ -92,6 +99,8 @@ on.
 
 After land, point at `/paperwork` for the work item and PR - loom creates
 neither, ever. Cleanup after the merge is `/teardown`, on the human's ask.
+More work on the same branch afterwards is `/loom-finish`, which adopts the
+next round of changes in place rather than opening a second run.
 
 ## Blockers and asks
 
