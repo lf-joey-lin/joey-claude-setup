@@ -1,8 +1,8 @@
 # momentum workspace shortcuts: m-newwork, m-teardown, m-dev, m-cd.
 #
-# m-newwork and m-teardown run their skill headless in ~/m-code/momentum and
-# then leave the shell somewhere useful, which is the part a Claude session
-# cannot do for itself. m-dev and m-cd are plain git/process wrappers with no
+# m-newwork runs its skill headless in ~/m-code/momentum and then leaves the
+# shell somewhere useful, which is the part a Claude session cannot do for
+# itself. m-teardown, m-dev and m-cd are plain git/process wrappers with no
 # Claude in them.
 #
 # Source from ~/.bashrc. Bash only; the Windows side has no equivalent yet.
@@ -57,29 +57,628 @@ m-newwork() {
   claude -n "$*"
 }
 
-# m-teardown [shortdesc] [--force]
+# --- m-teardown: the worktree sweep, as a table ------------------------------
 #
-# Sweeps the merged worktrees and lands main. Steps out of the current directory
-# first when it is one of the sweep targets, and never comes back to a directory
-# the sweep deleted. Ends at the shell, not in a Claude session.
-m-teardown() {
-  local main="$(_m_root)/momentum"
-  local start="$PWD"
+# Plain shell, no Claude in it. The table lists every momentum worktree with a
+# verdict on whether it can go, and d removes the selected one after a y.
+#
+#   m-teardown           the table: up/down select, d tear down, D force,
+#                        r rescan, p land main, q quit
+#   m-teardown <name>    gate that one worktree and remove it after a y/n
+#   m-teardown this      the worktree the shell is standing in
+#   m-teardown --pull    land momentum on a fresh main and pull manta
+#
+# The verdict is the same gate the teardown skill applies: a clean tree, nothing
+# unpushed, and a PR that is merged or absent. Working one out costs a `gh pr
+# list`, so a scan runs behind the table and writes its answers to a cache the
+# redraw reads back - the same split m-dev uses to keep slow work off the frame.
 
-  # Standing in a target would break every command after the removal.
-  case "$start" in
-    "$main"-*) cd "$main" || return 1 ;;
+_m_td_state() { printf '%s\n' "${XDG_CACHE_HOME:-$HOME/.cache}/m-teardown"; }
+_m_td_status_file() { printf '%s\n' "$(_m_td_state)/status"; }
+_m_td_action_log() { printf '%s\n' "$(_m_td_state)/action.log"; }
+_m_td_action_pid() { printf '%s\n' "$(_m_td_state)/action.pid"; }
+
+# The worktrees this may act on: the default one, which is only ever landed on
+# main, and its direct momentum-<desc> siblings. gnhf keeps real momentum
+# worktrees of its own a few directories further down; the filter is on the path
+# rather than the name, because by name they look like everything else.
+_m_td_targets() {
+  local root label branch dir
+  root="$(_m_root)"
+  _m_dev_worktrees | while read -r label branch dir; do
+    case "$dir" in
+      "$root"/momentum)     printf '%s %s %s\n' "$label" "$branch" "$dir" ;;
+      "$root"/momentum-*/*) ;;
+      "$root"/momentum-*)   printf '%s %s %s\n' "$label" "$branch" "$dir" ;;
+    esac
+  done
+}
+
+_M_TD_WT_CACHE=""
+_m_td_rows() {
+  local -n out="$1"
+  local line
+  if [ -z "$_M_TD_WT_CACHE" ] || [ "${2:-}" = fresh ]; then
+    _M_TD_WT_CACHE="$(_m_td_targets)"
+  fi
+  out=()
+  while IFS= read -r line; do
+    [ -n "$line" ] && out+=("$line")
+  done <<<"$_M_TD_WT_CACHE"
+  [ "${#out[@]}" -gt 0 ]
+}
+
+_m_td_branch_of() {
+  local row label branch dir
+  local -a rows
+  _m_td_rows rows || return 1
+  for row in "${rows[@]}"; do
+    read -r label branch dir <<<"$row"
+    [ "$dir" = "$1" ] && { printf '%s\n' "$branch"; return 0; }
+  done
+  return 1
+}
+
+# The pull request for one branch, as "<number> <state>", or the word `none` when
+# the branch has none and `down` when gh could not answer. Those three are not
+# interchangeable: no PR is a normal end state for an abandoned worktree, while a
+# gh that cannot answer proves nothing and must not read as one.
+_m_td_pr_of() {
+  local out
+  out="$( cd "$(_m_root)/momentum" && gh pr list --head "$1" --state all --limit 1 \
+            --json number,state --jq '.[] | "\(.number) \(.state)"' 2>/dev/null )" \
+    || { printf 'down\n'; return 0; }
+  [ -n "$out" ] && printf '%s\n' "$out" || printf 'none\n'
+}
+
+# _m_td_branch_check <branch> <pr> -> "<SAFE|KEEP><tab><reason>".
+#
+# Is every commit on this branch somewhere other than this worktree? The refs
+# live in the default worktree, so this holds even for a worktree whose
+# directory has already gone.
+_m_td_branch_check() {
+  local branch="$1" pr="$2" main n ahead num state upstream_gone=""
+  main="$(_m_root)/momentum"
+
+  if git -C "$main" rev-parse --verify --quiet "$branch@{upstream}" >/dev/null 2>&1; then
+    n="$(git -C "$main" rev-list --count "$branch@{upstream}..$branch" 2>/dev/null)"
+    [ "${n:-0}" -gt 0 ] && { printf 'KEEP\t%s unpushed commit(s)\n' "$n"; return 0; }
+  elif [ -z "$(git -C "$main" config --get "branch.$branch.merge" 2>/dev/null)" ]; then
+    printf 'KEEP\tnever pushed, origin has no copy\n'
+    return 0
+  else
+    # Pushed once, and origin/<branch> has since gone. That is exactly what
+    # GitHub does to a head branch on merge, so it is safe only when the PR
+    # really did merge; the case below is what decides that.
+    upstream_gone=1
+  fi
+
+  ahead="$(git -C "$main" rev-list --count "origin/main..$branch" 2>/dev/null)"
+  read -r num state <<<"$pr"
+  case "$state" in
+    MERGED) printf 'SAFE\tPR #%s merged\n' "$num"; return 0 ;;
+    OPEN)   printf 'KEEP\tPR #%s still open\n' "$num"; return 0 ;;
+    CLOSED) printf 'KEEP\tPR #%s closed unmerged\n' "$num"; return 0 ;;
+  esac
+  case "$pr" in
+    down) printf 'KEEP\tgh could not say whether a PR exists\n'; return 0 ;;
+  esac
+  [ -n "$upstream_gone" ] && { printf 'KEEP\tno PR and origin/%s is gone\n' "$branch"; return 0; }
+  if [ "${ahead:-0}" -gt 0 ]; then
+    printf 'SAFE\tno PR, %s commit(s) ahead of main, all pushed\n' "$ahead"
+  else
+    printf 'SAFE\tno PR, nothing ahead of main\n'
+  fi
+}
+
+# _m_td_check <dir> <branch> <pr> -> "<VERDICT><tab><detail>".
+#
+# SAFE means every gate passed: nothing uncommitted, and the branch is on origin
+# with a merged PR or none at all. KEEP means one of them stopped it, and the
+# detail says which. GONE is a worktree git already calls prunable - its
+# directory has been deleted from under it - where the record goes either way and
+# only the branch is in question. Nothing here writes.
+_m_td_check() {
+  local dir="$1" branch="$2" pr="$3" main n verdict reason
+  main="$(_m_root)/momentum"
+
+  [ "$dir" = "$main" ] && { printf 'BASE\tdefault worktree, never removed\n'; return 0; }
+  [ "$branch" = detached ] && { printf 'KEEP\tdetached head, no branch to check\n'; return 0; }
+
+  IFS=$'\t' read -r verdict reason < <(_m_td_branch_check "$branch" "$pr")
+
+  if [ ! -d "$dir" ]; then
+    if [ "$verdict" = SAFE ]; then
+      printf 'GONE\tprunable, record and branch both go\n'
+    else
+      printf 'GONE\tprunable, branch stays: %s\n' "$reason"
+    fi
+    return 0
+  fi
+
+  n="$(git -C "$dir" status --porcelain 2>/dev/null | wc -l)"
+  [ "${n:-0}" -gt 0 ] && { printf 'KEEP\tdirty, %s uncommitted file(s)\n' "$n"; return 0; }
+
+  printf '%s\t%s\n' "$verdict" "$reason"
+}
+
+# Every verdict, written a line at a time so the table fills in as it goes.
+# One `gh pr list` covers every branch at once; only a branch older than that
+# page costs a lookup of its own.
+_m_td_scan() {
+  local main label branch dir pr line b n s ok=1
+  local -A pr_num=() pr_state=()
+  main="$(_m_root)/momentum"
+  mkdir -p "$(_m_td_state)"
+  : >"$(_m_td_status_file)"
+
+  echo "reading pull requests ..."
+  if line="$( cd "$main" && gh pr list --state all --limit 200 \
+                --json number,state,headRefName \
+                --jq '.[] | [.headRefName, .number, .state] | @tsv' 2>&1 )"; then
+    while IFS=$'\t' read -r b n s; do
+      [ -n "$b" ] || continue
+      [ -n "${pr_num[$b]}" ] && continue          # the list is newest first
+      pr_num["$b"]="$n" pr_state["$b"]="$s"
+    done <<<"$line"
+    echo "${#pr_num[@]} branches have a pull request"
+  else
+    ok=""
+    echo "gh pr list failed, so no verdict can rest on a PR:"
+    echo "$line"
+  fi
+
+  while read -r label branch dir; do
+    echo "checking $label ..."
+    if [ -n "${pr_state[$branch]}" ]; then
+      pr="${pr_num[$branch]} ${pr_state[$branch]}"
+    elif [ -n "$ok" ]; then
+      pr="$(_m_td_pr_of "$branch")"
+    else
+      pr=down
+    fi
+    printf '%s\t%s\n' "$dir" "$(_m_td_check "$dir" "$branch" "$pr")" >>"$(_m_td_status_file)"
+  done < <(_m_td_targets)
+  echo "scan finished"
+}
+
+# The scan's answers, cached in this shell for the redraw. One read of the file
+# per pass rather than one per row.
+_M_TD_ST_CACHE=""
+_m_td_status_load() { _M_TD_ST_CACHE="$(cat "$(_m_td_status_file)" 2>/dev/null)"; }
+_m_td_status() {
+  local line rest
+  while IFS= read -r line; do
+    case "$line" in
+      "$1"$'\t'*)
+        rest="${line#*$'\t'}"
+        printf '%-4s %s' "${rest%%$'\t'*}" "${rest#*$'\t'}"
+        return 0 ;;
+    esac
+  done <<<"$_M_TD_ST_CACHE"
+  printf '%-4s %s' '?' 'checking ...'
+}
+
+_m_td_verdict() {
+  local st
+  st="$(_m_td_status "$1")"
+  printf '%s\n' "${st%% *}"
+}
+
+# Remove one worktree and its branch. Runs behind the table, so everything it
+# has to say goes to stdout and ends up in the pane.
+#
+# It re-decides the branch for itself rather than trusting the verdict on screen:
+# the removal is the destructive half, and by the time it runs the scan behind
+# that verdict may be minutes old.
+_m_td_remove() {
+  local label="$1" dir="$2" branch="$3" force="${4:-}" main out verdict="" reason=""
+  main="$(_m_root)/momentum"
+
+  case "$branch" in
+    ''|detached|main) branch="" ;;
+    *) IFS=$'\t' read -r verdict reason < <(_m_td_branch_check "$branch" "$(_m_td_pr_of "$branch")")
+       echo "branch $branch: $verdict  $reason" ;;
   esac
 
-  # --yes because typing the command is the confirmation; the gates still apply.
-  _m_skill "/teardown $* --yes" || return 1
-
-  if [ -d "$start" ]; then
-    cd "$start"
+  if [ ! -d "$dir" ]; then
+    echo "$dir is already gone, pruning the record"
+    git -C "$main" worktree prune
+  elif [ -n "$force" ]; then
+    git -C "$main" worktree remove --force "$dir" || { echo "worktree remove --force failed"; return 1; }
+    git -C "$main" worktree prune
+    echo "worktree gone"
   else
-    cd "$main" || return 1
-    echo "m-teardown: $start is gone, so you are in $main now"
+    if ! out="$(git -C "$main" worktree remove "$dir" 2>&1)"; then
+      echo "$out"
+      echo "git refused this one; D forces it"
+      return 1
+    fi
+    git -C "$main" worktree prune
+    echo "worktree gone"
   fi
+
+  if [ -z "$branch" ]; then
+    :
+  elif [ "$verdict" != SAFE ] && [ -z "$force" ]; then
+    echo "keeping branch $branch: $reason"
+  else
+    if out="$(git -C "$main" branch -d "$branch" 2>&1)"; then
+      echo "$out"
+    else
+      # -d only sees a merge when the SHAs match, which a squash or a rebase
+      # merge never does. The check above already proved origin holds the work.
+      echo "branch -d refused, deleting with -D (squash or rebase merge)"
+      git -C "$main" branch -D "$branch"
+    fi
+  fi
+
+  git -C "$main" fetch --prune --quiet origin && echo "pruned stale remote refs"
+  echo "done: $label"
+}
+
+# Land the default worktree on a fresh main, and bring manta's main up to date.
+# --ff-only on purpose: a diverged main fails loudly instead of quietly building
+# a merge commit.
+_m_td_land() {
+  local root main manta n
+  root="$(_m_root)"
+  main="$root/momentum"
+
+  n="$(git -C "$main" status --porcelain 2>/dev/null | wc -l)"
+  if [ "${n:-0}" -gt 0 ]; then
+    echo "momentum: $n uncommitted file(s) in the default worktree, leaving it where it is"
+  else
+    echo "momentum: checkout main, pull"
+    git -C "$main" checkout main && git -C "$main" pull --ff-only origin main
+  fi
+
+  manta="$root/manta"
+  if [ -e "$manta/.git" ]; then
+    echo "manta: checkout main, pull"
+    git -C "$manta" checkout main && git -C "$manta" pull --ff-only origin main
+  fi
+  echo "done"
+}
+
+# --- the table ---------------------------------------------------------------
+
+# _m_td_table <sel> [busy-dir] [busy-text]. The busy row is the one an action is
+# working on, and says so rather than showing a verdict the action is in the
+# middle of invalidating.
+_m_td_table() {
+  local sel="$1" busy="$2" busytext="$3" i=0 row label branch dir lw=8 bw=6 st mark
+  local -a rows
+  _m_td_rows rows || { echo "  no momentum worktrees found"; return 1; }
+
+  for row in "${rows[@]}"; do
+    read -r label branch dir <<<"$row"
+    [ "${#label}" -gt "$lw" ] && lw="${#label}"
+    [ "${#branch}" -gt "$bw" ] && bw="${#branch}"
+  done
+
+  printf '  %-3s %-*s %-*s %s\n' '#' "$lw" WORKTREE "$bw" BRANCH VERDICT
+  for row in "${rows[@]}"; do
+    i=$((i + 1))
+    read -r label branch dir <<<"$row"
+    if [ -n "$busy" ] && [ "$dir" = "$busy" ]; then
+      st="$busytext"
+    else
+      st="$(_m_td_status "$dir")"
+    fi
+    [ "$i" = "$sel" ] && mark='>' || mark=' '
+    printf '%s %-3s %-*s %-*s %s\n' "$mark" "$i" "$lw" "$label" "$bw" "$branch" "$st"
+  done
+}
+
+_M_TD_SHELL_FILE="${BASH_SOURCE[0]}"
+
+# Run a function detached and print its pid, so the table stays up while a scan
+# or a removal runs. Its own session: a plain background job would print bash's
+# job notice across the frame, and a session can be signalled as a group.
+_m_td_action_start() {
+  local log pidf waited=0
+  log="$(_m_td_action_log)"
+  pidf="$(_m_td_action_pid)"
+  mkdir -p "$(_m_td_state)" 2>/dev/null
+  : >"$log" 2>/dev/null
+  rm -f "$pidf"
+  MOMENTUM_ROOT="$(_m_root)" \
+    setsid --fork bash -c 'echo $$ >"$1"; . "$2"; shift 2; "$@"' \
+      m-teardown "$pidf" "$_M_TD_SHELL_FILE" "$@" >>"$log" 2>&1 </dev/null
+  while [ ! -s "$pidf" ] && [ "$waited" -lt 40 ]; do
+    sleep 0.05
+    waited=$((waited + 1))
+  done
+  cat "$pidf" 2>/dev/null
+}
+
+# Resolve the worktree the shell is standing in, for `m-teardown this`.
+_m_teardown_this() {
+  local root="$(_m_root)" top
+  top="$(git rev-parse --show-toplevel 2>/dev/null)" || {
+    echo "m-teardown: $PWD is not a git worktree, so 'this' names nothing" >&2
+    return 1
+  }
+  case "$top" in
+    "$root"/momentum-*/*)
+      echo "m-teardown: $top is nested under the root, not a top-level worktree" >&2
+      return 1 ;;
+    "$root"/momentum-*) ;;
+    "$root"/momentum)
+      echo "m-teardown: $top is the default worktree, which teardown never removes" >&2
+      return 1 ;;
+    *)
+      echo "m-teardown: $top is not a $root/momentum-<desc> worktree" >&2
+      return 1 ;;
+  esac
+  printf '%s\n' "${top#"$root"/momentum-}"
+}
+
+# One worktree, gated and removed in the foreground. The path a name on the
+# command line takes; the table uses the same two functions behind an action.
+_m_td_one() {
+  local name="$1" force="$2" root main label dir branch pr verdict detail ans out err
+  root="$(_m_root)"
+  main="$root/momentum"
+
+  # _m_dev_resolve does the name/branch/number matching for both tools, so its
+  # complaints have to be re-badged before they reach a m-teardown user.
+  if ! err="$( { out="$(_m_dev_resolve "$name")"; } 2>&1 )"; then
+    printf '%s\n' "${err//m-dev:/m-teardown:}" >&2
+    return 1
+  fi
+  read -r label dir <<<"$out"
+  case "$dir" in
+    "$root"/momentum-*/*|"$root"/momentum)
+      echo "m-teardown: $dir is not a worktree this removes" >&2
+      return 1 ;;
+    "$root"/momentum-*) ;;
+    *)
+      echo "m-teardown: $dir is not a $root/momentum-<desc> worktree" >&2
+      return 1 ;;
+  esac
+  branch="$(_m_td_branch_of "$dir")"
+
+  if [ -n "$force" ]; then
+    echo "$label ($branch): forced, no checks - uncommitted and unpushed work goes with it"
+  else
+    echo "checking $label ..."
+    pr="$(_m_td_pr_of "$branch")"
+    IFS=$'\t' read -r verdict detail < <(_m_td_check "$dir" "$branch" "$pr")
+    echo "$label ($branch): $verdict  $detail"
+    case "$verdict" in
+      SAFE|GONE) ;;
+      *) echo "not removed. --force overrides."; return 1 ;;
+    esac
+  fi
+
+  read -r -p "tear down $label? [y/N] " ans </dev/tty || return 1
+  case "$ans" in y|Y) ;; *) echo "left alone"; return 1 ;; esac
+
+  # Standing in it would break every command after the removal.
+  case "$PWD/" in "$dir"/*) cd "$main" || return 1 ;; esac
+  _m_td_remove "$label" "$dir" "$branch" "$force"
+}
+
+m-teardown() {
+  local root main a arg="" force="" pull="" sel=1 key
+  root="$(_m_root)"
+  main="$root/momentum"
+  if [ ! -e "$main/.git" ]; then
+    echo "no momentum checkout at $main" >&2
+    return 1
+  fi
+  mkdir -p "$(_m_td_state)" 2>/dev/null
+  _M_TD_WT_CACHE=""                  # a worktree may have come or gone since last time
+
+  for a in "$@"; do
+    case "$a" in
+      --force|-f) force=1 ;;
+      --pull|-p)  pull=1 ;;
+      --yes|-y)   ;;                 # the y at the prompt is the confirmation now
+      this)       arg="$(_m_teardown_this)" || return 1 ;;
+      -*)         echo "m-teardown: unknown option $a" >&2; return 1 ;;
+      *)          arg="$a" ;;
+    esac
+  done
+
+  [ -n "$pull" ] && { _m_td_land; return $?; }
+  [ -n "$arg" ] && { _m_td_one "$arg" "$force"; return $?; }
+
+  # Interactive. The table owns the top of the screen and the keys always act on
+  # the selected row; the scan and any removal run detached behind it, with their
+  # output tailed into the pane underneath, so nothing ever covers the list.
+  local frame last="" dirty=1 wt_stale=1 note="" excluded=0 rc=0 waits=0
+  local job="" what="" kind="" busy_dir="" busy_text="" seq="" ch="" traps="" bail=""
+  local cf_dir="" cf_label="" cf_branch="" cf_verdict="" cf_force=""
+  local label branch dir st atext used avail nl
+  local -a rows
+
+  job="$(cat "$(_m_td_action_pid)" 2>/dev/null)"
+  if _m_dev_action_alive "$job"; then
+    what="an action started earlier" kind=other
+  else
+    job="$(_m_td_action_start _m_td_scan)"
+    what="scan" kind=scan
+  fi
+
+  traps="$(trap -p WINCH INT)"
+  _M_TD_RESIZED=0 _M_TD_QUIT=0
+  trap '_M_TD_RESIZED=1' WINCH
+  trap '_M_TD_QUIT=1' INT
+  _m_dev_size
+  _m_dev_screen_on
+
+  while :; do
+    if [ "$_M_TD_RESIZED" = 1 ]; then
+      _M_TD_RESIZED=0
+      _m_dev_size
+      dirty=1
+    fi
+
+    if [ -n "$job" ] && ! _m_dev_action_alive "$job"; then
+      note="$what: done"
+      job="" busy_dir="" busy_text=""
+      wt_stale=1 dirty=1
+      # A removal changed what every other verdict was worked out against, and
+      # the row that just went has to leave the table, so the list is re-read
+      # and the scan runs again on its own.
+      if [ "$kind" = remove ]; then
+        job="$(_m_td_action_start _m_td_scan)"
+        what="scan" kind=scan
+      else
+        kind=""
+      fi
+    fi
+
+    if [ "$wt_stale" = 1 ]; then
+      _m_td_rows rows fresh || { bail="m-teardown: no momentum worktrees found"; break; }
+      excluded=$(( $(_m_dev_worktrees | wc -l) - ${#rows[@]} ))
+      wt_stale=0
+    fi
+    [ "$sel" -gt "${#rows[@]}" ] && sel="${#rows[@]}"
+    [ "$sel" -lt 1 ] && sel=1
+
+    _m_td_status_load
+
+    frame="momentum worktrees - what is safe to tear down"$'\n\n'
+    frame+="$(_m_td_table "$sel" "$busy_dir" "$busy_text")"$'\n\n'
+    if [ -n "$cf_dir" ]; then
+      if [ -n "$cf_force" ]; then
+        frame+="  FORCE tear down $cf_label ($cf_branch)? uncommitted and unpushed work goes with it.  y / anything else"
+      elif [ "$cf_verdict" = GONE ]; then
+        frame+="  prune $cf_label ($cf_branch)? its directory is already deleted.  y / anything else"
+      else
+        frame+="  tear down $cf_label ($cf_branch) and delete its branch?  y / anything else"
+      fi
+    else
+      frame+="  up/down select   d tear down   D force   r rescan   p land main   q quit"
+    fi
+    [ "$excluded" -gt 0 ] && frame+=$'\n'"  $excluded other momentum worktree(s) elsewhere (gnhf) are never touched"
+    [ -n "$job" ] && frame+=$'\n'"  running: $what"
+    [ -n "$note" ] && frame+=$'\n'"  $note"
+
+    used=$(( 5 + ${#rows[@]} ))
+    [ "$excluded" -gt 0 ] && used=$((used + 1))
+    [ -n "$job" ] && used=$((used + 1))
+    [ -n "$note" ] && used=$((used + 1))
+    avail=$(( _M_DEV_ROWS - used ))
+
+    if [ "$avail" -ge 4 ]; then
+      atext="$(_m_dev_pane "$(_m_td_action_log)" "$_M_DEV_COLS" "$((avail - 2))")"
+      if [ -n "$atext" ]; then
+        frame+=$'\n'"$(_m_dev_rule 'm-teardown' "$_M_DEV_COLS")"$'\n'"$atext"
+      fi
+    fi
+
+    if [ "$dirty" = 1 ] || [ "$frame" != "$last" ]; then
+      printf '\033[H%s\033[J' "$(_m_dev_fit "$_M_DEV_COLS" "$_M_DEV_ROWS" "$frame")"
+      last="$frame" dirty=0
+    fi
+
+    # Always a timed read: bash only runs a trap once the builtin returns, so a
+    # blocking one would swallow Ctrl+C, and there is a screen to hand back
+    # before this can return. A key leaves at once; otherwise the wait ends about
+    # once a second, which is what keeps the pane and the verdicts moving.
+    waits=0
+    while :; do
+      IFS= read -rsn1 -t 0.25 key && break
+      rc=$?
+      [ "$_M_TD_QUIT" = 1 ] && break 2
+      [ "$rc" -le 128 ] && break 2                 # eof, not a timeout
+      [ "$_M_TD_RESIZED" = 1 ] && continue 2
+      waits=$((waits + 1))
+      [ "$waits" -ge 4 ] && continue 2
+    done
+    [ "$_M_TD_QUIT" = 1 ] && break
+    note=""
+
+    # A pending confirmation answers to y and nothing else. Every other key
+    # cancels it rather than doing its own job, so a stray keystroke can only
+    # ever call the removal off.
+    if [ -n "$cf_dir" ]; then
+      if [ "$key" = y ] || [ "$key" = Y ]; then
+        case "$PWD/" in
+          "$cf_dir"/*) cd "$main" && note="stepped out of $cf_label into $main" ;;
+        esac
+        what="tear down $cf_label" kind=remove
+        busy_dir="$cf_dir" busy_text="removing ..."
+        job="$(_m_td_action_start _m_td_remove "$cf_label" "$cf_dir" "$cf_branch" "$cf_force")"
+        [ -n "$job" ] || { note="could not start $what"; busy_dir="" busy_text="" kind=""; }
+      else
+        note="left $cf_label alone"
+      fi
+      cf_dir="" cf_label="" cf_branch="" cf_verdict="" cf_force=""
+      dirty=1
+      continue
+    fi
+
+    case "$key" in
+      $'\e')
+        seq=""
+        IFS= read -rsn1 -t 0.05 ch || ch=""
+        case "$ch" in
+          '['|'O')
+            while IFS= read -rsn1 -t 0.05 ch; do
+              seq+="$ch"
+              case "$ch" in [a-zA-Z~]) break ;; esac
+            done
+            ;;
+        esac
+        case "$seq" in
+          'A') sel=$((sel - 1)) ;;
+          'B') sel=$((sel + 1)) ;;
+        esac
+        ;;
+      'k') sel=$((sel - 1)) ;;
+      'j') sel=$((sel + 1)) ;;
+      'd'|'D')
+        read -r label branch dir <<<"${rows[$((sel - 1))]}"
+        st="$(_m_td_status "$dir")"
+        if [ -n "$job" ]; then
+          note="wait for $what to finish"
+        elif [ "$dir" = "$main" ]; then
+          note="the default worktree is never removed; p lands it on main"
+        elif [ "$key" = D ]; then
+          cf_dir="$dir" cf_label="$label" cf_branch="$branch" cf_verdict=FORCE cf_force=1
+        else
+          case "${st%% *}" in
+            SAFE|GONE) cf_dir="$dir" cf_label="$label" cf_branch="$branch" \
+                         cf_verdict="${st%% *}" cf_force="" ;;
+            *) note="$label: ${st#* } - D forces it" ;;
+          esac
+        fi
+        ;;
+      'r'|'R')
+        if [ -n "$job" ]; then
+          note="wait for $what to finish"
+        else
+          what="scan" kind=scan
+          job="$(_m_td_action_start _m_td_scan)"
+          wt_stale=1
+        fi
+        ;;
+      'p'|'P')
+        if [ -n "$job" ]; then
+          note="wait for $what to finish"
+        else
+          what="land main" kind=other
+          job="$(_m_td_action_start _m_td_land)"
+        fi
+        ;;
+      'q'|'Q') break ;;
+    esac
+  done 2>>"$(_m_td_action_log)"
+
+  # One way out, so the terminal is always handed back the way it was found.
+  _m_dev_screen_off
+  trap - WINCH INT
+  [ -n "$traps" ] && eval "$traps"
+  [ -n "$bail" ] && { echo "$bail" >&2; return 1; }
+  [ -n "$job" ] && echo "m-teardown: '$what' is still running behind you"
+  [ -d "$PWD" ] || cd "$main"
+  return 0
 }
 
 # --- m-dev / m-cd: the momentum stack, one worktree at a time ----------------

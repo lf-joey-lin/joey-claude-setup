@@ -1,6 +1,6 @@
 ---
 name: teardown
-description: Sweep away the throwaway momentum worktrees and branches left behind by merged work, then put the workspace back on a fresh main. Removes only <root>/momentum-<desc> worktrees, never the default momentum worktree, manta, gnhf, or anything else under the root, and ends by putting momentum's default worktree on a freshly pulled main and pulling manta's main. Default mode gates every removal on merged PR, clean tree and no unpushed commits; --yes keeps the gates but skips the confirmation question; --force skips all checks and resets. Invoke when the user types /teardown, or asks to "clean up the branch", "delete the worktree", "clean up my worktrees", "tidy up after the merge", or "post-merge cleanup".
+description: Sweep away the throwaway momentum worktrees and branches left behind by merged work, then put the workspace back on a fresh main. Removes only <root>/momentum-<desc> worktrees, never the default momentum worktree, manta, gnhf, or anything else under the root, and ends by putting momentum's default worktree on a freshly pulled main and pulling manta's main. Takes an optional target: a shortdesc, or `this` for the worktree the session is standing in. Default mode gates every removal on a clean tree, no unpushed commits, and a PR that is either merged or absent - an open or closed-unmerged PR is skipped; --yes keeps the gates but skips the confirmation question; --force skips all checks and resets. Invoke when the user types /teardown, or asks to "clean up the branch", "delete the worktree", "clean up my worktrees", "tidy up after the merge", or "post-merge cleanup".
 ---
 
 # teardown: post-merge worktree sweep
@@ -17,18 +17,23 @@ those checks away by explicit request.
 ## Invocation
 
 ```
-/teardown [shortdesc] [--yes] [--force]
+/teardown [shortdesc|this] [--yes] [--force]
 ```
 
 - **No argument:** sweep every `momentum-*` worktree under the workspace root.
 - **`shortdesc`:** narrow the sweep to one target - the branch name
   (`veryShortCamelCaseDesc`), or the `momentum-<shortdesc>` worktree suffix. Look
   it up against what actually exists rather than assuming the literal string.
+- **`this`:** narrow the sweep to the worktree the session is standing in.
+  Resolve it from the cwd - `git rev-parse --show-toplevel`, then check the result
+  is a direct `<root>/momentum-<desc>` child - and name the resolved worktree back
+  before doing anything. Stop and say so when it does not resolve: the cwd is not
+  in a git worktree, is the default `<root>/momentum` (which is never removed), or
+  is one of gnhf's nested worktrees. Do not fall back to sweeping everything - an
+  unresolvable `this` is an error, not "no argument".
 - **`--yes`:** the list has already been confirmed, so do not ask again - resolve
   it, print it, and go. Every gate in step 1 still runs; that is what makes
-  skipping the question safe. The `m-teardown` shell wrapper passes it, since
-  typing the command is the confirmation and there is no human to answer a
-  question in a headless run.
+  skipping the question safe.
 - **`--force`:** no safety checks at all. Remove every `momentum-*` worktree,
   delete every local branch but `main`, hard-reset and clean both default
   worktrees, pull. Uncommitted and unpushed work is destroyed. See step 6.
@@ -75,15 +80,28 @@ still print the list, then go without asking.
 Run these for each candidate. A worktree that fails any gate is **skipped, not
 deleted** - keep sweeping the rest and report the skips at the end.
 
-- **PR is merged.** The premise of the cleanup:
+- **PR is merged, or there is no PR at all.** The premise of the cleanup:
 
   ```bash
   gh pr list --head <branch> --state all --json number,state,mergedAt,title
   ```
 
-  Only `state: MERGED` clears the gate. `OPEN`, in review, or `CLOSED` unmerged
-  means skip and say so. No PR at all (never pushed, local experiment) is also a
-  skip - tell the user and let them decide.
+  `state: MERGED` clears the gate. `OPEN`, in review, or `CLOSED` unmerged means
+  skip and say so - that is a decision the user has not made yet.
+
+  **No PR at all also clears the gate.** An abandoned `new-work` worktree never
+  gets one, and the other two gates already carry the safety here: a clean tree
+  means nothing is unsaved, and no unpushed commits means every commit is already
+  on `origin/<branch>`, so removing the local worktree and branch loses no work.
+  Delete it, do not ask. Two things go with it:
+
+  - Count what the branch actually carries -
+    `git -C <worktree-path> rev-list --count origin/main..HEAD`. Zero means an
+    empty branch cut off main with nothing to lose. Anything else is real
+    unmerged work; it still goes, but name it in the report.
+  - **Leave the remote branch alone.** With the local copy gone it holds the only
+    copy of that work. Step 4's confirmation still applies, and with no merged PR
+    the answer is usually no.
 - **No uncommitted changes.** The working tree is the user's review state.
 
   ```bash
@@ -103,7 +121,8 @@ deleted** - keep sweeping the rest and report the skips at the end.
 
 Do not delete the worktree you are standing in. If the cwd is inside a target,
 `cd "<root>/momentum"` first - pulling the cwd out from under the session breaks
-every command after it.
+every command after it. This is the normal case for `this`, so move out before
+the removal rather than after it fails.
 
 ```bash
 git -C "<root>/momentum" worktree remove <worktree-path>
@@ -180,7 +199,10 @@ Manta is untouched by force. It gets the same plain pull as step 5.
 
 The scope rules in "What may be touched" still hold. `--force` means no checks,
 not a wider blast radius: gnhf, manta, and everything else under the root are
-still off limits.
+still off limits. A named target narrows force too - `this --force` or
+`<shortdesc> --force` skips the gates for that one worktree and its branch, and
+leaves every other worktree and branch alone. The commands below are the
+no-argument case; run them against the resolved list, not against everything.
 
 ```bash
 cd "<root>/momentum"                                     # never stand in a target
@@ -216,8 +238,10 @@ Say what went and what stayed:
 
 - worktrees removed, with their branches
 - branches deleted, and any that needed `-D`
-- **skipped**, one line each with the gate that stopped it (PR still open, dirty
-  tree, unpushed commits) and what the user has to do
+- **skipped**, one line each with the gate that stopped it (PR still open or
+  closed unmerged, dirty tree, unpushed commits) and what the user has to do
+- anything removed with **no PR**, and whether it carried unmerged commits, so a
+  branch deleted on the no-PR path is never silent
 - momentum: on `main` and pulled, or the reason it is not
 - manta: main pulled, and what it moved (already up to date is worth a word)
 - anything deliberately left alone that the user might expect to be gone (gnhf's
@@ -233,3 +257,5 @@ the headline for that entry.
   the sweep. Only `--force` bypasses them.
 - If the user names a target that does not resolve to an existing
   `momentum-<desc>` worktree or branch, say what you did find instead of guessing.
+- With `this`, the session usually ends in a directory that no longer exists.
+  Finish in `<root>/momentum` and say so.
