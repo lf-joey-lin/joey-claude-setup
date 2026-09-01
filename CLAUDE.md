@@ -38,9 +38,19 @@ Workflow for the `momentum` GitHub repo (org `Laserfiche`).
 - Smallest useful diff; tightly scoped to the request.
 - Match the repo's existing style over my personal preference.
 - Comments: add only for very non-obvious code (the "why", not the "what"); keep as short as possible. Don't comment self-explanatory code. When I do write one, apply the writing rules below (see Writing).
-- Comment wording: plain, simple, direct. Short words, short sentences, ordinary
-  grammar. Say what a reader needs to know and stop. Leave out the deep technical
-  detail, the background story, and the hedging.
+- Comment wording: write for someone opening the file for the first time who does
+  not yet know what it does. Plain, simple, direct. Short words, short sentences,
+  ordinary grammar. Leave out the deep technical detail, the background story, and
+  the hedging. Name the things in the code - the function, the prop, the piece of
+  state - instead of alluding to them, and say the concrete thing that breaks
+  without this code, in the words you would use out loud. No literary register: no
+  sentence whose subject is an abstraction, no rhetorical contrast, no phrase that
+  needs a re-read to work out what it points at. One line; two if the "why"
+  genuinely needs it. A block comment over five lines is a smell - if it takes that
+  much, the code needs the work, not the comment. See `joey-writing-style.md` for a
+  worked before/after.
+- "Match the repo's existing style" above does not extend to comment prose. Dense
+  comments already sitting in a file are not a licence to add more.
 - Ask before adding a dependency or library.
 - Verify before claiming something works — don't assert unchecked success. What
   "verify" means per edit is compile/lint, not the test suite (see Testing).

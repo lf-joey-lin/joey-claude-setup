@@ -149,6 +149,32 @@ not
 > - Group memberships are mapped from the trustee's `Groups` array, dropping
 >   entries with no usable `Name`, and sorted client-side before render.
 
+## Code comments
+
+Write for someone opening the file for the first time. Name the thing in the code,
+say what breaks without it, stop.
+
+> // Scroll back to the top when the search or filters change. The old batches are
+> // thrown away, so the scroll position the browser keeps would leave the reader
+> // stranded in the middle of a fresh, shorter list.
+
+not
+
+> // The hand-off a new narrowing owes the reader on a listing with no page turn to
+> // hang one on: the batches read so far are thrown away, and the reader may be a
+> // long way down them when the new batch 1 arrives under their scroll position.
+
+The second one is not long-winded and not technically wrong. It is unreadable
+because every subject is an abstraction ("the hand-off", "a narrowing") and nothing
+names a function, a prop or a piece of state. You have to already know what the code
+does before the comment makes sense, which is backwards.
+
+- One line. Two if the "why" genuinely needs it. Past five, the code needs the work,
+  not the comment.
+- Ordinary words, the ones you would say out loud explaining it to someone. No
+  rhetorical contrast, no clever framing, no restating the same point a second way.
+- If you re-read a sentence to work out what it refers to, rewrite it.
+
 ## Comments, status updates, QA notes
 
 - Confirmations lead with "Verified ...": "Verified with latest sca scan,
