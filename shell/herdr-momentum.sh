@@ -22,11 +22,12 @@ _m_herdr_name() {
   printf '%s\n' "${n:0:32}"
 }
 
-# m-space [dir] - adopt a worktree as its own herdr space, with claude running
-# in it. Defaults to the worktree you are standing in.
+# m-space [dir] - adopt a worktree as its own herdr space, laid out the way every
+# worktree space wants to be: reviewr on tab 1, the worktree's claude on tab 2.
+# Defaults to the worktree you are standing in.
 m-space() {
   _m_herdr || { echo "m-space: no herdr on this box" >&2; return 1; }
-  local main dir name opened pane
+  local main dir name opened ws review_pane review_tab created agent_pane
   main="$(_m_root)/momentum"
   dir="$(cd "${1:-$PWD}" 2>/dev/null && pwd)" || { echo "m-space: no such directory" >&2; return 1; }
   name="$(_m_herdr_name "$dir")"
@@ -37,13 +38,30 @@ m-space() {
     return 0
   fi
 
-  pane="$(printf '%s' "$opened" | jq -r '.result.root_pane.pane_id')"
-  if herdr agent start "$name" --kind claude --pane "$pane" >/dev/null; then
-    echo "m-space: $name -> $pane"
-  else
-    echo "m-space: space is up but claude did not start in $pane" >&2
+  ws="$(printf '%s' "$opened" | jq -r '.result.workspace.workspace_id')"
+  review_pane="$(printf '%s' "$opened" | jq -r '.result.root_pane.pane_id')"
+  review_tab="$(printf '%s' "$opened" | jq -r '.result.tab.tab_id')"
+
+  # Claude gets built first even though it ends up second. Tab order is creation
+  # order and the root tab is already first, so nothing here can reorder them,
+  # and `agent start` blocks until its pane is ready - which is also the time the
+  # root pane's shell needs before it can be typed into.
+  created="$(herdr tab create --workspace "$ws" --cwd "$dir" --label claude --focus)" || return 1
+  agent_pane="$(printf '%s' "$created" | jq -r '.result.root_pane.pane_id')"
+  if ! herdr agent start "$name" --kind claude --pane "$agent_pane" >/dev/null; then
+    echo "m-space: space is up but claude did not start in $agent_pane" >&2
     return 1
   fi
+
+  # The binary, not the plugin action: the action only ever opens a new tab, and
+  # this one has to be the first. pane.sh finds a reviewr pane by its process, so
+  # ctrl+alt+v still closes and reopens this one. auto_open is off in the plugin
+  # config to keep the event from adding a third tab.
+  herdr pane run "$review_pane" herdr-reviewr >/dev/null ||
+    echo "m-space: reviewr did not start in $review_pane" >&2
+  herdr tab rename "$review_tab" reviewr >/dev/null 2>&1
+
+  echo "m-space: $name -> $agent_pane"
 }
 
 # m-work <short description> - the herdr version of m-newwork: new branch and
@@ -78,4 +96,22 @@ m-agents() {
   herdr agent list |
     jq -r '.result.agents[] | [.agent_status, .workspace_id, (.name // .pane_id), (.terminal_title_stripped // "")] | @tsv' |
     column -t -s "$(printf '\t')"
+}
+
+# m-board - every worktree and every loom run on one screen, read from the flight
+# ledgers plus herdr and git. Read-only. ctrl+alt+p opens it in a popup, which is
+# why the popup runs --watch: the board prints and exits, so a plain run would
+# flash and close. See loom-board/README.md.
+_m_board_script() {
+  printf '%s\n' "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/loom-board/board.mjs"
+}
+
+m-board() {
+  local script
+  script="$(_m_board_script)"
+  if [ ! -f "$script" ]; then
+    echo "m-board: no board script at $script" >&2
+    return 1
+  fi
+  node "$script" "$@"
 }

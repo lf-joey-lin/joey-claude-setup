@@ -1,8 +1,10 @@
-# No prefix. Every binding here is a single chord on the ctrl+alt layer, which is
+# No prefix. Almost every binding here is a single chord on the ctrl+alt layer, which is
 # the one layer nothing else in a pane wants: Claude Code binds no ctrl+alt letter,
 # readline binds none, and Windows Terminal only takes ctrl+alt+1..9. Plain
 # ctrl+letter is out because Claude Code uses nearly all of them, ctrl+w and ctrl+n
-# included.
+# included. The two exceptions are alt+backtick and alt+q, which join alt+1..9 on
+# the alt layer: readline binds neither, and neither needs shift, which the
+# ctrl+alt+shift chords do.
 [keys]
 # Parked, not typed. The prefix survives only as the escape hatch for the actions
 # left on their defaults (f12 then shift+t to rename a tab, and so on).
@@ -22,6 +24,8 @@ goto = "ctrl+alt+g"
 # Digits go to spaces rather than agents. A space is a worktree and stays put; the
 # agent panel reorders itself by priority, so "agent 3" is not a stable target.
 switch_workspace = "alt+1..9"
+# alt is already the space layer, and backtick sits left of the digits.
+next_workspace = "alt+backtick"
 new_workspace = "ctrl+alt+shift+n"
 open_worktree = "ctrl+alt+o"
 new_worktree = "ctrl+alt+shift+g"
@@ -29,7 +33,9 @@ new_worktree = "ctrl+alt+shift+g"
 new_tab = "ctrl+alt+n"
 close_tab = "ctrl+alt+x"
 previous_tab = "ctrl+alt+comma"
-next_tab = "ctrl+alt+period"
+# alt+q joins the existing chord rather than replacing it: q sits under the
+# backtick, so next tab and next space are neighbours on the same thumb.
+next_tab = ["alt+q", "ctrl+alt+period"]
 
 # herdr splits on an axis, not a side, so right and down are the only two
 # directions there are. win+arrow is not an option: Windows snaps the window and
@@ -60,6 +66,32 @@ command = "bash -lic m-dev"
 width = "90%"
 height = "85%"
 
+# m-board is the loom board: every worktree and every run in one screen. A popup
+# like m-dev, and --watch because the board prints and exits, so a plain run would
+# flash and close. --all because the popup is the place you go to see everything;
+# the bare m-board in a pane keeps the shorter default.
+#
+# p, not m. ctrl+m is carriage return in ASCII, so ctrl+alt+m reaches herdr as
+# ESC+CR, which is ctrl+alt+enter - already bound above to jump-to-toast. Tested
+# both: m never fired, p did.
+[[keys.command]]
+key = "ctrl+alt+p"
+type = "popup"
+command = "bash -lic 'm-board --watch --all'"
+description = "loom board"
+width = "90%"
+height = "85%"
+
+# Review the worktree against main. b is the whole branch, however many commits
+# deep, G steps them one at a time. A pane rather than a popup, because s sends
+# the comments to the agent sitting next to it. On v, the one chord known to
+# arrive: ctrl+alt+c is Zoom's, ctrl+alt+shift+v loses its shift and fires
+# ctrl+alt+v, and ctrl+alt+i and ctrl+alt+t never showed up at all.
+[[keys.command]]
+key = "ctrl+alt+v"
+type = "plugin_action"
+command = "persiyanov.reviewr.toggle"
+
 [ui]
 agent_panel_sort = "priority"
 prompt_new_tab_name = false
@@ -76,3 +108,12 @@ delivery = "herdr"
 [theme]
 name = "terminal"
 auto_switch = false
+
+# New panes, tabs and workspaces inherit the cwd of the one they were opened
+# from, so a tab opened in a worktree space lands in that worktree rather than
+# in the reference checkout. A worktree space is always inside a git work tree,
+# which is what worktree actions (ctrl+alt+o) need. Only the first space of a
+# fresh server has nothing to follow; it takes the directory herdr was started
+# in.
+[terminal]
+new_cwd = "follow"

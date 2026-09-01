@@ -44,7 +44,7 @@ gate, then walk the stack through them.
 
 | Space                    | Holds                              |
 | ------------------------ | ---------------------------------- |
-| one per active worktree  | that worktree's Claude             |
+| one per active worktree  | reviewr on tab 1, its Claude on tab 2 |
 | `momentum`               | ux-review, spec-ui, makeagoal, TFS |
 | `manta`                  | precedent lookups                  |
 | none for the dev server  | `ctrl+alt+d` popup                 |
@@ -85,6 +85,7 @@ and drops the space together; a plain `workspace close` leaves the checkout on d
 | `m-work <desc>`     | `/new-work` headless, then the worktree gets its own space with claude running in it |
 | `m-space [dir]`     | same, for a worktree that already exists. Idempotent            |
 | `m-agents`          | one line per live agent, from any pane                           |
+| `m-board`           | every worktree and every loom run on one screen. `loom-board/`   |
 
 `m-work` is the herdr replacement for `m-newwork`. The difference is where the agent
 ends up: `m-newwork` does `cd` plus `claude` in whichever pane you were standing in,
@@ -130,6 +131,7 @@ included, and a global `ctrl+w` costs you delete-word in every pane.
 | `ctrl+alt+shift+arrows` | resize pane                       |
 | `ctrl+alt+e`            | scrollback in `$EDITOR`           |
 | `ctrl+alt+d`            | `m-dev` in a popup                |
+| `ctrl+alt+p`            | `m-board` in a popup              |
 | `f1`                    | help, lists everything            |
 | `ctrl+alt+q`            | detach (panes keep running)       |
 | `ctrl+alt+r`            | reload config                     |
@@ -145,13 +147,19 @@ hatch for the actions still on their defaults: `f12` then `shift+t` renames a ta
 `f12+r` is resize mode, `f12+1..9` switches tabs. Moving it off `ctrl+b` also hands
 `ctrl+b` back to Claude Code and to bash.
 
-Two chords to check by pressing them, because neither is guaranteed here:
+Chords to check by pressing them, because none is guaranteed here:
 
 - `ctrl+alt+shift+arrows` needs the kitty keyboard protocol end to end. Windows
   Terminal 1.24 and herdr's client both do it, so it should hold. Resize mode on
   `f12+r` is the fallback.
 - `ctrl+alt+arrow` is taken by the Intel graphics driver for screen rotation on some
   machines.
+- `ctrl+alt+m` does not arrive, and now the reason for this whole family is known:
+  `ctrl+m` is carriage return in ASCII, so the chord reaches herdr as ESC+CR, which
+  is `ctrl+alt+enter` - already bound to jump-to-toast. Same for `ctrl+alt+i`, since
+  `ctrl+i` is tab. Avoid `ctrl+alt+m`, `i`, `[` and probably `j`. The board sits on
+  `ctrl+alt+p`, which has no such collision. herdr's own docs separately rule out
+  `ctrl+alt+t`, `u`, `s`, `a`, `l`, the arrows and the f-keys, which the OS steals.
 
 `herdr config check` validates key names and catches two actions on the same chord,
 so run it after any edit here.
