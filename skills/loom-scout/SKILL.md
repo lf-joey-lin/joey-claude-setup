@@ -18,7 +18,7 @@ repeated here.
 Derive `<slug>` (kebab-case) and the branch name (camelCase, per the contract)
 from the request. Then:
 
-1. **Resume check before touching git.** If `src/ui-app/logs/loom/<slug>.md`
+1. **Resume check before touching git.** If `artifacts/loom/<slug>-ledger.md`
    exists in either the default worktree or `<root>/momentum-<slug>`, this is
    a resume: report the ledger path and stop - the orchestrator continues from
    it. Do not create a second workspace.
@@ -33,7 +33,12 @@ from the request. Then:
    HEAD`. It carries no commits and triggers no CI; it just sets the upstream
    so the editor shows outgoing work. A failed push is not a failed setup -
    note it and continue.
-5. If a name is already taken, stop and report; never clobber.
+5. `npm ci` in `<root>/momentum-<slug>/src/ui-app`. A fresh worktree has no
+   `node_modules`, and the postinstall runs `nuxt prepare`, which writes the
+   `.nuxt/imports.d.ts` roster the plan greps. Skip this and the plan grounds
+   against a downloaded tarball while slice 1 grounds against the real
+   install. A failed install is noted and the run continues.
+6. If a name is already taken, stop and report; never clobber.
 
 ## Step 2 - recon
 
@@ -94,6 +99,12 @@ Stamp your own `- Timing:` line on the Brief section like any other stage.
   took and where it came from (precedent, house convention, most idiomatic),
   marked `(defaulted)`. Anything that genuinely changes the shape of the work
   and has no defensible default is listed as an open question instead.
+  Two entries are always present. **Shape**: `minimal diff` or `best
+  structure`, with the reason, defaulted when the request is silent - a run
+  that picks one silently can cost a second run to reverse it. **Stated
+  values**: a concrete number or label in the request (a batch size, a count,
+  a wording) is taken literally; departing from it is an open question, never
+  a default.
 
 Mark the Brief `[x]` and return a short summary: lane, branch, worktree,
 ledger path, the decisions taken, and any open questions. In attended mode the

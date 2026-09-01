@@ -70,7 +70,7 @@ an admitted hole.
 
 ## Step 5 - the report, from the ledger
 
-Write `src/ui-app/logs/loom/<slug>-report.md` **from the ledger, not from
+Write `artifacts/loom/<slug>-report.md` **from the ledger, not from
 memory** - every claim in the report must trace to a ledger entry with
 evidence. Under the title, one line: the branch, and
 `started <iso>, finished <iso>, wall <hh:mm:ss>, active <hh:mm:ss>`.

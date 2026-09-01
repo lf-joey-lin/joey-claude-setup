@@ -53,7 +53,7 @@ Order matters. Two copies exist on disk before anything leaves the tree.
 
 ```bash
 git add -N .                       # untracked files, or the diff misses them
-git diff <base> > src/ui-app/logs/loom/<slug>/round-<n>.patch
+git diff <base> > artifacts/loom/<slug>/round-<n>.patch
 git apply --check --reverse <patch>   # against the current tree, before revert
 ```
 
@@ -131,7 +131,7 @@ Count the behaviors from step 3.
   for `prepare-to-ship`, per the contract.
 
 Each slice entry carries what the contract's Plan template asks for: Behavior,
-Checks C1..Cn each naming its channel, Touches, Attack. The Attack line comes
+Checks C1..Cn each naming its channel, Touches, A11y, Attack. The Attack line comes
 free from step 4 - the gaps you handed to probe are exactly what it should
 try. Add one field the normal plan does not have:
 

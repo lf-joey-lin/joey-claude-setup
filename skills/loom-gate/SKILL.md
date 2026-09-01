@@ -16,6 +16,13 @@ and the realm BFFs (`src/acs-bff`, `src/app-bff`) mean this gate covers only
 part of the branch - say so and point the rest at `prepare-to-ship`; do not
 silently certify half a branch as whole.
 
+Then the story check. Every `.vue` file the branch added under
+`app/components`, `app/layouts` or `app/pages` must be rendered by some
+`*.stories.ts` - grep the component name across the story files. The a11y
+suite mounts stories and nothing else, so a component with no story is never
+scanned and a green a11y pass does not cover it. A miss is NOT READY naming
+the component, owner loom-slice; never a caveat on a READY verdict.
+
 ## The checks, in cheap-first order
 
 All run even after one fails, so the scorecard is complete in one pass.

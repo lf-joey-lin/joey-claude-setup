@@ -31,7 +31,13 @@ forgets it has to report the time as unrecorded rather than invent one.
   it is logged like one.
 - Read the sibling specs nearest the code you will touch and match their
   style: locator priority (`getByRole`/`getByLabel`/`getByText`, then
-  `getByTestId`, never `:nth-child` or XPath), fixture shape, naming.
+  `getByTestId`, never `:nth-child` or XPath), fixture shape, naming. Match
+  their style, but **import** their helpers rather than copying them. Where a
+  sibling already has the stub, fixture or driver this slice needs, move it to
+  a shared file in the same commit - `app/mocks/` for a stub of a browser API,
+  a `*.harness.ts` beside the specs otherwise - and import it from both.
+  Pasting it is how one stub ends up in four spec files, and no later stage is
+  cheaper at pulling it back out than this one.
 - Read the component or page you are extending in full, not just the hunk.
 
 ## Step 1 - red
@@ -55,6 +61,11 @@ Where a check cannot go red first because the harness needs a stub of the very
 thing being built (rare), say so in the ledger and give that test a targeted
 mutation check after green instead - break the line it covers, see it fail,
 restore. Never skip both.
+
+A check that cannot go red because an earlier slice already carries the
+behavior is a different thing: the slice boundary was drawn in the wrong
+place. Mutation-verify it the same way, but record it as `already carried by
+S<k>` rather than as a harness limit, and count it in your return.
 
 ## Step 2 - green
 
@@ -81,8 +92,10 @@ npx eslint --fix <touched paths>
 ```
 
 Real exit codes into the ledger. Then one commit for the slice - code, its
-specs, and its `en.json` keys together, subject `[ui-app] <imperative>`, no
-trailers. Read the clock again once that write is done, and record the
+specs, its `en.json` keys, and the story the plan's `A11y:` line names, all
+together, subject `[ui-app] <imperative>`, no trailers. The story is not
+optional polish: it is the only way the slice's markup reaches the a11y
+suite, and loom-gate fails a new component that has none. Read the clock again once that write is done, and record the
 contract's `- Timing:` line from the two readings. The slice's ledger entry
 gets: the timing, the red evidence, the green commit, the verify lines, and
 one claim per check with its channel.
@@ -126,14 +139,17 @@ as a reproduction (input, observed vs expected). For each one, first turn the
 reproduction into a failing spec (red), then fix to green - same discipline,
 smallest change, nothing the finding does not concern. Promote that spec into
 the suite; it is now a regression test that earned its place. Commit as
-`[ui-app] Fix <what>` and record against the finding id in the ledger's Fixes
-section, with its own `- Timing:` line - a fix turn is stage time and the run
-total has to account for it. If a finding turns out to be wrong or the fix
+`[ui-app] Fix <what>` and record it in the ledger's Fixes section under the
+contract's per-probe heading (`### Fix turn P1.1`, then `P1.2`), one line per
+finding id, with its own `- Timing:` line - a fix turn is stage time and the
+run total has to account for it. If a finding turns out to be wrong or the fix
 would change behavior a check locks in, do not force it - record the
 disagreement and return; the orchestrator decides.
 
 ## Return
 
 A short summary: the slice or findings worked, red-then-green confirmed per
-check, the commit hash, verify results, and any deviation from the plan with
-its reason. The ledger already carries the detail.
+check, the count of checks that could not go red and which slice already
+carried each (more than one is a sizing signal for the plan, not a harness
+problem), the commit hash, verify results, and any deviation from the plan
+with its reason. The ledger already carries the detail.

@@ -62,11 +62,6 @@ Claude integration installed before it can see an agent at all. See
 bash herdr/setup.sh
 ```
 
-`loom-board/` is a small read-only board that goes with it: `m-board` prints every
-momentum worktree, its live agent and what each loom run's slices are doing, read
-from the flight ledgers. No install step, it comes with the shell helpers. See
-[`loom-board/README.md`](loom-board/README.md).
-
 ## Not tracked here
 
 Everything else under `~/.claude` is local runtime state or secrets and stays out of the repo: `.credentials.json`, session/history/cache/daemon files, `plugins/`, `agent-memory/`, and so on.

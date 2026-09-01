@@ -119,9 +119,10 @@ loom is a dev pipeline for momentum `ui-app` work. The roster:
 
 ## The flight ledger
 
-One markdown file per run at `src/ui-app/logs/loom/<slug>.md` (gitignored;
-create the folder if missing). It is the interface between stages, the resume
-point, and the source the final report is generated from. Rules:
+One markdown file per run at `artifacts/loom/<slug>-ledger.md` (`artifacts/`
+is gitignored repo-wide, so it works for a branch that never touches
+ui-app; create the folder if missing). It is the interface between stages,
+the resume point, and the source the final report is generated from. Rules:
 
 - **Append after every stage**, never in a batch at the end.
 - **Claims carry evidence and a falsifier.** A stage that asserts something
@@ -131,7 +132,7 @@ point, and the source the final report is generated from. Rules:
 - **Distilled, never pasted.** An evidence line is one line: the command and
   its exit code or the number that matters. Output worth keeping beyond
   roughly twenty lines (a failing suite, a conflict listing, coverage tables)
-  goes to a sidecar file under `src/ui-app/logs/loom/<slug>/` and the ledger
+  goes to a sidecar file under `artifacts/loom/<slug>/` and the ledger
   carries the path. The ledger is state, not a log.
 - **Resume**: a ledger already existing for the slug means continue from the
   first stage not marked done. Never restart a stage marked `[x]`.
@@ -144,6 +145,13 @@ point, and the source the final report is generated from. Rules:
   re-covers the earlier ones; that is intended, not waste.
 - **Decisions are logged where they are made**: the choice, the alternative,
   one line of why, and whether it was asked or defaulted.
+- **The spine is the state, so nothing is appended below it.** The
+  orchestrator's gate decision is the last line of the section it judges
+  (`- Gate: accepted - <the evidence line>` or `- Gate: sent back - <why>`),
+  never a running list after `## Blockers`. Fix turns are headed per probe,
+  `### Fix turn P1.1`, `P1.2` (`R2.P1.1` in a round), so the two-per-probe cap
+  is countable from the headings. Resume reads the spine; a spine that stops
+  being maintained is a broken resume.
 - **Timing is read from the clock, never estimated.** Every stage stamps its
   own section: run `date -Iseconds` when it starts acting, again once its
   ledger write is done, and record one line,
@@ -179,6 +187,7 @@ Template (stages append their own sections; keep this spine):
   over <unit>, <what it could not do>
 - Checks: C1 <assertion> (channel: <what a caller looks at>)
 - Touches: <paths>    Attack: <what probe will try>
+- A11y: <story that renders the new markup | none - adds no markup>
 - (bff only) Upstream: <verb + path, read from source>    Route: <verb /bff/...>
   DTO: <fields kept / dropped>    Status map: <reused outcome type>
 
@@ -197,6 +206,8 @@ Template (stages append their own sections; keep this spine):
 ### P-deep - [ ]
 
 ## Fixes
+### Fix turn P1.1 - [ ]
+- Timing: started <iso>, finished <iso>, took <hh:mm:ss>
 - F1: fixed in <commit> | deferred - <reason>
 
 ## Tidy - [ ]
@@ -229,6 +240,7 @@ from, and what the prototype skipped:
 - Hunks: <compared> - present <n>, dropped with record <n>, missing <n>
 - M1: <file> - <what it did> (fixed in <commit> | recorded)
 ### Fixes
+#### Fix turn R<n>.P1.1 - [ ]
 ### Tidy - [ ]
 ### Gate - [ ]
 ### Land - [ ]

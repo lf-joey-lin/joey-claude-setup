@@ -40,7 +40,7 @@ pipeline; it deliberately fixes the problems that review found.
    has settled.
 
 4. **Claims carry evidence.** Every stage appends to one flight ledger
-   (`src/ui-app/logs/loom/<slug>.md`): what it claims, the command that
+   (`artifacts/loom/<slug>-ledger.md`): what it claims, the command that
    proved it, and what would disprove it. The orchestrator gates on those
    evidence lines, not on a subagent saying "done", and the final report is
    generated from the ledger so it cannot drift from what actually happened.
@@ -145,7 +145,7 @@ tests come from.
 
 `loom-adopt` reads the uncommitted diff as the spec, separates the behavior it
 demonstrates from the gaps it skipped, writes the patch to
-`logs/loom/<slug>/round-N.patch`, verifies the patch replays, and only then
+`artifacts/loom/<slug>/round-N.patch`, verifies the patch replays, and only then
 stashes the tree. With the code out of the way the specs go genuinely red, so
 the born-red proof survives intact rather than degrading to an after-the-fact
 mutation check. Then the normal stages run unchanged: slice, probe, tidy, gate,
@@ -174,9 +174,11 @@ shape by clicking it). The only planned pause is when the diff touches a realm
 BFF, because a browser contract is a design decision a diff cannot approve for
 itself. Probe deep stays: it is the review stage and it reads the whole branch.
 
-Be honest about the saving. `loom-gate` dominates the wall clock on a small
-change and none of this touches it, so this is a shorter path, not a different
-order of magnitude. The bigger win is that you stop re-deciding a design you
+Be honest about the saving. Measured on a four-slice round, probe and the fix
+turns it caused were over half the active time and the gate under four
+percent; the gate is a fixed cost of a few minutes that a one-slice patch
+still pays in full. None of this touches either, so this is a shorter path,
+not a different order of magnitude. The bigger win is that you stop re-deciding a design you
 already settled by clicking it.
 
 **Your prototype is never deleted.** The patch is on disk, the stash ref is in
@@ -189,7 +191,7 @@ Every stage runs in a fresh subagent, so the expensive noise - file reads,
 test output, diffs, upstream source reading - dies with the stage that made
 it. What survives is the flight ledger, and the ledger is state, not a log:
 evidence lines are one line each, and anything longer (a failing suite, a
-conflict listing) goes to a sidecar file under `logs/loom/<slug>/` with the
+conflict listing) goes to a sidecar file under `artifacts/loom/<slug>/` with the
 path in the ledger. The orchestrator itself holds almost nothing: stage
 returns are capped at about fifteen lines, and mid-run it verifies a stage by
 reading only that stage's ledger section, never the whole file - so its

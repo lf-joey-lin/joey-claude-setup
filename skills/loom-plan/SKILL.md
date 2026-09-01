@@ -140,8 +140,18 @@ Write into the ledger's Plan section, per slice:
   role/text, an emitted event, a request that goes out, a route change, a DOM
   attribute). A check with no channel is not a check. These become the specs
   loom-slice writes first, so phrase them as testable facts, not intentions.
+  More than six checks, or a check whose behavior an earlier slice already
+  carries, means the boundary is in the wrong place: move the check or split
+  the slice now, because loom-slice will report it as a check that could not
+  go red.
 - **Touches** - the files it will create or edit, with the platform pieces
   confirmed above.
+- **A11y** - the story file that puts the slice's new markup in front of the
+  a11y suite. That suite mounts `*.stories.ts` under `app/components`,
+  `app/layouts` and `app/pages` and nothing else, so a component with no
+  story is never scanned and a green a11y pass says nothing about it. Name an
+  existing story that renders the new markup, or the story the slice will add.
+  `none` is valid only for a slice that adds no markup.
 - **Attack** - what loom-probe should try to break it with, drawn from the
   brief's awkward cases: the empty list, the 400-character label, the missing
   field, the double-click, the narrow viewport behavior a unit test can reach.

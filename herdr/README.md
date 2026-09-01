@@ -85,7 +85,6 @@ and drops the space together; a plain `workspace close` leaves the checkout on d
 | `m-work <desc>`     | `/new-work` headless, then the worktree gets its own space with claude running in it |
 | `m-space [dir]`     | same, for a worktree that already exists. Idempotent            |
 | `m-agents`          | one line per live agent, from any pane                           |
-| `m-board`           | every worktree and every loom run on one screen. `loom-board/`   |
 
 `m-work` is the herdr replacement for `m-newwork`. The difference is where the agent
 ends up: `m-newwork` does `cd` plus `claude` in whichever pane you were standing in,
@@ -131,7 +130,6 @@ included, and a global `ctrl+w` costs you delete-word in every pane.
 | `ctrl+alt+shift+arrows` | resize pane                       |
 | `ctrl+alt+e`            | scrollback in `$EDITOR`           |
 | `ctrl+alt+d`            | `m-dev` in a popup                |
-| `ctrl+alt+p`            | `m-board` in a popup              |
 | `f1`                    | help, lists everything            |
 | `ctrl+alt+q`            | detach (panes keep running)       |
 | `ctrl+alt+r`            | reload config                     |

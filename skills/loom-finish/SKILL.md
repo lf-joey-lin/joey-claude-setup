@@ -52,7 +52,8 @@ section: the absolute worktree path, the ledger path, the round number, the
 mode line, and the instruction to read the contract plus its own skill file.
 Gate each stage on the ledger entries it appended - the evidence lines, never
 the prose - reading **only that stage's subsection of this round**. Record
-your own gate decision before moving on.
+your own gate decision as the last line of that subsection (the contract's
+`- Gate:` line) before moving on.
 
 1. **Adopt** (`loom-adopt`). Gate: the patch exists and its `--check` passed,
    the stash ref or pre-reset SHA is recorded, every behavior names a channel,

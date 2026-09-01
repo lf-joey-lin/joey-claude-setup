@@ -12,8 +12,10 @@ invisible in the diff: the old code this branch superseded, and the existing
 code that should now use what this branch built.
 
 Read [`../shared/loom-contract.md`](../shared/loom-contract.md), then the
-ledger (the plan already names every unit the branch introduced, which is your
-search list). Read changed files in full and their neighbors; a duplication or
+ledger: the plan (it names every unit the branch introduced, which is your
+search list) and every probe section's `polish` findings, which are your other
+input - each one is fixed here if it survives the veto below, or closed with
+the rule that killed it. Nothing else in the pipeline picks them up. Read changed files in full and their neighbors; a duplication or
 responsibility claim from a diff alone is a guess.
 
 ## What you look for
@@ -29,7 +31,10 @@ Five questions, in order of payoff:
 2. **Did the branch add a copy of something the app has?** Search by behavior
    (distinctive strings, props, the shape of the logic), not just names. The
    cheapest fix in this whole skill is deleting new code in favor of an
-   existing unit.
+   existing unit. **Spec files count here**, and they are the ones most often
+   missed: `solidify` and `solidify2` both drop them, so the branch's specs
+   reach you unreviewed. The deep probe's spec-copy sweep names the sites -
+   extracting a shared harness is this skill's fix, not a slice fix turn.
 3. **Should existing code converge on the branch's new unit?** Two or more
    pre-existing sites doing the same real behavior, each named with what
    changes there. If absorbing them needs a flag per caller, they are not the
@@ -74,7 +79,8 @@ named, so they become their own story instead of scope creep here.
 
 ## Return
 
-Ledger Tidy section: fixes applied (commit each), follow-ups recorded, and a
-short "considered and vetoed" list with the rule that killed each - that list
-is how the reader knows you looked. A clean pass is a legitimate result; say
+Ledger Tidy section: fixes applied (commit each), follow-ups recorded, every
+probe polish finding closed one way or the other, and a short "considered and
+vetoed" list with the rule that killed each - that list is how the reader
+knows you looked. A clean pass is a legitimate result; say
 it plainly.

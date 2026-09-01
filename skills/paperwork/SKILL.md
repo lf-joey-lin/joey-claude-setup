@@ -102,15 +102,15 @@ because it was written by something that read the whole diff.
 
 In priority order:
 
-1. **The loom report**, `src/ui-app/logs/loom/<slug>-report.md`. This is the
+1. **The loom report**, `artifacts/loom/<slug>-report.md`. This is the
    intended input. The slug is the run's, not always the branch name, so find it
-   with `ls src/ui-app/logs/loom/*-report.md` and match on the branch line under
+   with `ls artifacts/loom/*-report.md` and match on the branch line under
    its title. "What this branch does" and "The slices, in order" are exactly the
    material this skill reformats; "Needs human eyes" is the gotcha line for the
    PR body, and "Decisions taken" is what step 10 reports as assumed.
 2. **The branch's other handoffs**: the flight ledger
-   `src/ui-app/logs/loom/<slug>.md` and its sidecars under
-   `src/ui-app/logs/loom/<slug>/`, which carry the gate scorecard, the probe
+   `artifacts/loom/<slug>-ledger.md` and its sidecars under
+   `artifacts/loom/<slug>/`, which carry the gate scorecard, the probe
    findings and the tidy vetoes in more detail than the report; a
    `src/ui-app/logs/*` spec or design handoff; a spec under
    `src/<component>/specs/`.

@@ -66,22 +66,6 @@ command = "bash -lic m-dev"
 width = "90%"
 height = "85%"
 
-# m-board is the loom board: every worktree and every run in one screen. A popup
-# like m-dev, and --watch because the board prints and exits, so a plain run would
-# flash and close. --all because the popup is the place you go to see everything;
-# the bare m-board in a pane keeps the shorter default.
-#
-# p, not m. ctrl+m is carriage return in ASCII, so ctrl+alt+m reaches herdr as
-# ESC+CR, which is ctrl+alt+enter - already bound above to jump-to-toast. Tested
-# both: m never fired, p did.
-[[keys.command]]
-key = "ctrl+alt+p"
-type = "popup"
-command = "bash -lic 'm-board --watch --all'"
-description = "loom board"
-width = "90%"
-height = "85%"
-
 # Review the worktree against main. b is the whole branch, however many commits
 # deep, G steps them one at a time. A pane rather than a popup, because s sends
 # the comments to the agent sitting next to it. On v, the one chord known to

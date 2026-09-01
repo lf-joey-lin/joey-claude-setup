@@ -87,6 +87,17 @@ m-work() {
     echo "m-work: no new worktree appeared, so setup did not finish" >&2
     return 1
   fi
+
+  # A fresh worktree has no node_modules, so nothing in ui-app can lint, test or
+  # run until this finishes. Do it before the space, so claude opens on a tree
+  # that is ready to work in. A failure here is not fatal: the worktree is fine
+  # and npm install can be re-run by hand.
+  if [ -f "$new/src/ui-app/package.json" ]; then
+    echo "m-work: npm install in src/ui-app"
+    ( cd "$new/src/ui-app" && npm install ) ||
+      echo "m-work: npm install failed in $new/src/ui-app; run it by hand" >&2
+  fi
+
   m-space "$new"
 }
 
@@ -96,22 +107,4 @@ m-agents() {
   herdr agent list |
     jq -r '.result.agents[] | [.agent_status, .workspace_id, (.name // .pane_id), (.terminal_title_stripped // "")] | @tsv' |
     column -t -s "$(printf '\t')"
-}
-
-# m-board - every worktree and every loom run on one screen, read from the flight
-# ledgers plus herdr and git. Read-only. ctrl+alt+p opens it in a popup, which is
-# why the popup runs --watch: the board prints and exits, so a plain run would
-# flash and close. See loom-board/README.md.
-_m_board_script() {
-  printf '%s\n' "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/loom-board/board.mjs"
-}
-
-m-board() {
-  local script
-  script="$(_m_board_script)"
-  if [ ! -f "$script" ]; then
-    echo "m-board: no board script at $script" >&2
-    return 1
-  fi
-  node "$script" "$@"
 }

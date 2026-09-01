@@ -28,7 +28,7 @@ nesting rules there are the law of the run.
 resolved shape in your first line of output, before any tool call:
 `Mode: attended | solo   Slug: <slug>`.
 
-**Resume**: if `src/ui-app/logs/loom/<slug>.md` already exists (check the
+**Resume**: if `artifacts/loom/<slug>-ledger.md` already exists (check the
 default worktree and `<root>/momentum-<slug>`), read it and continue from the
 first stage not `[x]`. Never restart a done stage, never open a second
 workspace for the same slug.
@@ -40,8 +40,8 @@ section (worktree path, ledger path, mode line, read the contract plus its own
 skill file). Gate each stage on the ledger entries it appended - the evidence
 lines, never the subagent's prose - by reading **only that stage's section**
 of the ledger, per the contract's context-economy rules; never re-read the
-whole file mid-run. Record your own gate decision in the ledger before moving
-on.
+whole file mid-run. Record your own gate decision as the last line of that
+stage's section (the contract's `- Gate:` line) before moving on.
 
 1. **Scout** (`loom-scout`). Gate: ledger exists, Brief `[x]`, lane decided,
    branch and worktree named.

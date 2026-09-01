@@ -43,6 +43,34 @@ change), not on "nothing happened".
 - `data-testid` values built from array indexes
 - an `en.json` key added but never referenced, or referenced but never added
 
+**Spec-copy sweep (cheap, always).** Nothing else in the pipeline holds test
+code to a duplication bar: `solidify` drops spec files from its review set at
+Step 0, and `solidify2` reads them as evidence and refuses to review them. So
+the specs are yours, and skipping this is how a branch ships four copies of one
+70-line `IntersectionObserver` stub. Run it over the whole component's spec set,
+never the diff alone - the copy the branch added is only a finding next to the
+ones already sitting there:
+
+```bash
+cd src/ui-app && python3 ~/.claude/skills/loom-probe/scripts/spec-copies.py
+```
+
+It reports declarations sharing a name and a body across spec files. Specs share
+no scope, so that is a copy, not a coincidence. Read each hit before reporting
+it, then rank by what it costs to change:
+
+- **A copy the branch itself added, or three or more copies of anything** -
+  must-fix. Name the sites and where the one copy belongs: `app/mocks/` for a
+  stub of a browser API, a `*.harness.ts` beside the specs otherwise.
+- **Two copies that have to agree to be right** - the fixture a component spec
+  and its page spec both assert against - must-fix, and the fix is naming the
+  value once.
+- **Two copies otherwise, or a four-line fixture that matched by accident** -
+  polish, or nothing at all.
+
+The fix is loom-tidy's, not a slice fix turn: it is the same extraction tidy
+already does for production code.
+
 **Bff attacks (when the branch has a bff slice).** Same executed discipline,
 through the BFF's own harness (xUnit probe tests, throwaway unless promoted):
 script the upstream to answer with each failure shape - non-2xx, `IsError`
@@ -55,12 +83,14 @@ sweep on the C# diff: api-integrator's invariant checklist is the list -
 nothing bound beyond what the browser reads, `openapi.yaml` updated. A
 checklist line the diff violates is a must-fix finding citing that line.
 
-**Test attacks (targeted, deep only unless suspicious).** The born-red ledger
-evidence covers most specs. Attack the exceptions: any test whose ledger entry
-lacks a red record, and any negative assertion (`toEqual([])`,
-`not.toHaveBeenCalled()`) with no positive sibling on the same channel. For
-each, one mutation: break the exact line it claims to cover, run it, expect
-red, restore. A test that stays green through its own mutation is a finding.
+**Test attacks (targeted, deep only unless suspicious).** This is about whether
+a test can fail, and the sweep above is about what it costs to change - run
+both. The born-red ledger evidence covers most specs. Attack the exceptions:
+any test whose ledger entry lacks a red record, and any negative assertion
+(`toEqual([])`, `not.toHaveBeenCalled()`) with no positive sibling on the same
+channel. For each, one mutation: break the exact line it claims to cover, run
+it, expect red, restore. A test that stays green through its own mutation is a
+finding.
 Restore from a copy, verify `git status` afterward - a stray mutation left in
 production code is the worst thing this skill can ship.
 
@@ -76,11 +106,17 @@ cd src/ui-app && npx vitest run --project=unit --sequence.shuffle
 
 Findings, numbered F1..Fn into the ledger's Probe section, each:
 
-- **Reproduction** - the input or sequence, what was observed, what was
-  expected. For an executed attack, the probe spec that shows it.
 - **Severity** - `must-fix` (broken behavior, a crash, an i18n or token
-  violation, a test that cannot fail) or `polish` (worth a line, not a fix
-  turn). No middle band; a middle band is where nitpicks breed.
+  violation, a test that cannot fail, a spec helper copied into a third file)
+  or `polish` (worth a line, not a fix turn). No middle band; a middle band is
+  where nitpicks breed.
+- **Reproduction, for must-fix** - the input or sequence, what was observed,
+  what was expected. For an executed attack, the probe spec that shows it.
+- **One line, for polish** - the `path:line` and what is wrong. No probe spec
+  and no execution: an empty `<tr>`, a duplicated helper or a missing plural
+  is stated, not reproduced. Spend the executed attacks on must-fix, and never
+  skimp on the re-check - it attacks the fix code, which is the least attacked
+  code in the run.
 - **Keep or delete** - a probe spec that found a real bug is worth keeping:
   flag it "promote", and the fix turn adopts it as the regression test. Every
   other probe spec is deleted before you return; `git status` must show no

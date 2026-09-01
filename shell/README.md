@@ -38,8 +38,8 @@ Bash only. The Windows side has no equivalent yet.
 
 The one to use day to day. Runs `/new-work` headless in `~/m-code/momentum`,
 which cuts a branch off a fresh `origin/main` and adds a worktree at
-`~/m-code/momentum-<desc>`, then opens that worktree as its own herdr space
-with claude already running in it.
+`~/m-code/momentum-<desc>`, runs `npm install` in its `src/ui-app`, then opens
+that worktree as its own herdr space with claude already running in it.
 
 ```bash
 m-work fix form submit null check
