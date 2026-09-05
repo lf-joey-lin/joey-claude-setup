@@ -1,0 +1,212 @@
+#!/usr/bin/env bash
+# Watch every herdr agent and ping Teams when one needs you or finishes.
+# Usage: herdr-teams-watch [interval_seconds]
+set -uo pipefail
+
+INTERVAL="${1:-${HERDR_WATCH_INTERVAL:-5}}"
+# States that count as "finished". herdr derives "done" itself and lets it decay to
+# "idle", so keying on "done" alone misses a completion the poll happened to straddle.
+FINISHED_STATES="${HERDR_WATCH_FINISHED:-done idle}"
+# A long run is silent until it ends, which is no good for a loom run that takes an
+# hour. Card every this many seconds while an agent is still working. 0 turns it off.
+HEARTBEAT="${HERDR_WATCH_HEARTBEAT:-900}"
+# One Teams thread per agent instead of a card per event. Needs a flow that reads
+# threadKey; see README.md. 0 goes back to a top-level card for every notification.
+THREADS="${HERDR_WATCH_THREADS:-1}"
+# What counts as "one agent" for the purpose of owning a thread. "session" gives a
+# thread per Claude session; "worktree" gives one per directory, shared by however
+# many Claude runs happen there.
+THREAD_KEY_MODE="${HERDR_WATCH_THREAD_KEY:-session}"
+
+# Resolve by absolute path. Under systemd, PATH has no ~/.local/bin, so bare
+# names silently find nothing and the whole loop does nothing while looking healthy.
+HERDR_BIN="${HERDR_BIN_PATH:-$(command -v herdr || echo "$HOME/.local/bin/herdr")}"
+NOTIFY_BIN="${HERDR_NOTIFY_BIN:-$(command -v herdr-teams-notify || echo "$HOME/.local/bin/herdr-teams-notify")}"
+SUMMARY_BIN="${HERDR_SUMMARY_BIN:-$(command -v herdr-teams-summary || echo "$HOME/.local/bin/herdr-teams-summary")}"
+SOURCE="${HERDR_WATCH_SOURCE:-$HERDR_BIN agent list}"
+
+log() { printf '%s\n' "$*" >&2; }
+
+for bin in "$HERDR_BIN" "$NOTIFY_BIN" "$SUMMARY_BIN"; do
+    [ -x "$bin" ] || { log "FATAL: not executable: $bin"; exit 1; }
+done
+command -v jq >/dev/null || { log "FATAL: jq not found (PATH=$PATH)"; exit 1; }
+if [ "$THREADS" = 1 ]; then
+    log "watching every ${INTERVAL}s; finished=${FINISHED_STATES}, plus blocked; heartbeat ${HEARTBEAT}s; one thread per ${THREAD_KEY_MODE}"
+else
+    log "watching every ${INTERVAL}s; finished=${FINISHED_STATES}, plus blocked; heartbeat ${HEARTBEAT}s; threads off"
+fi
+
+declare -A LAST WORK_SINCE LAST_BEAT
+warned=""
+
+snapshot() {
+    local raw err
+    err=$(mktemp); raw=$($SOURCE 2>"$err"); rc=$?
+    if [ $rc -ne 0 ]; then
+        # herdr not running is normal and quiet after the first mention
+        [ -z "$warned" ] && log "poll failed (rc=$rc): $(head -c 200 "$err")"
+        warned=1; rm -f "$err"; return 0
+    fi
+    warned=""; rm -f "$err"
+    printf '%s' "$raw" | jq -r '
+        .result.agents[]?
+        | [ .agent_session.value // .pane_id,
+            .agent_status // "unknown",
+            .agent_session.value // "",
+            .cwd // "",
+            .terminal_title_stripped // .name // "agent"
+          ] | @tsv'
+}
+
+is_finished() {
+    for s in $FINISHED_STATES; do [ "$s" = "$1" ] && return 0; done
+    return 1
+}
+
+elapsed() {
+    local s=$(( $2 - $1 ))
+    if [ "$s" -ge 3600 ]; then printf '%dh %dm' $(( s / 3600 )) $(( s % 3600 / 60 ))
+    elif [ "$s" -ge 60 ]; then printf '%dm' $(( s / 60 ))
+    else printf '%ds' "$s"; fi
+}
+
+# Blocked always matters. A finish only counts coming out of "working", so
+# merely focusing a finished pane (done -> idle) does not page you again.
+should_notify() {
+    local prev="$1" status="$2"
+    [ "$status" = "blocked" ] && [ "$prev" != "blocked" ] && return 0
+    is_finished "$status" && [ "$prev" = "working" ] && return 0
+    return 1
+}
+
+# The key the flow files an agent's thread under. The Claude session id is the
+# default because it survives a watcher restart and a herdr session restore, so
+# an agent keeps the same thread all the way through. Keying on the worktree
+# instead gives that directory one thread across separate Claude runs, at the
+# price of two panes in one worktree sharing it.
+thread_key() {
+    local id="$1" cwd="$2"
+    case "$THREAD_KEY_MODE" in
+        worktree) printf 'wt:%s' "${cwd:-unknown}" ;;
+        *)        printf 'ag:%s' "$id" ;;
+    esac
+}
+
+state_label() {
+    case "$1" in
+        blocked) printf 'needs input' ;;
+        working) printf 'working' ;;
+        *)       printf 'finished' ;;
+    esac
+}
+
+# Rewrite the thread's root card so opening the thread shows what the agent is
+# doing right now rather than whatever happened first. An update never notifies,
+# so this is free to send as often as the picture changes.
+send_status() {
+    local id="$1" status="$2" session="$3" cwd="$4" title="$5" worktree="$6" now="$7"
+    [ "$THREADS" = 1 ] || return 0
+    local doing loom running
+    # While it runs, the useful line is the tool it is on. Once it stops, that line
+    # is stale, and what it said is what you want the thread to open on.
+    if [ "$status" = working ]; then
+        doing=$("$SUMMARY_BIN" --now "$session" "$cwd" 2>/dev/null)
+    else
+        doing=$("$SUMMARY_BIN" "$session" "$cwd" 2>/dev/null)
+    fi
+    loom=$("$SUMMARY_BIN" --loom "$session" "$cwd" 2>/dev/null)
+    local facts=("Task=$title" "State=$(state_label "$status")")
+    if [ "$status" = working ]; then
+        running=$(elapsed "${WORK_SINCE[$id]:-$now}" "$now")
+        facts+=("Running=$running")
+    fi
+    [ -n "$loom" ] && facts+=("Loom=$loom")
+    "$NOTIFY_BIN" --thread "$(thread_key "$id" "$cwd")" --action update \
+        "$worktree: $(state_label "$status")" "$doing" "${facts[@]}" \
+        || log "status update failed for $worktree"
+}
+
+# A card that is meant to reach your phone. A reply under the agent's root card
+# when threads are on, a top-level card when they are not.
+send_event() {
+    local id="$1" cwd="$2" subject="$3" body="$4"; shift 4
+    local thread_args=()
+    [ "$THREADS" = 1 ] && thread_args=(--thread "$(thread_key "$id" "$cwd")" --action reply)
+    "$NOTIFY_BIN" "${thread_args[@]}" "$subject" "$body" "$@"
+}
+
+while :; do
+    now=$(date +%s)
+    while IFS=$'\t' read -r id status session cwd title; do
+        [ -n "${id:-}" ] || continue
+        prev="${LAST[$id]:-}"
+        LAST[$id]="$status"
+        worktree="${cwd##*/}"
+        [ -n "$worktree" ] || worktree="agent"
+
+        if [ "$status" = working ]; then
+            if [ "$prev" != working ]; then
+                # Prefer the turn's real start from the transcript. Without it a
+                # watcher restart would report a two-hour run as "running 15m".
+                WORK_SINCE[$id]=$("$SUMMARY_BIN" --since "$session" "$cwd" 2>/dev/null)
+                [ -n "${WORK_SINCE[$id]}" ] || WORK_SINCE[$id]=$now
+                LAST_BEAT[$id]=$now
+                # Turn start. Also what creates the thread the first time an agent
+                # is seen, so its root card exists before any event replies to it.
+                send_status "$id" "$status" "$session" "$cwd" "$title" "$worktree" "$now"
+            fi
+        else
+            unset "WORK_SINCE[$id]" "LAST_BEAT[$id]"
+        fi
+
+        # Still-working card. Independent of the transition logic below, which only
+        # ever fires when a run ends.
+        if [ "$HEARTBEAT" -gt 0 ] && [ "$status" = working ] \
+           && [ $(( now - ${LAST_BEAT[$id]:-$now} )) -ge "$HEARTBEAT" ]; then
+            LAST_BEAT[$id]=$now
+            for_how_long=$(elapsed "${WORK_SINCE[$id]:-$now}" "$now")
+            doing=$("$SUMMARY_BIN" --now "$session" "$cwd" 2>/dev/null)
+            loom=$("$SUMMARY_BIN" --loom "$session" "$cwd" 2>/dev/null)
+            beat_facts=("Task=$title" "Running=$for_how_long")
+            [ -n "$loom" ] && beat_facts+=("Loom=$loom")
+            log "heartbeat: $worktree working for $for_how_long ($doing)"
+            send_status "$id" "$status" "$session" "$cwd" "$title" "$worktree" "$now"
+            send_event "$id" "$cwd" "$worktree: still working" "$doing" "${beat_facts[@]}" \
+                || log "heartbeat send failed for $worktree"
+        fi
+
+        # An agent we have never seen is seeded, never announced. Without this you
+        # get a burst of stale "finished" cards every time herdr restores a session.
+        [ -z "$prev" ] && continue
+        [ "$prev" = "$status" ] && continue
+        should_notify "$prev" "$status" || continue
+
+        case "$status" in
+            blocked) subject="needs input" ;;
+            *)       subject="finished" ;;
+        esac
+
+        # The card body is what Claude actually said last, read from its own
+        # transcript. Falls back to the terminal title when there is no transcript.
+        body=""; took=""
+        if [ -n "$session" ]; then
+            body=$("$SUMMARY_BIN" "$session" "$cwd" 2>/dev/null)
+            took=$("$SUMMARY_BIN" --took "$session" "$cwd" 2>/dev/null)
+        fi
+        # No body when there is no transcript: the Task fact already carries the
+        # title, and a card repeating it twice reads like a bug.
+        facts=("Task=$title")
+        [ -n "$took" ] && facts+=("Took=$took")
+        loom=$("$SUMMARY_BIN" --loom "$session" "$cwd" 2>/dev/null)
+        [ -n "$loom" ] && facts+=("Loom=$loom")
+
+        log "notify: $worktree $prev -> $status ($title)"
+        # Root card first, so the thread stops saying "working" before the reply
+        # that announces the finish lands under it.
+        send_status "$id" "$status" "$session" "$cwd" "$title" "$worktree" "$now"
+        send_event "$id" "$cwd" "$worktree: $subject" "$body" "${facts[@]}" \
+            || log "send failed for $worktree"
+    done < <(snapshot)
+    sleep "$INTERVAL"
+done

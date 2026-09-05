@@ -1,0 +1,16 @@
+[Unit]
+Description=Ping Teams when a herdr agent needs input or finishes
+After=default.target
+
+[Service]
+Type=simple
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+# Threads stay off until the Power Automate flow reads threadKey (see README.md).
+# With an untaught flow the root-card updates arrive as extra top-level cards.
+Environment=HERDR_WATCH_THREADS=0
+ExecStart=%h/.local/bin/herdr-teams-watch
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,119 @@
+#!/usr/bin/env bash
+# Print what a Claude Code agent did on its last turn, for the body of a Teams card.
+# Usage: herdr-teams-summary [--took|--now|--loom] <session-id> [cwd]
+#   --took  how long the last turn ran, e.g. "2m 44s"
+#   --now   what the agent is doing right now, e.g. "Bash: npm run test"
+#   --since epoch seconds of when the current turn started
+#   --loom  progress through a loom run's flight ledger, e.g. "S2 (4/11 done)"
+# Prints nothing (exit 0) when there is no transcript to read, so the caller can
+# fall back to the terminal title.
+set -uo pipefail
+
+MODE=summary
+case "${1:-}" in
+    --took|--now|--loom|--since) MODE="${1#--}"; shift ;;
+esac
+
+SESSION="${1:-}"
+CWD="${2:-}"
+[ -n "$SESSION" ] || { echo "usage: herdr-teams-summary [--took|--now|--loom|--since] <session-id> [cwd]" >&2; exit 2; }
+
+# A loom run's progress is in its flight ledger, not in the transcript. Walk up
+# from the agent's cwd because the ledger sits at the worktree root while the
+# agent often runs a few directories inside it.
+if [ "$MODE" = loom ]; then
+    dir="$CWD"
+    while [ -n "$dir" ] && [ "$dir" != / ]; do
+        ledger=$(ls -t "$dir"/artifacts/loom/*-ledger.md 2>/dev/null | head -1)
+        [ -n "$ledger" ] && break
+        dir=$(dirname "$dir")
+    done
+    [ -n "${ledger:-}" ] || exit 0
+    # Stage headings look like "## Gate - [x]" or "### S1 Split the widget - [x]".
+    stages=$(grep -Eo '^#{2,4} .+ - \[[ x~!]\]' "$ledger" 2>/dev/null) || exit 0
+    [ -n "$stages" ] || exit 0
+    total=$(printf '%s\n' "$stages" | wc -l)
+    done_n=$(printf '%s\n' "$stages" | grep -c '\[x\]$' || true)
+    # Furthest point reached: the last heading that is in progress or done,
+    # whichever sits later in the file. Stages are appended in order, so that is
+    # where the run actually is.
+    cur=$(printf '%s\n' "$stages" | grep -E '\[[x~]\]$' | tail -1)
+    cur=$(printf '%s' "$cur" | sed -E 's/^#+ //; s/ - \[[ x~!]\]$//')
+    printf '%s (%s/%s done)\n' "$cur" "$done_n" "$total"
+    exit 0
+fi
+
+MAX_CHARS="${HERDR_SUMMARY_MAX:-1200}"
+PROJECTS="${HERDR_CLAUDE_PROJECTS:-$HOME/.claude/projects}"
+
+# Claude Code names a project folder after the cwd with every non-alphanumeric
+# character turned into a dash. Guessing it is one stat; the find is the fallback
+# for a resumed session whose cwd has since moved.
+FILE=""
+if [ -n "$CWD" ]; then
+    slug=$(printf '%s' "$CWD" | tr -c 'a-zA-Z0-9' '-')
+    [ -r "$PROJECTS/$slug/$SESSION.jsonl" ] && FILE="$PROJECTS/$slug/$SESSION.jsonl"
+fi
+if [ -z "$FILE" ]; then
+    FILE=$(find "$PROJECTS" -maxdepth 2 -name "$SESSION.jsonl" -print -quit 2>/dev/null)
+fi
+[ -n "$FILE" ] && [ -r "$FILE" ] || exit 0
+
+if [ "$MODE" = took ]; then
+    ms=$(tac "$FILE" 2>/dev/null | jq -c 'select(.subtype=="turn_duration") | .durationMs' 2>/dev/null | head -1)
+    [ -n "${ms:-}" ] || exit 0
+    s=$(( ms / 1000 ))
+    if [ "$s" -ge 60 ]; then printf '%dm %ds\n' $(( s / 60 )) $(( s % 60 )); else printf '%ds\n' "$s"; fi
+    exit 0
+fi
+
+if [ "$MODE" = since ]; then
+    # The last thing you actually typed starts the turn. Tool results are user
+    # records too, so they have to be skipped or every turn looks seconds old.
+    ts=$(tac "$FILE" 2>/dev/null | jq -r 'select(.type=="user" and (.isSidechain//false)==false)
+        | select((.message.content|type=="string")
+                 or (([(.message.content//[])[]? | select(.type=="text")] | length) > 0))
+        | .timestamp' 2>/dev/null | head -1)
+    [ -n "${ts:-}" ] || exit 0
+    date -d "$ts" +%s 2>/dev/null
+    exit 0
+fi
+
+if [ "$MODE" = now ]; then
+    # The newest tool call is the closest thing to "what is it doing this second".
+    tac "$FILE" 2>/dev/null | jq -c '
+        select(.type == "assistant")
+        | [(.message.content // [])[]? | select(.type == "tool_use")
+           | .name + ((.input.description // .input.command // .input.file_path
+                       // .input.pattern // .input.prompt // "")
+                      | tostring | split("\n")[0] | .[0:120]
+                      | if length > 0 then ": " + . else "" end)]
+        | if length > 0 then .[0] else "" end' 2>/dev/null \
+    | grep -m1 -v '^""$' | jq -r '.' 2>/dev/null
+    exit 0
+fi
+
+# Read backwards and stop at the first thing worth showing. Claude writes the turn
+# recap (away_summary) after its final message, so scanning back finds the recap
+# first and the raw message only when recaps are off.
+tac "$FILE" 2>/dev/null | jq -c '
+    if .subtype == "away_summary" then
+        (.content // "")
+    elif .type == "assistant" then
+        ([(.message.content // [])[]? | select(.type == "text") | .text] | join("\n")) as $t
+        | if ($t | length) > 0 then $t
+          else
+            # No text means the turn ended on a tool call, which is what "blocked" is:
+            # the pending tool is the useful thing to report.
+            [(.message.content // [])[]? | select(.type == "tool_use")
+             | "Waiting on " + .name
+               + ((.input.command // .input.file_path // .input.description // "")
+                  | split("\n")[0] | .[0:160]
+                  | if length > 0 then ": " + . else "" end)]
+            | join("\n")
+          end
+    else "" end' 2>/dev/null \
+| grep -m1 -v '^""$' \
+| jq -r '.' 2>/dev/null \
+| sed -e 's/[[:space:]]*(disable recaps in \/config)[[:space:]]*$//' \
+| head -c "$MAX_CHARS"

@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+# Post a short message to Teams through a Power Automate webhook.
+# Usage: herdr-teams-notify [--thread KEY] [--action reply|update] [--dry-run] "title" "body" ["Label=value" ...]
+# Args after the title and body become a fact row under the title.
+# --thread groups cards into one Teams thread per key. The flow keeps a root card
+#   per key and either replies under it (--action reply, which notifies) or rewrites
+#   it in place (--action update, which does not). Without --thread every call is a
+#   new top-level card, which is what a hand-sent notification wants.
+# Only the Adaptive Card shape renders in Teams. The flow accepts any JSON with a
+# 202, so a wrong shape looks like success and silently posts nothing.
+# --dry-run prints the payload and posts nothing. Since a wrong shape still answers
+#   202, this is the only way to see what was actually sent, and it is what you paste
+#   into the flow trigger's schema field.
+set -euo pipefail
+
+URL_FILE="${HERDR_TEAMS_WEBHOOK_FILE:-$HOME/.config/herdr/teams-webhook}"
+
+THREAD=""
+ACTION="reply"
+DRY=0
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --thread)
+            [ $# -ge 2 ] || { echo "--thread needs a value" >&2; exit 2; }
+            THREAD="$2"; shift 2 ;;
+        --action)
+            [ $# -ge 2 ] || { echo "--action needs a value" >&2; exit 2; }
+            ACTION="$2"; shift 2 ;;
+        --dry-run)
+            DRY=1; shift ;;
+        --) shift; break ;;
+        -?*) echo "unknown option: $1" >&2; exit 2 ;;
+        *) break ;;
+    esac
+done
+
+case "$ACTION" in
+    reply|update) ;;
+    *) echo "--action must be reply or update, got '$ACTION'" >&2; exit 2 ;;
+esac
+
+if [ "$DRY" = 0 ]; then
+    [ -r "$URL_FILE" ] || { echo "no webhook url at $URL_FILE" >&2; exit 1; }
+    URL=$(tr -d '\n' < "$URL_FILE")
+fi
+
+TITLE="${1:-herdr}"
+TEXT="${2:-}"
+shift 2 2>/dev/null || true
+
+# Each remaining arg is "Label=value". Anything without an "=" is skipped rather
+# than posted as a blank row.
+FACTS=$(for f in "$@"; do
+    case "$f" in
+        *=*) jq -nc --arg t "${f%%=*}" --arg v "${f#*=}" '{title:($t+":"), value:$v}' ;;
+    esac
+done | jq -sc '.')
+
+# jq builds the JSON so quotes/newlines in agent output can't break the payload.
+# threadKey and threadAction sit beside attachments rather than inside the card:
+# the card is what Teams renders, these two are for the flow to route on.
+PAYLOAD=$(jq -nc --arg ti "$TITLE" --arg tx "$TEXT" --argjson facts "$FACTS" \
+  --arg thread "$THREAD" --arg action "$ACTION" '{
+  type:"message",
+  attachments:[{
+    contentType:"application/vnd.microsoft.card.adaptive",
+    content:{
+      "$schema":"http://adaptivecards.io/schemas/adaptive-card.json",
+      type:"AdaptiveCard", version:"1.4",
+      body:([
+        {type:"TextBlock", text:$ti, weight:"Bolder", size:"Medium", wrap:true}
+      ]
+      + (if ($facts|length) > 0 then [{type:"FactSet", facts:$facts}] else [] end)
+      + (if ($tx|length) > 0 then [{type:"TextBlock", text:$tx, wrap:true}] else [] end)
+      )}}]}
+  + (if ($thread|length) > 0 then {threadKey:$thread, threadAction:$action} else {} end)')
+
+if [ "$DRY" = 1 ]; then
+    printf '%s\n' "$PAYLOAD" | jq .
+    exit 0
+fi
+
+CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 25 \
+  -X POST "$URL" -H 'Content-Type: application/json' -d "$PAYLOAD")
+
+# 202 is the normal answer: the flow is queued, not finished
+case "$CODE" in
+  2*) exit 0 ;;
+  *) echo "webhook returned HTTP $CODE" >&2; exit 1 ;;
+esac

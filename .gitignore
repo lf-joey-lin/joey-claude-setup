@@ -1,5 +1,7 @@
 # Never commit local credentials or machine state
 .credentials.json
+teams-webhook
+*.webhook
 
 # OS / editor cruft
 Thumbs.db

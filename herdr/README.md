@@ -33,7 +33,8 @@ constraint, and it shapes the herdr layout: **many agent spaces, one stack**.
 
 `m-dev` launches the stack under `setsid` with no controlling terminal, so the stack
 outlives the pane it was started from, and even a herdr restart. That is why it does
-not get a pane of its own. `ctrl+alt+d` opens it in a popup instead.
+not get a pane of its own. `ctrl+alt+d` opens it in a popup instead, now behind
+`m-panel`'s one-letter menu.
 
 Every worktree lands on the same URLs (ui-app on :3000, the Aspire dashboard on
 :18888), so switching the stack between worktrees is the serialization point in the
@@ -65,6 +66,9 @@ m-work fix inbox scroll jump   # branch + worktree + its own space + claude in i
 
 Then leave it running and start another. When any of them needs you, the sidebar says
 so and a toast fires; `ctrl+alt+a` walks to it.
+
+Away from the desk the same two states go to Teams instead. See
+[`herdr-teams/README.md`](../herdr-teams/README.md).
 
 Attended loom has exactly two ask moments. Both render as `blocked`, which is the
 state this layout is built around. Permission prompts do too.
@@ -129,7 +133,9 @@ included, and a global `ctrl+w` costs you delete-word in every pane.
 | `ctrl+alt+hjkl`         | focus pane                        |
 | `ctrl+alt+shift+arrows` | resize pane                       |
 | `ctrl+alt+e`            | scrollback in `$EDITOR`           |
-| `ctrl+alt+d`            | `m-dev` in a popup                |
+| `ctrl+alt+d`            | panels menu: m-dev, teams cards   |
+| `ctrl+alt+y`            | Teams cards panel, in a popup     |
+| `ctrl+alt+shift+y`      | Teams cards on/off, no popup      |
 | `f1`                    | help, lists everything            |
 | `ctrl+alt+q`            | detach (panes keep running)       |
 | `ctrl+alt+r`            | reload config                     |

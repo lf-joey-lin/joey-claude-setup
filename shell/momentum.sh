@@ -1358,3 +1358,95 @@ m-cd() {
   read -r label dir < <(_m_dev_resolve "$1") || return 1
   cd "$dir" || return 1
 }
+
+# --- m-panel: the popup front door ------------------------------------------
+#
+# One popup, one menu. ctrl+alt+d opens this instead of going straight to a
+# single panel: a letter runs one full-screen inside the same popup, and
+# quitting that panel comes back here rather than closing the popup. The
+# letters are the chords the panels already had, so ctrl+alt+d then d is still
+# the stack and ctrl+alt+d then y is still the teams cards.
+#
+# Adding a panel is one line in _M_PANELS. A panel whose command is not
+# installed on this box is left out of the menu rather than shown broken, which
+# is what lets a line land here before the thing it runs exists.
+#
+#          key|name|what it is for|command
+_M_PANELS=(
+  't|work queues|one queue per worktree, and the runner that drains them|m-board'
+  'd|the momentum stack|switch which worktree runs on :3000|m-dev'
+  'y|teams cards|on and off, autostart, the watcher log|herdr-teams-toggle panel'
+  'w|worktree teardown|what is safe to remove, and d removes it|m-teardown'
+)
+
+# Can the first word of a panel command run here? A shell function counts,
+# which is how m-dev qualifies.
+_m_panel_have() { command -v "${1%% *}" >/dev/null 2>&1; }
+
+m-panel() {
+  local rec key name hint cmd pick rc i
+  local -a keys names hints cmds
+
+  for rec in "${_M_PANELS[@]}"; do
+    IFS='|' read -r key name hint cmd <<<"$rec"
+    _m_panel_have "$cmd" || continue
+    keys+=("$key") names+=("$name") hints+=("$hint") cmds+=("$cmd")
+  done
+
+  if [ "${#keys[@]}" -eq 0 ]; then
+    echo "m-panel: none of the panels are installed on this box" >&2
+    return 1
+  fi
+
+  # No alternate screen here. m-dev switches to it and back on its own and a
+  # terminal has only the one, so opening a second would leave the buffer
+  # unbalanced the moment a panel exits. A plain clear nests fine.
+  while :; do
+    clear
+    printf 'momentum panels\n\n'
+    for i in "${!keys[@]}"; do
+      printf '  %s   %-22s %s\n' "${keys[$i]}" "${names[$i]}" "${hints[$i]}"
+    done
+    printf '\n  a letter opens a panel   q closes this\n'
+
+    IFS= read -rsn1 pick || { clear; return 0; }
+
+    # An arrow key arrives as escape plus a bracket sequence. Read the whole
+    # thing, because anything left behind is read as a keystroke on the next
+    # pass and the tail of one of these spells q. Escape on its own closes.
+    if [ "$pick" = $'\e' ]; then
+      IFS= read -rsn1 -t 0.05 pick || { clear; return 0; }
+      case "$pick" in
+        '['|'O')
+          while IFS= read -rsn1 -t 0.05 pick; do
+            case "$pick" in [a-zA-Z~]) break ;; esac
+          done
+          ;;
+      esac
+      continue
+    fi
+
+    case "$pick" in
+      q|Q) clear; return 0 ;;
+    esac
+
+    for i in "${!keys[@]}"; do
+      [ "$pick" = "${keys[$i]}" ] || continue
+      clear
+      # Deliberately unquoted: every command is a literal in _M_PANELS above,
+      # and the word split is what turns 'herdr-teams-toggle panel' into a
+      # command plus its argument.
+      # shellcheck disable=SC2086
+      ${cmds[$i]}
+      rc=$?
+      # A panel that failed has something to say and the next repaint would
+      # wipe it. What one prints on a clean exit is still lost; nothing needs
+      # that yet.
+      if [ "$rc" -ne 0 ]; then
+        printf '\n  %s exited %s. press a key\n' "${names[$i]}" "$rc"
+        IFS= read -rsn1 _
+      fi
+      break
+    done
+  done
+}

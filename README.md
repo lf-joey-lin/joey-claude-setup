@@ -62,6 +62,16 @@ Claude integration installed before it can see an agent at all. See
 bash herdr/setup.sh
 ```
 
+Agent notifications reach a phone through Teams rather than a VPN, because Tailscale
+and the tunnel relays are blocked on the corporate network. `herdr-teams/` posts a
+card when an agent finishes or blocks. It needs a Power Automate webhook URL, which is
+a credential and stays local. See
+[`herdr-teams/README.md`](herdr-teams/README.md), or run:
+
+```bash
+bash herdr-teams/setup.sh
+```
+
 ## Not tracked here
 
 Everything else under `~/.claude` is local runtime state or secrets and stays out of the repo: `.credentials.json`, session/history/cache/daemon files, `plugins/`, `agent-memory/`, and so on.

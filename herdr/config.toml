@@ -1,3 +1,4 @@
+onboarding = false
 # No prefix. Almost every binding here is a single chord on the ctrl+alt layer, which is
 # the one layer nothing else in a pane wants: Claude Code binds no ctrl+alt letter,
 # readline binds none, and Windows Terminal only takes ctrl+alt+1..9. Plain
@@ -57,14 +58,37 @@ resize_pane_down = "ctrl+alt+shift+down"
 resize_pane_up = "ctrl+alt+shift+up"
 resize_pane_right = "ctrl+alt+shift+right"
 
-# m-dev is a full-screen table and only one stack can run at a time, so it gets
-# a modal popup rather than a pane of its own.
+# The front door for the panels. m-panel prints a menu and a letter runs one
+# full-screen inside this same popup, so the panels share one chord instead of
+# taking a chord each. Sized for the panels rather than for the menu, because
+# m-dev's table is the thing that has to fit. m-dev is a popup rather than a
+# pane of its own because only one stack can run at a time.
 [[keys.command]]
 key = "ctrl+alt+d"
 type = "popup"
-command = "bash -lic m-dev"
+command = "bash -lic m-panel"
 width = "90%"
 height = "85%"
+description = "panels"
+
+# Teams cards on or off, and whether the watcher is really working. A popup because
+# it is a whole panel and nothing in a pane needs to stay visible behind it. y is free
+# on this layer and ctrl+y is not another key in disguise, unlike m, i, j and [.
+[[keys.command]]
+key = "ctrl+alt+y"
+type = "popup"
+command = "bash -lic 'herdr-teams-toggle panel'"
+width = "70%"
+height = "45%"
+description = "teams cards panel"
+
+# Same switch without looking at it, for walking away from the desk. Detached, so the
+# toast herdr shows afterwards is the only thing that appears.
+[[keys.command]]
+key = "ctrl+alt+shift+y"
+type = "shell"
+command = "bash -lic 'herdr-teams-toggle toggle'"
+description = "teams cards on/off"
 
 # Review the worktree against main. b is the whole branch, however many commits
 # deep, G steps them one at a time. A pane rather than a popup, because s sends
@@ -75,6 +99,16 @@ height = "85%"
 key = "ctrl+alt+v"
 type = "plugin_action"
 command = "persiyanov.reviewr.toggle"
+description = "reviewr pane"
+
+# Open the highlighted path in VS Code. Drag-select a worktree path or a
+# file:line in any pane, then press this. On f because v, y and their shift
+# variants are taken and ctrl+alt+c, i and t do not arrive.
+[[keys.command]]
+key = "ctrl+alt+f"
+type = "plugin_action"
+command = "joey.open-in-code.open"
+description = "open selection in vs code"
 
 [ui]
 agent_panel_sort = "priority"
