@@ -1365,7 +1365,7 @@ m-cd() {
 # single panel: a letter runs one full-screen inside the same popup, and
 # quitting that panel comes back here rather than closing the popup. The
 # letters are the chords the panels already had, so ctrl+alt+d then d is still
-# the stack and ctrl+alt+d then y is still the teams cards.
+# the stack and ctrl+alt+d then y is still teams-sync.
 #
 # Adding a panel is one line in _M_PANELS. A panel whose command is not
 # installed on this box is left out of the menu rather than shown broken, which
@@ -1375,7 +1375,7 @@ m-cd() {
 _M_PANELS=(
   't|work queues|one queue per worktree, and the runner that drains them|m-board'
   'd|the momentum stack|switch which worktree runs on :3000|m-dev'
-  'y|teams cards|on and off, autostart, the watcher log|herdr-teams-toggle panel'
+  'y|teams-sync|cards out and replies in, together or one at a time|herdr-teams-toggle panel'
   'w|worktree teardown|what is safe to remove, and d removes it|m-teardown'
 )
 

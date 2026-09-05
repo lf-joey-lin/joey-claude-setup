@@ -106,7 +106,7 @@ momentum panels
 
   t   work queues            one queue per worktree, and the runner
   d   the momentum stack     switch which worktree runs on :3000
-  y   teams cards            on and off, autostart, the watcher log
+  y   teams-sync             cards out and replies in, together or one at a time
 
   a letter opens a panel   q closes this
 ```
@@ -122,7 +122,7 @@ Adding a panel is one line in `_M_PANELS`, near the function:
 _M_PANELS=(
   't|work queues|one queue per worktree, and the runner that drains them|m-board'
   'd|the momentum stack|switch which worktree runs on :3000|m-dev'
-  'y|teams cards|on and off, autostart, the watcher log|herdr-teams-toggle panel'
+  'y|teams-sync|cards out and replies in, together or one at a time|herdr-teams-toggle panel'
 )
 ```
 

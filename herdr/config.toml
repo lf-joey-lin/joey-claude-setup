@@ -71,7 +71,7 @@ width = "90%"
 height = "85%"
 description = "panels"
 
-# Teams cards on or off, and whether the watcher is really working. A popup because
+# teams-sync on or off, and whether either half is really working. A popup because
 # it is a whole panel and nothing in a pane needs to stay visible behind it. y is free
 # on this layer and ctrl+y is not another key in disguise, unlike m, i, j and [.
 [[keys.command]]
@@ -80,15 +80,16 @@ type = "popup"
 command = "bash -lic 'herdr-teams-toggle panel'"
 width = "70%"
 height = "45%"
-description = "teams cards panel"
+description = "teams-sync panel"
 
-# Same switch without looking at it, for walking away from the desk. Detached, so the
-# toast herdr shows afterwards is the only thing that appears.
+# Same switch without looking at it, for walking away from the desk. It moves both
+# halves, because leaving replies polling with the cards off is not a state anyone
+# wants. Detached, so the toast herdr shows afterwards is the only thing that appears.
 [[keys.command]]
 key = "ctrl+alt+shift+y"
 type = "shell"
 command = "bash -lic 'herdr-teams-toggle toggle'"
-description = "teams cards on/off"
+description = "teams-sync on/off"
 
 # Review the worktree against main. b is the whole branch, however many commits
 # deep, G steps them one at a time. A pane rather than a popup, because s sends

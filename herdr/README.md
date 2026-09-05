@@ -133,7 +133,7 @@ included, and a global `ctrl+w` costs you delete-word in every pane.
 | `ctrl+alt+hjkl`         | focus pane                        |
 | `ctrl+alt+shift+arrows` | resize pane                       |
 | `ctrl+alt+e`            | scrollback in `$EDITOR`           |
-| `ctrl+alt+d`            | panels menu: m-dev, teams cards   |
+| `ctrl+alt+d`            | panels menu: m-dev, teams-sync    |
 | `ctrl+alt+y`            | Teams cards panel, in a popup     |
 | `ctrl+alt+shift+y`      | Teams cards on/off, no popup      |
 | `f1`                    | help, lists everything            |

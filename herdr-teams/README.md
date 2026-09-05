@@ -65,15 +65,22 @@ unit that would restart-loop. See [Replies](#replies) for what the flow contains
 Nothing to start. The service comes up with the WSL login session, independent of
 herdr, and polls whether herdr is running or not.
 
-`ctrl+alt+y` opens the panel: cards on/off, replies on/off, autostart, restart, logs,
-and the startup lines that say whether either half is really working.
-`ctrl+alt+shift+y` flips the cards without the panel, for walking out of the room, and
-toasts what it did.
+`ctrl+alt+y` opens the panel. `[space]` is **teams-sync**, both halves at once, which is
+the normal way to use it; `[c]` and `[i]` still flip one on its own. Under that:
+autostart, restart, logs, the startup lines that say whether either half is really
+working, and the listener's next poll time. `ctrl+alt+shift+y` flips teams-sync without
+the panel, for walking out of the room, and toasts what it did.
+
+Both halves are on by default and start with WSL. Cards without replies is the setting
+worth knowing about: Teams can page you while nothing in Teams can type into a live
+agent. That is what `[c]` and `[i]` are for, and the panel says `PARTIAL` when the two
+disagree rather than picking one of them to report.
 
 ```bash
 herdr-teams-toggle                            # the same panel in a shell
-herdr-teams-toggle toggle                     # or on / off / status
-herdr-teams-toggle replies                    # the way back in, or replies-on / replies-off
+herdr-teams-toggle toggle                     # teams-sync, both halves; or on / off / status
+herdr-teams-toggle cards                      # cards only, or cards-on / cards-off
+herdr-teams-toggle replies                    # replies only, or replies-on / replies-off
 systemctl --user status herdr-teams-watch     # is it alive
 systemctl --user stop herdr-teams-watch       # quiet, at the desk
 systemctl --user start herdr-teams-watch      # heading out
@@ -334,12 +341,12 @@ seconds against about 35 for plain polling, for the same latency.
 
 ```bash
 herdr-teams-toggle replies        # or replies-on / replies-off
-herdr-teams-toggle status         # both units, both URLs, last cards and last replies
+herdr-teams-toggle status         # both units, both URLs, next poll, last cards and replies
 journalctl --user -u herdr-teams-listen -f
 herdr-teams-listen 60             # foreground, faster, for a test
 ```
 
-`ctrl+alt+y` shows both halves and `[i]` flips this one.
+`ctrl+alt+y` shows both halves, `[space]` flips the pair and `[i]` flips this one.
 
 ## Long runs
 
