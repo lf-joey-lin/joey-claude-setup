@@ -66,20 +66,23 @@ your own gate decision as the last line of that subsection (the contract's
    - Any other ask is a bug in this skill. The human already approved the
      shape by clicking the prototype; that is what makes this path short.
 
-2. **The slice loop.** For each slice in order:
-   - `loom-slice`, seeded with the slice entry **and one extra instruction**:
-     write the specs and see them red *before* opening the round patch. The
-     patch is the green step's reference, not the spec's. An agent holding the
-     implementation writes specs to the implementation, and the whole reason
-     the tree was reverted is to avoid that.
-     Gate: a red record for every check, a green commit, cheap verify at
-     exit 0. A slice claiming green with no red evidence fails the gate - back
-     once, twice is a blocker.
-   - `loom-probe` quick, scoped to the slice, with the gaps adopt assigned to
-     probe in its attack list.
-   - **Fix turn**, only on must-fix findings: one `loom-slice` in fix mode
-     seeded with the findings verbatim, then one `loom-probe` re-check. At most
-     two fix turns per probe; a must-fix still open after that is a blocker.
+2. **The slice loop, one wave at a time** (`loom-crew`). A crew runs the loop
+   in its own context and returns one line per slice; spawn crews until the
+   round's plan has no slice left. Seed each with the round's slice ids (they
+   carry the round prefix) and the two things a round adds on top of the
+   contract, for it to pass down:
+   - **To every `loom-slice`, one extra instruction**: write the specs and see
+     them red *before* opening the round patch. The patch is the green step's
+     reference, not the spec's. An agent holding the implementation writes
+     specs to the implementation, and the whole reason the tree was reverted
+     is to avoid that.
+   - **To every `loom-probe`, the gaps adopt assigned to probe**, added to its
+     attack list.
+
+   Gating, wave size, early returns and blockers are as `loom` describes them:
+   the crew's return lines plus `git log --oneline` for the commits it named,
+   four slices by default, an early return means spawn the next crew, BLOCKED
+   stops the round.
 
 3. **Reconcile** (`loom-adopt`, reconcile mode). Gate: every prototype hunk is
    present, dropped with a record, or reported as a miss. Each miss goes back

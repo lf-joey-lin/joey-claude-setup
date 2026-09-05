@@ -127,10 +127,10 @@ which you walk before committing. Two loom-specific overrides:
   subject `[acs-bff]` or `[app-bff]` (both halves in one commit when the
   composable rode along - it is one contract).
 
-api-integrator's own step 7/8 hand-back points do not apply; loom's
-orchestrator is the one you return to. Its "ask before the client slice"
-question defaults to yes here - the composable is what makes the slice
-vertical, and the next slice consumes it.
+api-integrator's own step 7/8 hand-back points do not apply; you return to
+whoever spawned you, the crew running your wave or the orchestrator directly.
+Its "ask before the client slice" question defaults to yes here - the
+composable is what makes the slice vertical, and the next slice consumes it.
 
 ## Fix mode
 
@@ -144,7 +144,7 @@ contract's per-probe heading (`### Fix turn P1.1`, then `P1.2`), one line per
 finding id, with its own `- Timing:` line - a fix turn is stage time and the
 run total has to account for it. If a finding turns out to be wrong or the fix
 would change behavior a check locks in, do not force it - record the
-disagreement and return; the orchestrator decides.
+disagreement and return; whoever spawned you decides.
 
 ## Return
 

@@ -177,9 +177,10 @@ rounds spine:
 
 Slice ids carry the round prefix so they stay unique across rounds.
 
-Mark Adopt `[x]` and return at most fifteen lines: the source, the patch path,
-the stash ref, the slice list one line each, the gap count by owner, and
-whether the round needs the contract gate. The detail is in the ledger.
+Mark Adopt `[x]` and return in the contract's fixed shape: one line each for
+the source, the patch path, the stash ref, every slice, and the gap count by
+owner, then the verdict line saying whether the round needs the contract gate.
+The detail is in the ledger.
 
 ## Reconcile mode
 

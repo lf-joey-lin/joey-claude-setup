@@ -79,7 +79,14 @@ gets its own worktree and ledger, so they cannot collide. Review each report
 in the main session.
 
 Flags: `--solo` (unattended, no push), `--no-push` (attended, land stops
-before pushing).
+before pushing), `--in <dir>` (run in a worktree that already exists instead
+of cutting one).
+
+`--in` is what lets a second and third request land on one branch: scout adopts
+the worktree, the slug comes from the branch rather than the request, and each
+later request is a new `## Round <n>` in the ledger the branch already has, the
+way `loom-finish` rounds already work. It is how `m-board`'s per-worktree
+queues run (`shell/README.md`), and it works typed by hand too.
 
 ## What runs when
 
@@ -89,7 +96,7 @@ before pushing).
 | ask moment 1 | (attended) | yes | yes |
 | slice plan | loom-plan | skipped | yes |
 | ask moment 2 | (attended) | skipped | yes |
-| build + quick probe, per slice | loom-slice, loom-probe | one slice | 2 to 6 slices |
+| build + quick probe, per slice | loom-crew, driving loom-slice and loom-probe | one slice | 2 to 6 slices |
 | deep probe | loom-probe | yes | yes |
 | maintainability pass | loom-tidy | yes | yes |
 | CI mirror | loom-gate | yes | yes |
@@ -192,12 +199,20 @@ test output, diffs, upstream source reading - dies with the stage that made
 it. What survives is the flight ledger, and the ledger is state, not a log:
 evidence lines are one line each, and anything longer (a failing suite, a
 conflict listing) goes to a sidecar file under `artifacts/loom/<slug>/` with the
-path in the ledger. The orchestrator itself holds almost nothing: stage
-returns are capped at about fifteen lines, and mid-run it verifies a stage by
-reading only that stage's ledger section, never the whole file - so its
-context grows linearly with the stage count, not with the size of the work.
-Only land reads the full ledger, once, in its own fresh context, to write the
-report. If a very long run gets its orchestrator context summarized anyway,
+path in the ledger. A return has a fixed shape - one line per unit of work
+plus a verdict line - so it cannot grow, and mid-run a stage is verified by
+reading only that stage's ledger section, never the whole file. Only land
+reads the full ledger, once, in its own fresh context, to write the report.
+
+The slice loop gets one more layer, because it is the part that repeats.
+`loom-crew` runs a wave of slices - four by default - and returns one line
+each, so the orchestrator grows per wave rather than per slice: it never sees
+a slice seed, a stage return, or a slice's ledger section. On a 2-to-6-slice
+feature that is one or two waves and the saving is small. It is there for the
+long branch - a `loom-finish` run on its fourth round, a plan that sliced into
+double figures - where growing per slice is what eventually fills a window.
+A crew can also return early and hand the rest to a fresh one, so a wave that
+turns out heavy costs one extra line instead of a summarized orchestrator. If a very long run gets its orchestrator context summarized anyway,
 nothing is lost: the ledger on disk is the authoritative state and the run
 re-grounds from it, which is the same mechanism that makes a killed run
 resumable.

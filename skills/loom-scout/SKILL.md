@@ -15,6 +15,13 @@ repeated here.
 
 ## Step 1 - workspace
 
+Two modes. Default is a worktree of your own. `--in <dir>` adopts one the
+human already made, which is how a queued work item runs in a worktree that is
+already open and possibly already prototyped in. Steps 2 to 4 are identical
+either way.
+
+### Default - a new worktree
+
 Derive `<slug>` (kebab-case) and the branch name (camelCase, per the contract)
 from the request. Then:
 
@@ -40,6 +47,37 @@ from the request. Then:
    install. A failed install is noted and the run continues.
 6. If a name is already taken, stop and report; never clobber.
 
+### `--in <dir>` - adopt the worktree the human made
+
+The human owns this workspace. They cut the branch, and may have prototyped in
+it. **Create nothing, reset nothing, and never touch their uncommitted work.**
+
+1. **Guards, before anything else.** `<dir>` must be a momentum worktree, must
+   not be `<root>/momentum` (the read-only reference checkout), and must not
+   be on `main`. Any of the three stops the run with the reason - none of them
+   is worked around. These are the same guards `loom-adopt` applies, and they
+   are the only workspace guards this mode needs.
+2. **`<slug>` is the branch name in kebab-case**, not derived from the
+   request, and a ledger that already names one wins. Same rule `loom-adopt`
+   uses, and the reason is the contract's: one ledger per branch, however many
+   requests land on it.
+3. **Rounds, not resumes** (contract, "Rounds"). Read
+   `<dir>/artifacts/loom/<slug>-ledger.md`:
+   - no ledger: this is round 1.
+   - highest round fully `[x]`: this request is round `<n>+1`. Report the
+     ledger path and the round number; the orchestrator opens `## Round <n+1>`
+     and every stage of this run nests under it. Do not resume a finished
+     round and do not open a second ledger.
+   - highest round incomplete: a normal resume. Report the ledger path and
+     stop - the orchestrator continues from the first stage not `[x]`.
+4. **No `worktree add`, no `-b`, no reset, no stash.** The branch is whatever
+   the human left there. Do not fetch origin into `<dir>`; landing merges main
+   at the end of the run, which is where that belongs.
+5. `git -C "<dir>" push -u origin HEAD` only when the branch has no upstream
+   yet. A failed push is noted, not fatal.
+6. `npm ci` in `<dir>/src/ui-app` only when `node_modules` is missing. A
+   worktree the human has already worked in usually has it, and reinstalling
+   over a tree they are running costs minutes for nothing.
 ## Step 2 - recon
 
 Read-only, and read for behavior. The question is "what does this app already
@@ -85,6 +123,8 @@ thing costs one short section, a missing plan for a big thing costs rework.
 ## Step 4 - the brief
 
 Create the ledger from the contract's template and fill the Brief section.
+Under `--in` on a round after the first, the ledger already exists: open
+`## Round <n>` and nest the Brief under it rather than starting a second file.
 Fill the header's `Started:` with `date -Iseconds`, read now, not remembered.
 Leave `Finished:`, `Wall:` and `Active:` as placeholders; land fills them.
 Stamp your own `- Timing:` line on the Brief section like any other stage.
@@ -107,7 +147,7 @@ Stamp your own `- Timing:` line on the Brief section like any other stage.
   a default.
 
 Mark the Brief `[x]` and return a short summary: lane, branch, worktree,
-ledger path, the decisions taken, and any open questions. In attended mode the
+ledger path, round number, the decisions taken, and any open questions. In attended mode the
 orchestrator's first ask moment presents exactly that summary; in solo mode
 there must be no open questions left - take the default and log it, or, if no
 reasonable default exists, mark the run `[!]` blocked with the reason.

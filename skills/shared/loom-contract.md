@@ -13,6 +13,7 @@ loom is a dev pipeline for momentum `ui-app` work. The roster:
 | `loom-scout` | workspace setup, recon, the brief, lane routing |
 | `loom-adopt` | read a prototype diff as the spec, revert it, size the round |
 | `loom-plan` | slice plan (feature lane only) |
+| `loom-crew` | the foreman: runs the slice loop for one wave of slices |
 | `loom-slice` | build one slice, checks first (born red) |
 | `loom-probe` | adversarial verification: attack, reproduce, report |
 | `loom-tidy` | one maintainability pass over the finished branch |
@@ -292,9 +293,21 @@ attendance changes is who answers questions.
 
 The orchestrator delegates every stage to one subagent and never reads source
 or edits code in its own context; it gates on ledger evidence. A stage skill
-invoked as that subagent runs its work inline and spawns no further subagents,
-with one exception: `loom-land` may fan out one subagent per conflicted file
-during the merge. Depth never exceeds orchestrator, stage, conflict-file.
+invoked as that subagent runs its work inline and spawns no further subagents.
+
+Two skills sit between the orchestrator and a stage, and only these two:
+
+- **`loom-crew`** holds the slice loop for a wave of slices. It spawns
+  `loom-slice` and `loom-probe`, gates them, and writes the `- Gate:` line for
+  the slices in its wave. It reads no source and edits no code, same as the
+  orchestrator.
+- **`loom-land`** may fan out one subagent per conflicted file during the
+  merge.
+
+So depth never exceeds three: orchestrator, then crew or land, then stage or
+conflict-file. Gate decisions are owned by whoever ran the stage - the crew
+for its wave's slices, the orchestrator for everything else. Nobody else
+writes a `- Gate:` line.
 
 Every stage seed carries: the absolute worktree path, the ledger path, the
 mode line (`attended` or `solo`), and the instruction to read this contract
@@ -304,15 +317,32 @@ file plus its own skill file before acting.
 
 A long run must not drown the orchestrator. Three rules keep it flat:
 
-- **Stage returns are capped.** A stage returns at most about fifteen lines,
-  and nothing in the return may claim what the ledger does not carry - the
-  return is a pointer to evidence, not a second copy of it. Tool noise
-  (build logs, file contents, diffs) never leaves the stage that made it.
-- **The orchestrator reads ledger sections, not the ledger.** Mid-run it
-  verifies a stage by reading only that stage's section (search for the
-  stage's heading and read from there). The whole file is read exactly
-  twice: at resume, and never otherwise by the orchestrator - land reads it
-  in full inside its own fresh context to write the report.
+- **A return has a fixed shape, so it cannot grow.** Mid-run, a stage or a
+  crew returns one line per unit of work plus one verdict line, and nothing
+  else - no prose, no recap, no tool output:
+
+  ```
+  <id> <ACCEPT | BLOCKED> | <one evidence line> | ledger:<heading>
+  ```
+
+  The unit is whatever that stage produced one of: a slice for `loom-crew`, a
+  finding for `loom-probe`, a decision for `loom-scout`, a slice entry for
+  `loom-plan`, a scorecard row for `loom-gate`. Scout's and plan's records are
+  the lines a human is about to be asked about, so they carry the choice
+  rather than a hash; the shape is the same. Nothing in a return may claim
+  what the ledger does not carry - the return is a pointer to evidence, not a
+  second copy of it. Tool noise (build logs, file contents, diffs) never
+  leaves the stage that made it, and a stage with more to say writes it into
+  the ledger, which land reads in its own fresh context.
+
+  The cap is on mid-run returns. `loom-land`'s report is the run's output, not
+  a return, and is not capped.
+- **The orchestrator and the crew read ledger sections, not the ledger.**
+  Mid-run either verifies a stage by reading only that stage's section
+  (search for the stage's heading and read from there). The orchestrator
+  reads the whole file exactly once, at resume; a crew reads the Plan section
+  and its own slices' sections and never the whole file. Land reads it in
+  full inside its own fresh context to write the report.
 - **Re-ground from the file, not from memory.** If the orchestrator's
   context is summarized mid-run, the ledger is the state; continue from it
   and trust nothing recalled that it does not confirm.
@@ -320,7 +350,9 @@ A long run must not drown the orchestrator. Three rules keep it flat:
 If the runtime cannot spawn subagents at all, run the stages inline and
 sequentially, in strict order, finishing each stage's ledger section before
 starting the next - slower and heavier, but the ledger discipline still
-bounds what later stages need to re-read.
+bounds what later stages need to re-read. There is no crew in that mode:
+waves exist to partition context across agents, and with one agent there is
+nothing to partition.
 
 ## Text rules
 

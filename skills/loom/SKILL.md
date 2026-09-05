@@ -22,16 +22,33 @@ nesting rules there are the law of the run.
 /loom <request>              # attended: two ask moments, push confirmed
 /loom <request> --solo       # unattended: zero asks, never pushes
 /loom <request> --no-push    # attended, but land leaves the branch local
+/loom <request> --in <dir>   # run in a worktree the human already made
 ```
 
 `<request>` is required - a sentence or a short bullet list. State the
 resolved shape in your first line of output, before any tool call:
-`Mode: attended | solo   Slug: <slug>`.
+`Mode: attended | solo   Slug: <slug>   Round: <n>`.
 
 **Resume**: if `artifacts/loom/<slug>-ledger.md` already exists (check the
 default worktree and `<root>/momentum-<slug>`), read it and continue from the
 first stage not `[x]`. Never restart a done stage, never open a second
 workspace for the same slug.
+
+**`--in <dir>`**: scout adopts that worktree instead of creating one, and
+`<slug>` becomes its branch name rather than anything derived from the
+request. It is what lets a second and third request land on a branch the human
+already opened, one queue per worktree (`shell/mqueue.sh` in
+`joey-claude-setup` drives this). Two things change for you as conductor:
+
+- **The run is a round.** Scout reports the round number. On a round after the
+  first, every stage of this run nests under `## Round <n>` in the one ledger
+  the branch already has, exactly as `loom-finish` does, and every stage seed
+  carries the round number alongside the ledger path. Slice ids carry the
+  round prefix (`R2.S1`). A finished round is history, never a resume point.
+- **Branch-scoped stages read the whole branch.** Probe deep, tidy, gate and
+  land cover every round on the branch, not just this one, so an earlier
+  round's code is re-covered rather than assumed good. That is the point of
+  them being branch-scoped.
 
 ## The run
 
@@ -41,10 +58,12 @@ skill file). Gate each stage on the ledger entries it appended - the evidence
 lines, never the subagent's prose - by reading **only that stage's section**
 of the ledger, per the contract's context-economy rules; never re-read the
 whole file mid-run. Record your own gate decision as the last line of that
-stage's section (the contract's `- Gate:` line) before moving on.
+stage's section (the contract's `- Gate:` line) before moving on. The slice loop is the one
+exception: a crew holds those slices and writes their gate lines, and you
+never read them (step 3).
 
 1. **Scout** (`loom-scout`). Gate: ledger exists, Brief `[x]`, lane decided,
-   branch and worktree named.
+   branch and worktree named, and under `--in` the round number reported.
    - **Ask moment 1 (attended only)**: present the brief summary - lane,
      decisions taken, open questions - with one `AskUserQuestion`
      (approve / adjust / abort). On adjust, re-seed scout with the feedback;
@@ -67,22 +86,30 @@ stage's section (the contract's `- Gate:` line) before moving on.
      it doubles as api-integrator's approval gate, so show the route, verb,
      DTO cuts, and status map, not just the slice name. This is the last
      planned pause before land.
-3. **The slice loop.** For each slice in order (a patch-lane run has exactly
-   one, defined in the brief):
-   - `loom-slice` (bff mode when the slice's Kind is bff). Gate: a red record
-     exists for every check, a green commit exists, the slice's cheap verify
-     lines report exit 0 (typecheck and eslint for ui; the BFF build and test
-     class for bff). A slice summary claiming green with no red evidence in
-     the ledger fails the gate - send it back once; twice is a blocker.
-   - `loom-probe` quick, scoped to the slice. Gate: findings carry
-     reproductions and severities, probe specs are cleaned up or flagged
-     promote.
-   - **Fix turn**, only if probe returned must-fix findings: one `loom-slice`
-     in fix mode seeded with the findings verbatim, then one `loom-probe`
-     re-check scoped to those findings. At most two fix turns per probe;
-     a must-fix still open after that is a blocker - stop, do not accumulate
-     known-broken slices. Polish findings are recorded and carried, not fixed
-     mid-loop.
+3. **The slice loop, one wave at a time** (`loom-crew`). You do not run this
+   loop - a crew does, in its own context, and hands you one line per slice.
+   Spawn a crew seeded per the contract plus a wave size, let it build, probe
+   and fix its slices, then spawn the next one. Repeat until the plan has no
+   slice left. This is what keeps your own context flat across a long run:
+   you grow by a wave, not by a slice.
+   - **Wave size**: four slices by default. Size down where the plan drew
+     slices wide (a bff slice, one with many checks), up only for a plan of
+     small ui slices. A crew may return short and often will; it may never
+     return long.
+   - **Gate a wave on its return lines**, plus one cheap check: `git log
+     --oneline` on the branch shows the green commits it named. A hash that is
+     not there is a fabricated claim and fails the wave. Everything the crew
+     gated inside the wave (red-before-green per slice, probe reproductions,
+     the two-fix-turn cap) is the crew's own gate, recorded in the ledger, and
+     you do not re-verify it.
+   - **An early return is normal**, not a failure: spawn the next crew, which
+     picks up from the first slice not `[x]`. A crew returning BLOCKED stops
+     the run, with the ledger heading its wave line names.
+   - A patch-lane run has exactly one slice, defined in the brief. Spawn a
+     crew for it anyway - one line back is cheaper than the four calls it
+     replaces, and the patch lane then has no second code path.
+   - You never see a slice seed, a stage return, or a slice's ledger section.
+     If you find yourself reading one mid-run, the crew boundary has leaked.
 4. **Probe deep** (`loom-probe` over the whole branch). Same fix-turn rule,
    same cap.
 5. **Tidy** (`loom-tidy`). Gate: fixes committed with slice checks still
@@ -123,6 +150,12 @@ own worktree, so they cannot collide; the ledgers keep them independently
 resumable. Review each report in the main session, then push and run
 `/paperwork` per branch there.
 
+Note this adds a level above the orchestrator, so such a run is four deep:
+background agent, loom, crew, stage. If the runtime refuses to spawn that
+deep, the crew is the level to drop - tell the background agent to run the
+slice loop inline per the contract's no-subagents fallback. Do not drop a
+stage instead; the stages are where the work happens.
+
 Model note: stages that think (plan, slice, probe deep, tidy) belong on the
 session's default model; scout, gate, and land are mechanical enough for a
 cheaper tier when spend matters. No fixed table - pass `model` per Agent call
@@ -130,13 +163,16 @@ as judgment dictates.
 
 ## Invariants
 
-- The orchestrator owns the ledger's gate decisions and nothing else; every
-  read of source and every edit happens in a stage subagent.
+- The orchestrator owns the gate decisions for the stages it runs itself; the
+  crew owns them for the slices in its wave. Every read of source and every
+  edit happens in a stage subagent, below them both.
 - Gate on ledger evidence (commands, exit codes, red records), never on
   prose, and read it by stage section - the contract's context-economy rules
   are what keep a twenty-round run inside one context window.
 - One slice at a time; the pipeline is sequential by design and stages are
-  never fanned out across each other.
+  never fanned out across each other. A wave is a context boundary, not a
+  parallelism boundary - one crew runs at a time, and its slices run in
+  order.
 - The bar is identical attended and solo; attendance only changes who answers
   questions and whether land may push.
 - The contract's hard stops hold everywhere: secrets, generated catalogs,
