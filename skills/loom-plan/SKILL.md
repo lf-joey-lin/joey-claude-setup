@@ -96,13 +96,40 @@ one before:
 A custom component still costs its own one-line justification on top of the
 `Platform:` line.
 
-### Prior art
+### Prior art and shape
 
 While grounding, run one cheap prior-art check per new unit the plan
 introduces (component, composable, state key, group of `en.json` keys): does
 something in the app already do this, and does this supersede anything? A hit
 changes the plan now, for one line, instead of surfacing in tidy after the
 code exists. Cite `path:line` for what you found.
+
+Then three questions over what that search turned up, written into the ledger
+as a short `### Shape check` block under the Plan. They are cheap by
+construction - each is answerable from the search you just ran plus the
+slices' own `Touches:` lines - and they sit here rather than in tidy because
+tidy cannot fix any of them: its veto stops at a diff bigger than the branch,
+and by then a slice check has locked the shape in.
+
+1. **Count the copies.** For each pattern the plan follows rather than reuses,
+   count the sites already following it. Three or more means this plan adds
+   the Nth: say which N, and say in one line why copying still beats
+   extracting. "It matches the others" is the question, not the answer.
+2. **Price a widening.** Does a slice add a prop, option or mode to an
+   existing shared unit for fewer callers than that unit has? Name the unit,
+   the caller that wants it, and the callers it will be meaningless for.
+3. **Follow a new mode.** Does a flag or discriminant the plan introduces get
+   read in more than one file, or passed through more than one level? List the
+   sites off the `Touches:` lines.
+
+One line each, whether or not it fires. A question that fires also gets a line
+in the return, and ask moment 2 carries it the way it carries a hand-roll.
+Nothing firing is the normal result and is recorded as such, so a reader can
+tell the sweep from a skipped sweep.
+
+Stop there. This is a sweep over the shape the plan is about to commit to, not
+a structural review: a concept genuinely smeared across the subsystem is
+`/solidify2`, run on its own, whose output is a spec rather than a slice.
 
 ## Grounding a bff slice (api-integrator, steps 0 to 4)
 
@@ -167,9 +194,9 @@ Write into the ledger's Plan section, per slice:
 
 Mark the Plan `[x]` and return a summary: the slice list with one line each,
 every hand-roll with the platform unit it passed over, any custom component and
-its justification, prior art found, and any decision you defaulted (logged in
-the ledger per the contract). A hand-roll whose only obstacle is an undeclared
-dependency is called out by name in the return, because that one is the
-human's to answer, not yours. In attended mode this
-is the orchestrator's second ask moment; in solo mode there is nothing to
-ask - the defaults are logged and the run continues.
+its justification, prior art found, any shape-check question that fired, and
+any decision you defaulted (logged in the ledger per the contract). A
+hand-roll whose only obstacle is an undeclared dependency is called out by
+name in the return, because that one is the human's to answer, not yours. In
+attended mode this is the orchestrator's second ask moment; in solo mode there
+is nothing to ask - the defaults are logged and the run continues.
