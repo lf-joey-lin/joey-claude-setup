@@ -246,6 +246,29 @@ from, and what the prototype skipped:
 ### Land - [ ]
 ```
 
+## The end-of-run receipt
+
+A run's last act, however it ends, is one line at
+`artifacts/loom/<slug>-status`:
+
+```
+<iso8601> landed|blocked <round> <one line why>
+```
+
+Overwrite it, never append. `<round>` is `R<n>` on a round, `R1` otherwise.
+Land writes `landed` at the moment it marks Land `[x]`. The orchestrator writes
+`blocked` when a stop ends the run, beside the ledger entry it already writes.
+
+The ledger says what happened; this says the run is over. A reader outside the
+run cannot get the second from the first, and that is the whole reason this
+file exists. A stopped run often never reaches Land at all, leaving it `[ ]`
+and marking `## Gate - [!]` or its own round heading instead; a landed round
+writes `### Land - [x]` at a depth the previous round's heading does not share;
+and an agent sitting idle only means its turn ended, not that the run did.
+Anything that starts runs back to back waits on this file - `shell/mqueue.sh`
+in `joey-claude-setup` does, one run per worktree - so a run that skips it
+holds a queue open until a timeout hours later.
+
 ## The attendance contract
 
 One bar, two modes. The quality bar - what gets checked, probed, fixed, and
@@ -259,8 +282,8 @@ attendance changes is who answers questions.
   its documented default, logged in the ledger as `(defaulted)` with the
   alternative. Land never pushes solo. A genuine blocker - contradictory
   input, a red acceptance check that two fix turns could not clear, a gate
-  that stays NOT READY - stops the run with a ledger entry; it is never
-  guessed past.
+  that stays NOT READY - stops the run with a ledger entry and a `blocked`
+  receipt; it is never guessed past.
 - Default order for any open question: this app's precedent, then the house
   conventions in `src/ui-app/CLAUDE.md`, then the most idiomatic Nuxt UI
   shape. Record which level answered it.

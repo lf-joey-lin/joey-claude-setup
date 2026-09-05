@@ -105,3 +105,7 @@ Present sections 1, 5, and 6 inline in the conversation, plus the two totals
 from section 8 as one line; point at the file for the rest. Mark Land `[x]`
 in the ledger with the merge result, push state, report path, and its own
 `- Timing:` line.
+
+Then write the end-of-run receipt (the contract, "The end-of-run receipt") as
+the last thing you do, `landed` with the round and the push state. A queue
+picks the next run up off that line, so a run that skips it looks stuck.

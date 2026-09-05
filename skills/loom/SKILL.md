@@ -109,7 +109,9 @@ next round of changes in place rather than opening a second run.
   contract's default order, gets logged `(defaulted)`, and the report's
   Decisions section carries it. A genuine blocker (contradictory input, a
   fix-turn cap reached, a NOT READY gate after its retry) stops the run with a
-  ledger entry - solo and attended alike.
+  ledger entry and a `blocked` end-of-run receipt (the contract) - solo and
+  attended alike. You write that receipt yourself on a stop; land writes it
+  when a run finishes normally. Either way it is the last act of the run.
 - Never fork alternatives, never build two versions of a close call: decide,
   log, continue.
 
