@@ -133,9 +133,14 @@ while :; do
                  -H 'Content-Type: application/json' -d "$body" 2>/dev/null) || continue
 
         # Base64 so a reply containing tabs or newlines survives the read loop.
+        # The first select drops anything the Flow bot posted, which carries "from.application"
+        # and no "from.user". It is not optional: the cards this thread is full of are now
+        # real text, so without it an unset ONLY_USER would feed herdr's own cards straight
+        # back into the agent that caused them.
         rows=$(printf '%s' "$resp" | jq -r --arg since "$cursor" --arg me "$ONLY_USER" '
             (.value // [])
             | map(select(.createdDateTime > $since))
+            | map(select((.from.user.id // "") != ""))
             | map(select($me == "" or (.from.user.id // "") == $me))
             | sort_by(.createdDateTime)
             | .[] | [.createdDateTime, ((.body.content // "") | @base64)] | @tsv' 2>/dev/null) || continue

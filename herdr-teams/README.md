@@ -111,10 +111,27 @@ each agent's state to the last time it looked.
 The first of those for an agent starts its thread; the rest reply under it. A turn
 merely starting sends nothing, so the thread opens on the first thing worth reading.
 
+**Only the thread's first post is an Adaptive Card. The replies under it are formatted
+text**, because Teams puts text in the phone notification, where a card only ever shows
+up as "sent a card". Every call carries both shapes and the flow picks: the card out of
+`attachments` when it is starting a thread, the HTML out of `text` when it is replying.
+
 ## What is on the card
 
 The title is the worktree and what happened. Under it, a `Task` fact carrying the pane
-title, and `Took`, the length of the turn.
+title, and `Took`, the length of the turn. As a reply that is `<b>title</b>` then one
+`<b>Task:</b> value` line per fact, then a blank line and the body. Title, facts and
+body are all HTML-escaped on the way in; Claude output is full of angle brackets, and
+one unescaped `<Foo>` in a diff would swallow the rest of the message.
+
+The body then has its markdown turned into HTML, because `text` is rendered as HTML and
+nothing else: without it a `##` heading and a fenced block arrive as those literal
+characters. Headings and `**bold**` become `<b>`, backticks become `<code>`, and a fence
+becomes `<pre>`, which Teams stores as a `<codeblock>` and renders as one. Fences are
+split off first, so a `#` inside a block stays a `#`. Headings are bold rather than
+`<h2>` because the message already opens with a bold title and a real heading outranks
+it. Single `*` and `_` are left alone: they would eat `pane_id` and shell globs, and
+Claude writes `**` anyway.
 
 The body is what Claude actually said, read out of its own transcript rather than
 scraped off the terminal. `herdr agent list` hands over the session id, and the
@@ -185,9 +202,15 @@ Condition: ThreadId is empty
   yes   Post card in a chat or channel   (Cards[0])
         ThreadId = the new card's body/id
         foreach skip(Cards, 1)           reply under ThreadId
-  no    foreach Cards                    reply under ThreadId
+  no    Reply with a message in a channel  ThreadId, triggerBody()['text']
 Response  200  { threadId, created }
 ```
+
+The reply branch is a **message**, not a card, which is the whole of the formatting
+change. The designer's rich text box wraps the token, so the stored parameter reads
+`<p class="editor-paragraph">@{triggerBody()['text']}</p>`. That is fine: Teams renders
+the inner HTML and drops the class. The `foreach skip(Cards, 1)` in the yes branch is a
+no-op, since the notifier only ever sends one attachment.
 
 Two things it turns on:
 
@@ -272,6 +295,15 @@ the honest limit here. The prompt path, for an agent that has finished, takes an
 Only replies whose author is `HERDR_LISTEN_USER_ID` are forwarded, and the unit pins it
 to Joey's Entra object id. The channel is private, so that is a second lock rather than
 the only one, but what is on the other end types into a live Claude with auto mode on.
+
+**Before that filter runs, anything with no `from.user` is dropped, and that line is
+load-bearing.** herdr's own replies are posted by the Flow bot, which carries
+`from.application` instead. They used to be Adaptive Cards, whose `body.content` is just
+`<attachment id="..."></attachment>` and strips to nothing, so they were harmless by
+accident. Now that replies are real text, an unset `HERDR_LISTEN_USER_ID` without that
+line would feed every card herdr sends straight back into the agent that caused it.
+Tested: a thread holding two bot replies, listener with no user id set, nothing
+forwarded.
 
 ### What it costs
 

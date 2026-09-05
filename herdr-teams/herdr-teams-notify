@@ -7,6 +7,10 @@
 #   id and lands as a reply under the first. The id is remembered here, one small file
 #   per key, so nothing else has to know whether a thread exists yet. Without --thread
 #   every call is a new top-level card, which is what a hand-sent notification wants.
+# Every call carries both shapes and the flow picks one. Starting a thread posts the
+#   Adaptive Card in "attachments"; replying into a thread posts the HTML in "text".
+#   Replies are text because Teams shows text in the phone notification, where a card
+#   only ever shows up as "sent a card".
 # Only the Adaptive Card shape renders as a card. The flow accepts any JSON, so a wrong
 #   shape still answers 200 and posts the raw body as text.
 # --dry-run prints the payload and posts nothing. It is also what you paste into the
@@ -71,8 +75,33 @@ fi
 # jq builds the JSON so quotes/newlines in agent output can't break the payload.
 # threadId sits beside attachments rather than inside the card: the card is what Teams
 # renders, this is what the flow routes on.
+# @html escapes the title, facts and body before they go into "text". Claude output is
+# full of angle brackets and ampersands, and without escaping the first <Foo> in a diff
+# swallows the rest of the message.
+# md2html then turns the body's markdown into the HTML Teams renders. Without it a "##"
+# heading and a ``` fence arrive as those literal characters. Teams keeps <b>, <code> and
+# <pre>, and stores <pre> as its own code block, which is the whole subset used here.
+# Code fences are split off first so nothing inside a block is read as markdown, and a
+# block keeps its real newlines where everything else turns into <br>.
 payload() {
-    jq -nc --arg ti "$TITLE" --arg tx "$TEXT" --argjson facts "$FACTS" --arg tid "$1" '{
+    jq -nc --arg ti "$TITLE" --arg tx "$TEXT" --argjson facts "$FACTS" --arg tid "$1" '
+    def md_inline:
+        @html
+        | gsub("`(?<c>[^`\n]+)`"; "<code>" + .c + "</code>")
+        | gsub("\\*\\*(?<b>[^*\n]+)\\*\\*"; "<b>" + .b + "</b>")
+        | gsub("(?<p>^|\n)[ \t]*#{1,6}[ \t]+(?<h>[^\n]+)"; .p + "<b>" + .h + "</b>")
+        | gsub("\n"; "<br>");
+    def md2html:
+        split("```")
+        | to_entries
+        | map(if (.key % 2) == 1
+              then "<pre>" + (.value | sub("^[a-zA-Z0-9+#._-]*\n"; "") | sub("\n[ \t]*$"; "") | @html) + "</pre>"
+              else (.value | md_inline)
+              end)
+        | join("")
+        # <pre> is a block on its own, so a <br> either side of it only adds a blank line.
+        | gsub("(<br>)+<pre>"; "<pre>") | gsub("</pre>(<br>)+"; "</pre>");
+    {
       type:"message",
       attachments:[{
         contentType:"application/vnd.microsoft.card.adaptive",
@@ -84,7 +113,10 @@ payload() {
           ]
           + (if ($facts|length) > 0 then [{type:"FactSet", facts:$facts}] else [] end)
           + (if ($tx|length) > 0 then [{type:"TextBlock", text:$tx, wrap:true}] else [] end)
-          )}}]}
+          )}}],
+      text:( "<b>" + ($ti|@html) + "</b>"
+             + ($facts | map("<br><b>" + (.title|@html) + "</b> " + (.value|@html)) | join(""))
+             + (if ($tx|length) > 0 then "<br><br>" + ($tx|md2html) else "" end) )}
       + (if ($tid|length) > 0 then {threadId:$tid} else {} end)'
 }
 
