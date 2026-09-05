@@ -100,16 +100,18 @@ mkdir -p "$CURSOR_DIR"
 
 while :; do
     now=$(date +%s)
+    # Counted per pass, for the heartbeat at the bottom of the loop.
+    n_working=0; n_nothread=0; n_cold=0; n_seeded=0; n_polled=0; n_delivered=0
     while IFS=$'\t' read -r pane status session cwd title; do
         [ -n "${pane:-}" ] || continue
         # A working agent is mid-turn. A reply typed at it now lands in the prompt box
         # rather than being answered, so leave it for the next time it stops.
-        [ "$status" = working ] && continue
+        [ "$status" = working ] && { n_working=$((n_working + 1)); continue; }
 
         tfile=$(key_file "$THREAD_DIR" "$(thread_key "$session" "$cwd")")
-        [ -r "$tfile" ] || continue
+        [ -r "$tfile" ] || { n_nothread=$((n_nothread + 1)); continue; }
         # The mtime is the last card sent into the thread, which notify refreshes.
-        [ $(( now - $(stat -c %Y "$tfile") )) -lt "$HOT" ] || continue
+        [ $(( now - $(stat -c %Y "$tfile") )) -lt "$HOT" ] || { n_cold=$((n_cold + 1)); continue; }
 
         thread_id=$(tr -d '\n' < "$tfile")
         [ -n "$thread_id" ] || continue
@@ -125,9 +127,11 @@ while :; do
             # First sighting is recorded, never delivered. Without this, every restart
             # replays the whole thread into the agent.
             date -u +%Y-%m-%dT%H:%M:%S.000Z > "$cfile"
+            n_seeded=$((n_seeded + 1))
             continue
         fi
 
+        n_polled=$((n_polled + 1))
         body=$(jq -nc --arg t "$thread_id" '{threadId:$t}')
         resp=$(curl -sS --max-time 60 -X POST "$URL" \
                  -H 'Content-Type: application/json' -d "$body" 2>/dev/null) || continue
@@ -151,6 +155,7 @@ while :; do
             text=$(printf '%s' "$b64" | base64 -d 2>/dev/null | strip_html)
             [ -n "$text" ] || { [ "$DRY" = 1 ] || printf '%s' "$when" > "$cfile"; continue; }
             if deliver "$pane" "$status" "$text"; then
+                n_delivered=$((n_delivered + 1))
                 log "reply -> $worktree ($status): $(printf '%s' "$text" | head -c 80)"
                 [ "$DRY" = 1 ] || printf '%s' "$when" > "$cfile"
             else
@@ -160,6 +165,23 @@ while :; do
             fi
         done <<< "$rows"
     done < <(snapshot)
-    [ "$ONCE" = 1 ] && break
+
+    # Say what the pass did and when the next one is. An idle loop otherwise looks exactly
+    # like a dead one, and "when will my reply be read" has no answer anywhere else.
+    if [ "$n_polled" -gt 0 ]; then
+        did="polled $n_polled thread(s), delivered $n_delivered"
+    else
+        did="nothing to poll: $n_working working, $n_nothread with no thread, $n_cold gone cold"
+    fi
+    [ "$n_seeded" -gt 0 ] && did="$did; started watching $n_seeded thread(s), replies count from now"
+
+    if [ "$ONCE" = 1 ]; then
+        log "$(date +%H:%M:%S) $did"
+        break
+    fi
+    nxt="next $(date -d "+$INTERVAL seconds" +%H:%M:%S)"
+    # Below a minute the two after it round to the same clock minute and read as a bug.
+    [ "$INTERVAL" -ge 60 ] && nxt="$nxt, then $(date -d "+$((INTERVAL * 2)) seconds" +%H:%M) and $(date -d "+$((INTERVAL * 3)) seconds" +%H:%M)"
+    log "$(date +%H:%M:%S) $did; $nxt"
     sleep "$INTERVAL"
 done

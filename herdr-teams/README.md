@@ -280,6 +280,19 @@ New replies are the ones newer than a per-thread cursor under
 and delivers nothing, the same rule the watcher uses for an agent it has not seen:
 without it every restart replays the thread into the agent.
 
+Every pass ends with a line saying what it did and when the next one is, because an idle
+loop looks exactly like a dead one and nothing else answers "when will my reply be read":
+
+```
+16:22:37 polled 1 thread(s), delivered 0; next 16:25:37, then 16:28 and 16:31
+16:25:37 nothing to poll: 1 working, 11 with no thread, 0 gone cold; next 16:28:37, then 16:31 and 16:34
+```
+
+The second form is the one worth having: it names which of the three gates above is
+holding things up, so a reply that is going nowhere is not a silent wait. The two extra
+times are dropped when the interval is under a minute, where they round to the same
+clock minute and read as a bug.
+
 ### How the text gets in
 
 `herdr agent prompt` is the clean way, and it is what a non-blocked agent gets. It does
