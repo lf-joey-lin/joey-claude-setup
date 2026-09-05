@@ -1,0 +1,160 @@
+#!/usr/bin/env bash
+# Forward Teams thread replies back into the herdr agent that owns the thread.
+# Usage: herdr-teams-listen [interval_seconds]
+# herdr-teams-watch sends the cards out; this is the way back in. Nothing outside can
+#   reach this box, so instead of being pushed to, it polls a second Power Automate
+#   flow that reads the replies sitting under one card.
+# Every poll costs a Power Platform request and the daily cap is small, so a thread is
+#   only polled while its agent is waiting and its card is still recent. See README.md.
+set -uo pipefail
+
+INTERVAL="${1:-${HERDR_LISTEN_INTERVAL:-180}}"
+URL_FILE="${HERDR_LISTEN_WEBHOOK_FILE:-$HOME/.config/herdr/teams-replies-webhook}"
+# Written by herdr-teams-notify: one file per thread key, holding the Teams message id
+# of that thread's root card.
+THREAD_DIR="${HERDR_TEAMS_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/herdr/teams-threads}"
+CURSOR_DIR="${HERDR_LISTEN_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/herdr/teams-replies}"
+# Stop polling a thread this long after its last card. A thread nothing has carded in
+# half an hour is one nobody is replying to, and polling it forever burns the quota.
+HOT="${HERDR_LISTEN_HOT:-1800}"
+# Only forward replies written by this Entra user id. Anyone who can post in the channel
+# can otherwise type into a live Claude. Empty accepts every author.
+ONLY_USER="${HERDR_LISTEN_USER_ID:-}"
+# Must match herdr-teams-watch, or the keys it files threads under will not be the keys
+# looked up here.
+THREAD_KEY_MODE="${HERDR_WATCH_THREAD_KEY:-session}"
+# Say what would be delivered and send nothing. It also leaves the cursors alone, so a
+# dry run cannot quietly eat the replies the real run was going to deliver.
+DRY="${HERDR_LISTEN_DRY:-0}"
+# One pass, then exit. For running it by hand.
+ONCE="${HERDR_LISTEN_ONCE:-0}"
+
+# Resolve by absolute path. Under systemd, PATH has no ~/.local/bin, so bare names
+# silently find nothing and the loop does nothing while looking healthy.
+HERDR_BIN="${HERDR_BIN_PATH:-$(command -v herdr || echo "$HOME/.local/bin/herdr")}"
+SOURCE="${HERDR_WATCH_SOURCE:-$HERDR_BIN agent list}"
+
+log() { printf '%s\n' "$*" >&2; }
+
+[ -x "$HERDR_BIN" ] || { log "FATAL: not executable: $HERDR_BIN"; exit 1; }
+command -v jq >/dev/null || { log "FATAL: jq not found (PATH=$PATH)"; exit 1; }
+[ -s "$URL_FILE" ] || { log "FATAL: no replies webhook url at $URL_FILE"; exit 1; }
+URL=$(tr -d '\n' < "$URL_FILE")
+
+if [ -n "$ONLY_USER" ]; then who="only $ONLY_USER"; else who="any author"; fi
+[ "$DRY" = 1 ] && dry=" DRY RUN, delivering nothing" || dry=""
+log "listening every ${INTERVAL}s; threads warm for ${HOT}s, keyed per ${THREAD_KEY_MODE}; ${who}${dry}"
+
+# Same shape the watcher reads, plus pane_id, which is what herdr accepts as a target.
+snapshot() {
+    local raw err rc
+    err=$(mktemp); raw=$($SOURCE 2>"$err"); rc=$?
+    rm -f "$err"
+    [ $rc -eq 0 ] || return 0
+    printf '%s' "$raw" | jq -r '
+        .result.agents[]?
+        | [ .pane_id // "",
+            .agent_status // "unknown",
+            .agent_session.value // "",
+            .cwd // "",
+            .terminal_title_stripped // .agent // "agent"
+          ] | @tsv'
+}
+
+# Identical to the watcher's, including the sanitising, or the file names differ.
+thread_key() {
+    local id="$1" cwd="$2"
+    case "$THREAD_KEY_MODE" in
+        worktree) printf 'wt:%s' "${cwd:-unknown}" ;;
+        *)        printf 'ag:%s' "$id" ;;
+    esac
+}
+key_file() { printf '%s/%s' "$1" "$(printf '%s' "$2" | tr -c 'a-zA-Z0-9.-' '-')"; }
+
+# Teams hands back the reply as HTML. Turn the line breaks into real ones, drop the
+# tags, then put back the handful of entities that survive that.
+strip_html() {
+    sed -E -e 's#<br[^>]*>#\n#g' -e 's#</(p|div)>#\n#g' -e 's#<[^>]*>##g' \
+    | sed -e 's/&nbsp;/ /g' -e 's/&lt;/</g' -e 's/&gt;/>/g' \
+          -e 's/&quot;/"/g' -e "s/&#39;/'/g" -e 's/&amp;/\&/g' \
+    | sed -e 's/[[:space:]]*$//' \
+    | awk 'NF { blank = 0; print; next } { blank++ } END {}'
+}
+
+# A prompt is the clean way in, but herdr refuses one to a blocked agent: it would be
+# typing free text at a menu. There, act like a person at the keyboard instead.
+deliver() {
+    local pane="$1" status="$2" text="$3"
+    if [ "$DRY" = 1 ]; then
+        log "  would send to $pane ($status): $text"
+        return 0
+    fi
+    if [ "$status" != blocked ] && "$HERDR_BIN" agent prompt "$pane" "$text" >/dev/null 2>&1; then
+        return 0
+    fi
+    "$HERDR_BIN" pane send-text "$pane" "$text" >/dev/null 2>&1 || return 1
+    "$HERDR_BIN" agent send-keys "$pane" enter >/dev/null 2>&1
+}
+
+mkdir -p "$CURSOR_DIR"
+
+while :; do
+    now=$(date +%s)
+    while IFS=$'\t' read -r pane status session cwd title; do
+        [ -n "${pane:-}" ] || continue
+        # A working agent is mid-turn. A reply typed at it now lands in the prompt box
+        # rather than being answered, so leave it for the next time it stops.
+        [ "$status" = working ] && continue
+
+        tfile=$(key_file "$THREAD_DIR" "$(thread_key "$session" "$cwd")")
+        [ -r "$tfile" ] || continue
+        # The mtime is the last card sent into the thread, which notify refreshes.
+        [ $(( now - $(stat -c %Y "$tfile") )) -lt "$HOT" ] || continue
+
+        thread_id=$(tr -d '\n' < "$tfile")
+        [ -n "$thread_id" ] || continue
+
+        cfile="$CURSOR_DIR/$thread_id"
+        if [ -r "$cfile" ]; then
+            cursor=$(tr -d '\n' < "$cfile")
+        elif [ "$DRY" = 1 ]; then
+            # A dry run must not seed, or the real run after it starts already caught up.
+            # Look back an hour instead, so there is something to show.
+            cursor=$(date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%S.000Z)
+        else
+            # First sighting is recorded, never delivered. Without this, every restart
+            # replays the whole thread into the agent.
+            date -u +%Y-%m-%dT%H:%M:%S.000Z > "$cfile"
+            continue
+        fi
+
+        body=$(jq -nc --arg t "$thread_id" '{threadId:$t}')
+        resp=$(curl -sS --max-time 60 -X POST "$URL" \
+                 -H 'Content-Type: application/json' -d "$body" 2>/dev/null) || continue
+
+        # Base64 so a reply containing tabs or newlines survives the read loop.
+        rows=$(printf '%s' "$resp" | jq -r --arg since "$cursor" --arg me "$ONLY_USER" '
+            (.value // [])
+            | map(select(.createdDateTime > $since))
+            | map(select($me == "" or (.from.user.id // "") == $me))
+            | sort_by(.createdDateTime)
+            | .[] | [.createdDateTime, ((.body.content // "") | @base64)] | @tsv' 2>/dev/null) || continue
+
+        worktree="${cwd##*/}"; [ -n "$worktree" ] || worktree="agent"
+        while IFS=$'\t' read -r when b64; do
+            [ -n "${when:-}" ] || continue
+            text=$(printf '%s' "$b64" | base64 -d 2>/dev/null | strip_html)
+            [ -n "$text" ] || { [ "$DRY" = 1 ] || printf '%s' "$when" > "$cfile"; continue; }
+            if deliver "$pane" "$status" "$text"; then
+                log "reply -> $worktree ($status): $(printf '%s' "$text" | head -c 80)"
+                [ "$DRY" = 1 ] || printf '%s' "$when" > "$cfile"
+            else
+                # Leave the cursor alone so the next pass retries this reply.
+                log "deliver failed for $worktree ($pane)"
+                break
+            fi
+        done <<< "$rows"
+    done < <(snapshot)
+    [ "$ONCE" = 1 ] && break
+    sleep "$INTERVAL"
+done

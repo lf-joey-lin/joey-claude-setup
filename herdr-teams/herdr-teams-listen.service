@@ -1,11 +1,12 @@
 [Unit]
-Description=Ping Teams when a herdr agent needs input or finishes
+Description=Forward Teams thread replies back into herdr agents
 After=default.target
 
 [Service]
 Type=simple
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-ExecStart=%h/.local/bin/herdr-teams-watch
+Environment=HERDR_LISTEN_USER_ID=0761494c-26c5-4345-ab0c-b83d84c1be16
+ExecStart=%h/.local/bin/herdr-teams-listen
 Restart=always
 RestartSec=10
 

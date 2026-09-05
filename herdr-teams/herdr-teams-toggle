@@ -1,37 +1,56 @@
 #!/usr/bin/env bash
 # Turn the Teams cards on and off, and show what the watcher is doing.
-# Usage: herdr-teams-toggle [panel|toggle|on|off|autostart|status]
+# Usage: herdr-teams-toggle [panel|toggle|on|off|autostart|status|replies|replies-on|replies-off]
+# Cards are the way out (herdr-teams-watch). Replies are the way back in
+#   (herdr-teams-listen). Separate units, so Teams can page you without anything in
+#   Teams being allowed to type into a live agent.
 set -uo pipefail
 
 UNIT=herdr-teams-watch.service
+LISTEN_UNIT=herdr-teams-listen.service
 WEBHOOK="$HOME/.config/herdr/teams-webhook"
+REPLIES_WEBHOOK="$HOME/.config/herdr/teams-replies-webhook"
 HERDR_BIN="${HERDR_BIN_PATH:-$(command -v herdr || echo "$HOME/.local/bin/herdr")}"
 
-active() { systemctl --user is-active --quiet "$UNIT"; }
-enabled() { [ "$(systemctl --user is-enabled "$UNIT" 2>/dev/null)" = enabled ]; }
+active() { systemctl --user is-active --quiet "${1:-$UNIT}"; }
+enabled() { [ "$(systemctl --user is-enabled "${1:-$UNIT}" 2>/dev/null)" = enabled ]; }
 
 # journalctl only, never the unit state: a watcher whose PATH cannot find herdr sits
 # there reporting active while doing nothing, so the startup line is the real check.
-journal() { journalctl --user -u "$UNIT" --no-pager -o short-iso -n "${1:-500}" 2>/dev/null; }
+journal() { journalctl --user -u "${2:-$UNIT}" --no-pager -o short-iso -n "${1:-500}" 2>/dev/null; }
 
 # journalctl's own line, cut down to the clock time and the watcher's message.
-messages() { journal "${1:-500}" | sed -E 's/^[0-9-]+T([0-9]{2}:[0-9]{2}):[0-9]{2}[^ ]* [^ ]+ [^:]+: /\1 /'; }
+messages() { journal "${1:-500}" "${2:-$UNIT}" | sed -E 's/^[0-9-]+T([0-9]{2}:[0-9]{2}):[0-9]{2}[^ ]* [^ ]+ [^:]+: /\1 /'; }
 
 status() {
-    if active; then printf 'teams cards:  ON'; else printf 'teams cards:  OFF'; fi
+    if active; then printf 'teams cards:   ON'; else printf 'teams cards:   OFF'; fi
     enabled && printf '   (autostart on)\n' || printf '   (autostart off)\n'
 
-    if [ -s "$WEBHOOK" ]; then printf 'webhook:      present\n'
-    else printf 'webhook:      MISSING, no card can send (see herdr-teams/README.md)\n'; fi
+    if active "$LISTEN_UNIT"; then printf 'teams replies: ON'; else printf 'teams replies: OFF'; fi
+    enabled "$LISTEN_UNIT" && printf '   (autostart on)\n' || printf '   (autostart off)\n'
+
+    if [ -s "$WEBHOOK" ]; then printf 'webhook:       present\n'
+    else printf 'webhook:       MISSING, no card can send (see herdr-teams/README.md)\n'; fi
+
+    if [ -s "$REPLIES_WEBHOOK" ]; then printf 'replies url:   present\n'
+    else printf 'replies url:   MISSING, no reply can come back (see herdr-teams/README.md)\n'; fi
 
     local line
     line=$(messages | grep 'watching every' | tail -1)
-    printf 'watching:     %s\n' "${line:-no startup line in the journal}"
+    printf 'watching:      %s\n' "${line:-no startup line in the journal}"
+
+    line=$(messages 500 "$LISTEN_UNIT" | grep 'listening every' | tail -1)
+    printf 'listening:     %s\n' "${line:-no startup line in the journal}"
 
     printf 'last cards:\n'
     local cards
     cards=$(messages | grep -E 'notify:|heartbeat:' | tail -5 | sed 's/^/  /')
     printf '%s\n' "${cards:-  none yet}"
+
+    printf 'last replies:\n'
+    local reps
+    reps=$(messages 500 "$LISTEN_UNIT" | grep -E 'reply ->' | tail -5 | sed 's/^/  /')
+    printf '%s\n' "${reps:-  none yet}"
 }
 
 toast() {
@@ -50,27 +69,42 @@ off() {
     toast 'teams cards off' 'the sidebar is the only signal now'
 }
 
+replies_on() {
+    systemctl --user start "$LISTEN_UNIT" && sleep 1
+    active "$LISTEN_UNIT" && toast 'teams replies on' 'a reply in a thread reaches its agent' \
+        || toast 'teams replies failed to start' 'journalctl --user -u herdr-teams-listen -n 20'
+}
+
+replies_off() {
+    systemctl --user stop "$LISTEN_UNIT"
+    toast 'teams replies off' 'nothing in Teams can type into an agent'
+}
+
 case "${1:-panel}" in
     status) status ;;
     on) on ;;
     off) off ;;
     toggle) active && off || on ;;
+    replies) active "$LISTEN_UNIT" && replies_off || replies_on ;;
+    replies-on) replies_on ;;
+    replies-off) replies_off ;;
     autostart) enabled && systemctl --user disable "$UNIT" || systemctl --user enable "$UNIT" ;;
     panel)
         while :; do
             clear
             status
-            printf '\n  [space] on/off   [a] autostart   [r] restart   [l] logs   [q] close\n'
+            printf '\n  [space] cards   [i] replies   [a] autostart   [r] restart   [l] logs   [q] close\n'
             # IFS= or read eats the space, which is the on/off key.
             IFS= read -rsn1 key
             case "$key" in
                 ' ') active && systemctl --user stop "$UNIT" || systemctl --user start "$UNIT"; sleep 1 ;;
+                i) active "$LISTEN_UNIT" && systemctl --user stop "$LISTEN_UNIT" || systemctl --user start "$LISTEN_UNIT"; sleep 1 ;;
                 a) "$0" autostart >/dev/null 2>&1 ;;
-                r) systemctl --user restart "$UNIT"; sleep 2 ;;
-                l) journalctl --user -u "$UNIT" -n 200 --no-pager | less -R ;;
+                r) systemctl --user restart "$UNIT" "$LISTEN_UNIT"; sleep 2 ;;
+                l) journalctl --user -u "$UNIT" -u "$LISTEN_UNIT" -n 200 --no-pager | less -R ;;
                 q|$'\e') exit 0 ;;
             esac
         done
         ;;
-    *) printf 'usage: herdr-teams-toggle [panel|toggle|on|off|autostart|status]\n' >&2; exit 2 ;;
+    *) printf 'usage: herdr-teams-toggle [panel|toggle|on|off|autostart|status|replies|replies-on|replies-off]\n' >&2; exit 2 ;;
 esac

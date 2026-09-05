@@ -5,6 +5,7 @@ set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WEBHOOK="$HOME/.config/herdr/teams-webhook"
+REPLIES_WEBHOOK="$HOME/.config/herdr/teams-replies-webhook"
 
 if ! command -v herdr >/dev/null 2>&1; then
   echo "herdr is not installed. Run herdr/setup.sh first." >&2
@@ -32,8 +33,11 @@ link "$REPO/herdr-teams/herdr-teams-notify" "$HOME/.local/bin/herdr-teams-notify
 link "$REPO/herdr-teams/herdr-teams-watch"  "$HOME/.local/bin/herdr-teams-watch"
 link "$REPO/herdr-teams/herdr-teams-summary" "$HOME/.local/bin/herdr-teams-summary"
 link "$REPO/herdr-teams/herdr-teams-toggle" "$HOME/.local/bin/herdr-teams-toggle"
+link "$REPO/herdr-teams/herdr-teams-listen" "$HOME/.local/bin/herdr-teams-listen"
 link "$REPO/herdr-teams/herdr-teams-watch.service" \
      "$HOME/.config/systemd/user/herdr-teams-watch.service"
+link "$REPO/herdr-teams/herdr-teams-listen.service" \
+     "$HOME/.config/systemd/user/herdr-teams-listen.service"
 
 # The webhook URL is a bearer credential and never goes in the repo.
 if [ ! -s "$WEBHOOK" ]; then
@@ -63,6 +67,22 @@ if systemctl --user is-active --quiet herdr-teams-watch.service; then
 else
   echo "!! service did not start. journalctl --user -u herdr-teams-watch -n 20" >&2
   exit 1
+fi
+
+# The way back in is optional and off until its own flow exists. Without the URL the
+# listener would restart-loop, so leave it stopped rather than enabling a broken unit.
+if [ -s "$REPLIES_WEBHOOK" ]; then
+  chmod 600 "$REPLIES_WEBHOOK"
+  systemctl --user enable herdr-teams-listen.service >/dev/null 2>&1
+  systemctl --user restart herdr-teams-listen.service
+  sleep 2
+  if systemctl --user is-active --quiet herdr-teams-listen.service; then
+    echo "==> herdr-teams-listen is running"
+  else
+    echo "!! listener did not start. journalctl --user -u herdr-teams-listen -n 20" >&2
+  fi
+else
+  echo "==> no $REPLIES_WEBHOOK, replies stay off (see README.md)"
 fi
 
 cat <<'EOF'

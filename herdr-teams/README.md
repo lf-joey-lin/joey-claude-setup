@@ -34,7 +34,7 @@ bash herdr-teams/setup.sh
 ```
 
 Needs `herdr` and `jq`. Safe to re-run, and re-running is how the running watcher
-picks up an edit, since it restarts the service. It links five files:
+picks up an edit, since it restarts the service. It links seven files:
 
 | local path                                          | this repo                                |
 | --------------------------------------------------- | ---------------------------------------- |
@@ -42,30 +42,44 @@ picks up an edit, since it restarts the service. It links five files:
 | `~/.local/bin/herdr-teams-watch`                    | `herdr-teams/herdr-teams-watch`          |
 | `~/.local/bin/herdr-teams-summary`                  | `herdr-teams/herdr-teams-summary`        |
 | `~/.local/bin/herdr-teams-toggle`                   | `herdr-teams/herdr-teams-toggle`         |
+| `~/.local/bin/herdr-teams-listen`                   | `herdr-teams/herdr-teams-listen`         |
 | `~/.config/systemd/user/herdr-teams-watch.service`  | `herdr-teams/herdr-teams-watch.service`  |
+| `~/.config/systemd/user/herdr-teams-listen.service` | `herdr-teams/herdr-teams-listen.service` |
 
 The URL itself stays local. It is a bearer credential with no expiry: anyone holding
 it can post to the channel, so it never goes in the repo.
+
+For the way back in, make the second flow too and drop its URL beside the first:
+
+```bash
+printf '%s' '<the replies flow URL>' > ~/.config/herdr/teams-replies-webhook
+chmod 600 ~/.config/herdr/teams-replies-webhook
+bash herdr-teams/setup.sh
+```
+
+Without that file the listener stays stopped and setup says so, rather than enabling a
+unit that would restart-loop. See [Replies](#replies) for what the flow contains.
 
 ## Daily use
 
 Nothing to start. The service comes up with the WSL login session, independent of
 herdr, and polls whether herdr is running or not.
 
-`ctrl+alt+y` opens the panel: on/off, autostart, restart, logs, and the startup line
-that says whether the watcher is really working. `ctrl+alt+shift+y` flips it without
-the panel, for walking out of the room, and toasts what it did.
+`ctrl+alt+y` opens the panel: cards on/off, replies on/off, autostart, restart, logs,
+and the startup lines that say whether either half is really working.
+`ctrl+alt+shift+y` flips the cards without the panel, for walking out of the room, and
+toasts what it did.
 
 ```bash
 herdr-teams-toggle                            # the same panel in a shell
 herdr-teams-toggle toggle                     # or on / off / status
+herdr-teams-toggle replies                    # the way back in, or replies-on / replies-off
 systemctl --user status herdr-teams-watch     # is it alive
 systemctl --user stop herdr-teams-watch       # quiet, at the desk
 systemctl --user start herdr-teams-watch      # heading out
 journalctl --user -u herdr-teams-watch -f     # what it is deciding, live
 herdr-teams-notify "title" "body" "K=v"       # send one by hand
-herdr-teams-notify --thread ag:<session> --action reply "title" "body"
-herdr-teams-notify --thread ag:<session> --action update "title" "body"
+herdr-teams-notify --thread ag:<session> "title" "body"   # starts or replies in a thread
 herdr-teams-notify --dry-run "title" "body"        # print the payload, post nothing
 herdr-teams-summary <session-id>              # what did that agent last say
 herdr-teams-summary --now <session-id>        # what is it doing this second
@@ -76,29 +90,26 @@ herdr-teams-summary --loom <id> <cwd>         # how far through its loom run
 line in the journal is the real check:
 
 ```
-watching every 5s; finished=done idle, plus blocked; heartbeat 900s; threads off
+watching every 5s; finished=done idle, plus blocked; heartbeat 900s; one thread per session
 ```
 
-It ends `one thread per session` once the flow is taught threads and the service stops
-pinning them off. If the clause is missing altogether the running watcher predates the
-threads code, which is what a `systemctl --user restart` fixes: the scripts are
-symlinks into this repo, so editing one does not touch the process already running.
+If the clause is missing altogether the running watcher predates the threads code,
+which is what a `systemctl --user restart` fixes: the scripts are symlinks into this
+repo, so editing one does not touch the process already running.
 
 ## What sends a card
 
 Every 5 seconds the watcher runs `herdr agent list` over herdr's socket and compares
 each agent's state to the last time it looked.
 
-| when                                   | card                        | how                    |
-| -------------------------------------- | --------------------------- | ---------------------- |
-| anything to `blocked`                  | `<worktree>: needs input`   | reply in the thread    |
-| `working` to `done` or `idle`          | `<worktree>: finished`      | reply in the thread    |
-| every 15 min while still `working`     | `<worktree>: still working` | reply in the thread    |
-| a turn starts, and with each row above | `<worktree>: <state>`       | rewrites the root card |
+| when                               | card                        | how                        |
+| ---------------------------------- | --------------------------- | -------------------------- |
+| anything to `blocked`              | `<worktree>: needs input`   | reply in the agent's thread |
+| `working` to `done` or `idle`      | `<worktree>: finished`      | reply in the agent's thread |
+| every 15 min while still `working` | `<worktree>: still working` | reply in the agent's thread |
 
-The first three notify you. The last one does not: it rewrites the thread's root card
-in place so the thread opens on what the agent is doing now, and Teams does not count
-an edit as new activity.
+The first of those for an agent starts its thread; the rest reply under it. A turn
+merely starting sends nothing, so the thread opens on the first thing worth reading.
 
 ## What is on the card
 
@@ -131,108 +142,159 @@ that is the point. At the desk it is noise, hence `systemctl --user stop`.
 
 ## Threads
 
-One thread per agent instead of a card per event. The watcher sends a `threadKey` with
-every card and the flow keeps one root card per key: `--action update` rewrites that
-card, `--action reply` posts underneath it. So an agent's whole run is one collapsible
-thread whose top line is always current, rather than a dozen top-level cards.
+One thread per agent instead of a card per event. The first card for a key starts a
+thread and the flow answers with its id; every later card for that key carries the id
+and lands as a reply under the first. An agent's whole run is one collapsible thread
+rather than a dozen top-level cards.
 
 The key is the Claude session id, which survives a watcher restart and a herdr session
 restore, so an agent keeps the same thread from first sighting to the end.
 `HERDR_WATCH_THREAD_KEY=worktree` keys on the directory instead, which gives a worktree
 one thread across separate Claude runs and has two panes in the same worktree share it.
 
-**The flow has to be taught this, and until it is, threads stay off.** A flow that
-ignores `threadKey` posts everything top-level, so the root-card updates arrive as
-extra cards instead of edits. Nothing breaks, it just gets noisy. The service pins
-`HERDR_WATCH_THREADS=0` for that reason, so turning threads on is deleting that one
-line from `herdr-teams-watch.service` and re-running `setup.sh`.
+The id is remembered here rather than in the flow: one small file per key under
+`~/.local/state/herdr/teams-threads` holding nothing but the id. Go a day without a
+card and the file is dropped, so tomorrow's run opens a fresh thread instead of
+replying under yesterday's (`HERDR_TEAMS_THREAD_TTL`, in seconds; every card refreshes
+it). When a reply fails, which is what a card someone deleted looks like, the id is
+forgotten and the same card is re-sent as a new thread, so one dead thread cannot
+silence an agent for good.
 
-As of 2026-09-02 the flow is the untaught one. Three probe cards sent to a single
-`threadKey`, two as `update` and one as `reply`, arrived as three separate top-level
-cards. That is the check to repeat after editing the flow:
+There is no "rewrite the top card in place" any more. The flow posts and replies, so
+every card notifies and the thread reads as a log rather than a status board.
+
+Check it after touching the flow:
 
 ```bash
 K=probe:$(date +%s)
-herdr-teams-notify --thread "$K" --action update "probe 1" "should be replaced"
-herdr-teams-notify --thread "$K" --action update "probe 2" "should replace probe 1"
-herdr-teams-notify --thread "$K" --action reply  "probe 3" "should sit under probe 2"
+herdr-teams-notify --thread "$K" "probe 1" "starts the thread"
+herdr-teams-notify --thread "$K" "probe 2" "should sit under probe 1"
 ```
 
-One card reading "probe 2" with "probe 3" nested under it means it works.
+### The flow
 
-### What the flow needs
+Power Automate, **When a Teams webhook request is received**, "anyone" can trigger.
+Replies exist only in channels: post to a chat and there are no threads at all.
 
-Replies exist only in channels. If the flow posts to a chat there are no threads at
-all, and `update` is the only consolidation available.
+```
+Initialize variable  Body     = triggerBody()
+Initialize variable  ThreadId = coalesce(triggerBody()?['threadId'], '')
+Select                        attachments[] -> their .content
+Initialize variable  Cards    = those contents, or [string(Body)] when there are none
+Condition: ThreadId is empty
+  yes   Post card in a chat or channel   (Cards[0])
+        ThreadId = the new card's body/id
+        foreach skip(Cards, 1)           reply under ThreadId
+  no    foreach Cards                    reply under ThreadId
+Response  200  { threadId, created }
+```
 
-Three actions, all in the Microsoft Teams connector:
+Two things it turns on:
 
-- **Post card in a chat or channel**, which returns the new message's id
-- **Reply with an adaptive card in a channel**, which takes that id
-- **Update an adaptive card in a chat or channel**, which takes that id and replaces
-  the whole card, subject included
+- **The `Response` action**, which is what hands the id back. The note here used to say
+  that needs the premium HTTP-request trigger. It does not: the Teams webhook trigger
+  answers with it, 200 and a body. That is what took the key-to-id map out of the flow,
+  and with it a SharePoint list, a concurrency limit of 1 so two runs for one key cannot
+  both start a thread, and a healing path for a deleted card. It is also why the
+  notifier no longer sends a `threadKey` or a `threadAction`.
+- **`body/id` from the Post action really being the message id.** Worth checking in one
+  run's history, because a wrong value fails on the *next* card rather than this one.
 
-That id is the whole problem. The webhook trigger answers 202 and nothing else, and
-returning a value needs the `Response` action, which needs the HTTP-request trigger,
-which is Power Automate Premium. So the key-to-id map has to live in the flow rather
-than out here. Everything below is standard connectors only, no premium.
+## Replies
 
-Matching on the message instead of storing the id does not work, so do not go looking
-for it. **Get messages** returns an adaptive-card post with a body of
-`<attachment id="..."></attachment>` and no card text at all, and the Post action sets
-no subject, so there is nothing in a returned message to recognise a thread by.
+A reply typed under an agent's card goes back to that agent. `herdr-teams-listen` is
+the way in, the mirror of the watcher.
 
-#### The list
+Nothing can reach this box, for the same reason the cards go out through a webhook in
+the first place, so the listener is not pushed to. It polls. No Teams trigger would
+help anyway: **"When a new channel message is added" does not fire on replies**, only
+on root messages.
 
-A two-column SharePoint list on the channel's own team site, called `herdr threads`:
-`Title` (the built-in column) holds the thread key, `MessageId` (single line of text)
-holds the id.
+What it polls is a second flow, not Graph. That is what keeps it clear of an Entra app
+registration and of `ChannelMessage.Read.All` admin consent, which is where this idea
+died the first time. The flow reads the thread under the Teams connection already
+sitting there.
 
-#### The flow
+### The second flow
 
-Trigger: **When a Teams webhook request is received**, "anyone" can trigger.
+**Read herdr thread replies**, `4c197b4f-38d9-4de6-b82b-b490d2af6d33`. Three steps, all
+standard tier:
 
-Paste a real payload into the trigger's **Request Body JSON Schema** box, or
-`threadKey` and `threadAction` never appear in the designer's dynamic-content list and
-you end up hand-writing every reference to them. `herdr-teams-notify --dry-run` prints
-one:
+- **When a Teams webhook request is received**, "Anyone" can trigger, same as the notify
+  flow. Takes `{"threadId": "<the root card's message id>"}`.
+- **List replies of a channel message** on the herdr team and channel, `Message` =
+  `@triggerBody()?['threadId']`, latest replies count 50.
+- **Response**, 200, body `@body('List_replies_of_a_channel_message')`.
+
+The URL lives in `~/.config/herdr/teams-replies-webhook`, mode 600, out of the repo,
+like the notify one. Treat it as the larger of the two: this flow *reads* channel
+content, so the URL plus a message id is enough to read the replies under that card.
+
+Two designer traps, both of which cost time:
+
+- The expression box rejects `triggerBody()?['threadId']` as "This expression has a
+  problem" and greys nothing out, it just refuses to add. Type it without the `?`. The
+  designer stores it back as the safe `?['...']` form anyway, which Code view confirms.
+- The Team picker does not list `herdr`, because it is a private channel. Take **Enter
+  custom value** and paste the group id `57fa4060-5a10-4c09-8236-57c8a7e8956d`. The
+  Channel dropdown then resolves and `herdr` is in it.
+
+### What the listener polls
+
+Every `HERDR_LISTEN_INTERVAL` seconds (default 180) it runs `herdr agent list` and polls
+an agent's thread only when all of this holds:
+
+- the agent is **not `working`**. A reply typed at an agent mid-turn lands in its prompt
+  box rather than being answered, so it waits for the turn to end
+- the agent has a thread, which is the file `herdr-teams-notify` already writes
+- that file's mtime is inside `HERDR_LISTEN_HOT` (default 1800s). A thread nothing has
+  carded in half an hour is one nobody is replying to
+
+That gate is the whole reason this is affordable, see below.
+
+New replies are the ones newer than a per-thread cursor under
+`~/.local/state/herdr/teams-replies`. A thread seen for the first time records the clock
+and delivers nothing, the same rule the watcher uses for an agent it has not seen:
+without it every restart replays the thread into the agent.
+
+### How the text gets in
+
+`herdr agent prompt` is the clean way, and it is what a non-blocked agent gets. It does
+not work on a blocked one: **herdr rejects a prompt to a blocked agent with
+`agent_blocked` before any input is sent**, which is right, because a blocked agent is
+sitting at a menu and not at a prompt box. There the listener does what a person at the
+keyboard would, `herdr pane send-text` then `herdr agent send-keys enter`.
+
+So a reply of `2` answers a numbered permission prompt, and a sentence answers an
+`AskUserQuestion` exactly as well as typing that sentence at the menu would, which is
+the honest limit here. The prompt path, for an agent that has finished, takes anything.
+
+Only replies whose author is `HERDR_LISTEN_USER_ID` are forwarded, and the unit pins it
+to Joey's Entra object id. The channel is private, so that is a second lock rather than
+the only one, but what is on the other end types into a live Claude with auto mode on.
+
+### What it costs
+
+Every action in a run is a Power Platform request and an Office 365 seeded licence is
+6,000 per user per 24 hours, shared with the cards flow. This flow is four actions, so
+one thread polled every 180s around the clock would be about 1,900 by itself. The
+not-working and warm-thread gates are what hold it to a few hundred: a thread only costs
+anything inside the window where you might really be replying to it.
+
+`HERDR_LISTEN_INTERVAL=60` is fine for one thread and not for four. Long polling is
+worse, not better: a `Do until` with a 5s `Delay` spends about 60 requests per 100
+seconds against about 35 for plain polling, for the same latency.
+
+### Running it
 
 ```bash
-herdr-teams-notify --dry-run --thread ag:demo --action update "title" "body" "Task=demo"
+herdr-teams-toggle replies        # or replies-on / replies-off
+herdr-teams-toggle status         # both units, both URLs, last cards and last replies
+journalctl --user -u herdr-teams-listen -f
+herdr-teams-listen 60             # foreground, faster, for a test
 ```
 
-Then, in order:
-
-1. Condition `empty(triggerBody()?['threadKey'])`. True goes to **Post card** and
-   stops. That is the hand-sent `herdr-teams-notify` case, and today's whole flow.
-2. False: **Get items** on `herdr threads`, Filter Query
-   `Title eq '@{triggerBody()?['threadKey']}'`, Top Count 1.
-3. Condition `empty(body('Get_items')?['value'])`.
-   - True: **Post card**, then **Create item** with `Title` = the thread key and
-     `MessageId` = the id the post returned. This is also what makes a first
-     `--action reply` or `--action update` work, so the watcher never has to know
-     whether a thread exists yet.
-   - False: the id is `first(body('Get_items')?['value'])?['MessageId']`. Condition
-     `equals(triggerBody()?['threadAction'], 'update')`. True goes to **Update an
-     adaptive card**, false to **Reply with an adaptive card**.
-
-All three card actions take the same card input, so paste the expression the existing
-Post card action already uses into the other two rather than deriving it again.
-
-Two things to get right, both of which fail quietly:
-
-- **Check which output field actually carries the message id**, by opening one run's
-  history. The map is worthless if it stores the wrong thing, and a wrong id fails on
-  the *next* card rather than this one.
-- **Set the flow's concurrency to 1** (Settings, Concurrency Control, degree of
-  parallelism 1). Step 2 reads the list and step 3 writes it, and the pair is not
-  atomic: two runs for a new key that overlap both find no row and both post a root
-  card, so that agent ends up with two threads. The watcher sends serially, but Power
-  Automate runs do not, and a handful of parallel worktrees is enough to overlap.
-
-Worth hardening once it works. Point the Update branch's failure path at Post card plus
-an overwrite of the row, so a root card someone deleted by hand heals itself instead of
-failing every card after it.
+`ctrl+alt+y` shows both halves and `[i]` flips this one.
 
 ## Long runs
 
@@ -242,9 +304,7 @@ heartbeat the first card arrives when the run is already over.
 
 So every 15 minutes an agent that is still working gets a card, as a reply in its own
 thread. The body is its newest tool call, and there are two facts: `Running`, how long
-the turn has been going, and for a loom run `Loom`, read from the flight ledger. The
-root card is refreshed at the same moment, so the thread's top line never lags the
-replies under it.
+the turn has been going, and for a loom run `Loom`, read from the flight ledger.
 
 ```
 momentum-virtualizeTable: still working
@@ -274,12 +334,14 @@ for the next heartbeat.
 
 Three things here look like success and are not. All three were hit while building it.
 
-**A wrong payload shape returns HTTP 202.** The flow accepts any JSON and queues, so
-a shape it cannot render answers exactly like one it can. Only the Adaptive Card
-shape actually posts. `{"text": ...}`, `{"body": ...}`, `{"message": ...}` and
-`{"title":..., "text":...}` all returned 202 and rendered nothing. That is why the
-notifier builds one shape only, rather than carrying a switch that can silently do
-nothing.
+**A payload the flow cannot render now fails as a 502, and so does a stale thread id.**
+It used to be worse: the webhook answered 202 to any JSON at all, so a shape it could
+not render looked exactly like one it could and posted nothing. Now the trigger's answer
+is the flow's own `Response`, so a payload with no `attachments` reaches the Post action
+as raw text, the Teams connector rejects it, and the caller gets `502 NoResponse` with
+no card. Louder, but note the ambiguity it buys: a reply to a card that no longer exists
+fails identically. That is why the notifier treats a failed reply as a dead thread and
+re-sends as a new one, and why it still builds one payload shape only.
 
 **A systemd user service has no `~/.local/bin` on its PATH.** Its PATH is
 `/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`, so `herdr` and
@@ -305,9 +367,10 @@ fixes the first half and not the second.
 Worst case a blocked agent is 5 seconds late. `herdr-teams-watch 2` if that ever
 matters, though it will not.
 
-Output only. Replying from the phone is a different job: it needs Graph API polling
-and an Entra app registration, and the consent for `Chat.ReadWrite` is the thing to
-check before writing any of it.
+Not output only any more. Replying from the phone works, see [Replies](#replies). It
+needs no Entra app registration and no `Chat.ReadWrite` consent, because the second
+flow reads the thread under Joey's own Teams connection and hands the text back over
+the same kind of webhook URL.
 
 ## Notes
 
@@ -317,7 +380,8 @@ read the mode as meaningful.
 
 Tunables, all read from the environment, all fine as they are:
 `HERDR_WATCH_FINISHED` (default `done idle`), `HERDR_WATCH_HEARTBEAT` (default 900
-seconds), `HERDR_WATCH_THREADS` (script default `1`, pinned to `0` by the service until the
-flow reads `threadKey`), `HERDR_WATCH_THREAD_KEY` (default
-`session`, or `worktree`), `HERDR_SUMMARY_MAX` (default 1200 characters of body), and
-the poll interval as `$1`.
+seconds), `HERDR_WATCH_THREADS` (default `1`), `HERDR_WATCH_THREAD_KEY` (default
+`session`, or `worktree`), `HERDR_TEAMS_THREAD_TTL` (default 86400 seconds of silence
+before a thread is dropped), `HERDR_TEAMS_STATE_DIR` (default
+`~/.local/state/herdr/teams-threads`), `HERDR_SUMMARY_MAX` (default 1200 characters of
+body), and the poll interval as `$1`.

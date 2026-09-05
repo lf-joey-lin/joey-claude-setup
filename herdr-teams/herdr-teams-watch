@@ -10,13 +10,21 @@ FINISHED_STATES="${HERDR_WATCH_FINISHED:-done idle}"
 # A long run is silent until it ends, which is no good for a loom run that takes an
 # hour. Card every this many seconds while an agent is still working. 0 turns it off.
 HEARTBEAT="${HERDR_WATCH_HEARTBEAT:-900}"
-# One Teams thread per agent instead of a card per event. Needs a flow that reads
-# threadKey; see README.md. 0 goes back to a top-level card for every notification.
+# One Teams thread per agent instead of a card per event: the first card for an agent
+# starts its thread and every later one replies under it. 0 goes back to a top-level card.
 THREADS="${HERDR_WATCH_THREADS:-1}"
 # What counts as "one agent" for the purpose of owning a thread. "session" gives a
 # thread per Claude session; "worktree" gives one per directory, shared by however
 # many Claude runs happen there.
 THREAD_KEY_MODE="${HERDR_WATCH_THREAD_KEY:-session}"
+# A "needs input" card is useless without the thing being waited on. The transcript
+# summary can only say "Waiting on AskUserQuestion": the question and its options are
+# in the tool call, and a permission prompt is not in the transcript at all. So for a
+# blocked agent, read the pane and card what is actually on screen. That puts whatever
+# the agent is showing into the channel, which is why it can be turned off.
+PANE_ON_BLOCKED="${HERDR_WATCH_PANE_ON_BLOCKED:-1}"
+PANE_LINES="${HERDR_WATCH_PANE_LINES:-40}"
+PANE_MAX_CHARS="${HERDR_WATCH_PANE_MAX_CHARS:-1500}"
 
 # Resolve by absolute path. Under systemd, PATH has no ~/.local/bin, so bare
 # names silently find nothing and the whole loop does nothing while looking healthy.
@@ -55,7 +63,8 @@ snapshot() {
             .agent_status // "unknown",
             .agent_session.value // "",
             .cwd // "",
-            .terminal_title_stripped // .name // "agent"
+            .terminal_title_stripped // .name // "agent",
+            .pane_id // ""
           ] | @tsv'
 }
 
@@ -93,52 +102,34 @@ thread_key() {
     esac
 }
 
-state_label() {
-    case "$1" in
-        blocked) printf 'needs input' ;;
-        working) printf 'working' ;;
-        *)       printf 'finished' ;;
-    esac
+# What the agent is showing right now, cut down to the part a person would read.
+# Drops the rules, the status line and the empty input box: they are always on screen
+# and are never what you are being asked about.
+pane_prompt() {
+    local pane="$1"
+    [ -n "$pane" ] || return 0
+    "$HERDR_BIN" pane read "$pane" --source visible --lines "$PANE_LINES" --format text 2>/dev/null \
+    | sed -e 's/[[:space:]]*$//' -e '/^[[:space:]]*❯[[:space:]]*$/d' \
+    | grep -vF '────' \
+    | grep -vF '📁' \
+    | grep -vF 'auto mode on' \
+    | awk 'NF' \
+    | tail -n 20 \
+    | head -c "$PANE_MAX_CHARS"
 }
 
-# Rewrite the thread's root card so opening the thread shows what the agent is
-# doing right now rather than whatever happened first. An update never notifies,
-# so this is free to send as often as the picture changes.
-send_status() {
-    local id="$1" status="$2" session="$3" cwd="$4" title="$5" worktree="$6" now="$7"
-    [ "$THREADS" = 1 ] || return 0
-    local doing loom running
-    # While it runs, the useful line is the tool it is on. Once it stops, that line
-    # is stale, and what it said is what you want the thread to open on.
-    if [ "$status" = working ]; then
-        doing=$("$SUMMARY_BIN" --now "$session" "$cwd" 2>/dev/null)
-    else
-        doing=$("$SUMMARY_BIN" "$session" "$cwd" 2>/dev/null)
-    fi
-    loom=$("$SUMMARY_BIN" --loom "$session" "$cwd" 2>/dev/null)
-    local facts=("Task=$title" "State=$(state_label "$status")")
-    if [ "$status" = working ]; then
-        running=$(elapsed "${WORK_SINCE[$id]:-$now}" "$now")
-        facts+=("Running=$running")
-    fi
-    [ -n "$loom" ] && facts+=("Loom=$loom")
-    "$NOTIFY_BIN" --thread "$(thread_key "$id" "$cwd")" --action update \
-        "$worktree: $(state_label "$status")" "$doing" "${facts[@]}" \
-        || log "status update failed for $worktree"
-}
-
-# A card that is meant to reach your phone. A reply under the agent's root card
-# when threads are on, a top-level card when they are not.
+# A card that is meant to reach your phone. In the agent's own thread when threads
+# are on, a top-level card when they are not.
 send_event() {
     local id="$1" cwd="$2" subject="$3" body="$4"; shift 4
     local thread_args=()
-    [ "$THREADS" = 1 ] && thread_args=(--thread "$(thread_key "$id" "$cwd")" --action reply)
+    [ "$THREADS" = 1 ] && thread_args=(--thread "$(thread_key "$id" "$cwd")")
     "$NOTIFY_BIN" "${thread_args[@]}" "$subject" "$body" "$@"
 }
 
 while :; do
     now=$(date +%s)
-    while IFS=$'\t' read -r id status session cwd title; do
+    while IFS=$'\t' read -r id status session cwd title pane; do
         [ -n "${id:-}" ] || continue
         prev="${LAST[$id]:-}"
         LAST[$id]="$status"
@@ -152,9 +143,6 @@ while :; do
                 WORK_SINCE[$id]=$("$SUMMARY_BIN" --since "$session" "$cwd" 2>/dev/null)
                 [ -n "${WORK_SINCE[$id]}" ] || WORK_SINCE[$id]=$now
                 LAST_BEAT[$id]=$now
-                # Turn start. Also what creates the thread the first time an agent
-                # is seen, so its root card exists before any event replies to it.
-                send_status "$id" "$status" "$session" "$cwd" "$title" "$worktree" "$now"
             fi
         else
             unset "WORK_SINCE[$id]" "LAST_BEAT[$id]"
@@ -171,7 +159,6 @@ while :; do
             beat_facts=("Task=$title" "Running=$for_how_long")
             [ -n "$loom" ] && beat_facts+=("Loom=$loom")
             log "heartbeat: $worktree working for $for_how_long ($doing)"
-            send_status "$id" "$status" "$session" "$cwd" "$title" "$worktree" "$now"
             send_event "$id" "$cwd" "$worktree: still working" "$doing" "${beat_facts[@]}" \
                 || log "heartbeat send failed for $worktree"
         fi
@@ -194,6 +181,12 @@ while :; do
             body=$("$SUMMARY_BIN" "$session" "$cwd" 2>/dev/null)
             took=$("$SUMMARY_BIN" --took "$session" "$cwd" 2>/dev/null)
         fi
+        # A blocked card has to carry the prompt itself, or answering it from Teams is
+        # a guess. Keep the summary as the fallback for when the pane read gives nothing.
+        if [ "$status" = blocked ] && [ "$PANE_ON_BLOCKED" = 1 ]; then
+            screen=$(pane_prompt "$pane")
+            [ -n "$screen" ] && body="$screen"
+        fi
         # No body when there is no transcript: the Task fact already carries the
         # title, and a card repeating it twice reads like a bug.
         facts=("Task=$title")
@@ -202,9 +195,6 @@ while :; do
         [ -n "$loom" ] && facts+=("Loom=$loom")
 
         log "notify: $worktree $prev -> $status ($title)"
-        # Root card first, so the thread stops saying "working" before the reply
-        # that announces the finish lands under it.
-        send_status "$id" "$status" "$session" "$cwd" "$title" "$worktree" "$now"
         send_event "$id" "$cwd" "$worktree: $subject" "$body" "${facts[@]}" \
             || log "send failed for $worktree"
     done < <(snapshot)

@@ -1,31 +1,31 @@
 #!/usr/bin/env bash
 # Post a short message to Teams through a Power Automate webhook.
-# Usage: herdr-teams-notify [--thread KEY] [--action reply|update] [--dry-run] "title" "body" ["Label=value" ...]
+# Usage: herdr-teams-notify [--thread KEY] [--dry-run] "title" "body" ["Label=value" ...]
 # Args after the title and body become a fact row under the title.
-# --thread groups cards into one Teams thread per key. The flow keeps a root card
-#   per key and either replies under it (--action reply, which notifies) or rewrites
-#   it in place (--action update, which does not). Without --thread every call is a
-#   new top-level card, which is what a hand-sent notification wants.
-# Only the Adaptive Card shape renders in Teams. The flow accepts any JSON with a
-# 202, so a wrong shape looks like success and silently posts nothing.
-# --dry-run prints the payload and posts nothing. Since a wrong shape still answers
-#   202, this is the only way to see what was actually sent, and it is what you paste
-#   into the flow trigger's schema field.
+# --thread keeps one Teams thread per key. The first card for a key starts the thread
+#   and the flow answers with its id; every later card for that key is sent with the
+#   id and lands as a reply under the first. The id is remembered here, one small file
+#   per key, so nothing else has to know whether a thread exists yet. Without --thread
+#   every call is a new top-level card, which is what a hand-sent notification wants.
+# Only the Adaptive Card shape renders as a card. The flow accepts any JSON, so a wrong
+#   shape still answers 200 and posts the raw body as text.
+# --dry-run prints the payload and posts nothing. It is also what you paste into the
+#   flow trigger's schema field.
 set -euo pipefail
 
 URL_FILE="${HERDR_TEAMS_WEBHOOK_FILE:-$HOME/.config/herdr/teams-webhook}"
+STATE_DIR="${HERDR_TEAMS_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/herdr/teams-threads}"
+# Forget a thread after this many seconds with no card in it, so tomorrow's run opens
+# a new thread instead of replying under yesterday's.
+TTL="${HERDR_TEAMS_THREAD_TTL:-86400}"
 
 THREAD=""
-ACTION="reply"
 DRY=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --thread)
             [ $# -ge 2 ] || { echo "--thread needs a value" >&2; exit 2; }
             THREAD="$2"; shift 2 ;;
-        --action)
-            [ $# -ge 2 ] || { echo "--action needs a value" >&2; exit 2; }
-            ACTION="$2"; shift 2 ;;
         --dry-run)
             DRY=1; shift ;;
         --) shift; break ;;
@@ -33,11 +33,6 @@ while [ $# -gt 0 ]; do
         *) break ;;
     esac
 done
-
-case "$ACTION" in
-    reply|update) ;;
-    *) echo "--action must be reply or update, got '$ACTION'" >&2; exit 2 ;;
-esac
 
 if [ "$DRY" = 0 ]; then
     [ -r "$URL_FILE" ] || { echo "no webhook url at $URL_FILE" >&2; exit 1; }
@@ -56,35 +51,76 @@ FACTS=$(for f in "$@"; do
     esac
 done | jq -sc '.')
 
+# One file per key. Anything that is not a letter, digit, dot or dash becomes a dash,
+# so a key holding a path or a colon is still a filename.
+thread_file() { printf '%s/%s' "$STATE_DIR" "$(printf '%s' "$1" | tr -c 'a-zA-Z0-9.-' '-')"; }
+
+FILE=""
+THREAD_ID=""
+if [ -n "$THREAD" ]; then
+    FILE=$(thread_file "$THREAD")
+    if [ -r "$FILE" ]; then
+        if [ $(( $(date +%s) - $(stat -c %Y "$FILE") )) -lt "$TTL" ]; then
+            THREAD_ID=$(tr -d '\n' < "$FILE")
+        else
+            rm -f "$FILE"
+        fi
+    fi
+fi
+
 # jq builds the JSON so quotes/newlines in agent output can't break the payload.
-# threadKey and threadAction sit beside attachments rather than inside the card:
-# the card is what Teams renders, these two are for the flow to route on.
-PAYLOAD=$(jq -nc --arg ti "$TITLE" --arg tx "$TEXT" --argjson facts "$FACTS" \
-  --arg thread "$THREAD" --arg action "$ACTION" '{
-  type:"message",
-  attachments:[{
-    contentType:"application/vnd.microsoft.card.adaptive",
-    content:{
-      "$schema":"http://adaptivecards.io/schemas/adaptive-card.json",
-      type:"AdaptiveCard", version:"1.4",
-      body:([
-        {type:"TextBlock", text:$ti, weight:"Bolder", size:"Medium", wrap:true}
-      ]
-      + (if ($facts|length) > 0 then [{type:"FactSet", facts:$facts}] else [] end)
-      + (if ($tx|length) > 0 then [{type:"TextBlock", text:$tx, wrap:true}] else [] end)
-      )}}]}
-  + (if ($thread|length) > 0 then {threadKey:$thread, threadAction:$action} else {} end)')
+# threadId sits beside attachments rather than inside the card: the card is what Teams
+# renders, this is what the flow routes on.
+payload() {
+    jq -nc --arg ti "$TITLE" --arg tx "$TEXT" --argjson facts "$FACTS" --arg tid "$1" '{
+      type:"message",
+      attachments:[{
+        contentType:"application/vnd.microsoft.card.adaptive",
+        content:{
+          "$schema":"http://adaptivecards.io/schemas/adaptive-card.json",
+          type:"AdaptiveCard", version:"1.4",
+          body:([
+            {type:"TextBlock", text:$ti, weight:"Bolder", size:"Medium", wrap:true}
+          ]
+          + (if ($facts|length) > 0 then [{type:"FactSet", facts:$facts}] else [] end)
+          + (if ($tx|length) > 0 then [{type:"TextBlock", text:$tx, wrap:true}] else [] end)
+          )}}]}
+      + (if ($tid|length) > 0 then {threadId:$tid} else {} end)'
+}
 
 if [ "$DRY" = 1 ]; then
-    printf '%s\n' "$PAYLOAD" | jq .
+    payload "$THREAD_ID" | jq .
     exit 0
 fi
 
-CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 25 \
-  -X POST "$URL" -H 'Content-Type: application/json' -d "$PAYLOAD")
+# Sets RESP to the flow's answer, which carries the thread id.
+CODE=""
+post() {
+    local out
+    out=$(mktemp)
+    CODE=$(curl -sS -o "$out" -w '%{http_code}' --max-time 60 \
+      -X POST "$URL" -H 'Content-Type: application/json' -d "$1" || echo 000)
+    RESP=$(cat "$out"); rm -f "$out"
+    case "$CODE" in 2*) return 0 ;; esac
+    return 1
+}
 
-# 202 is the normal answer: the flow is queued, not finished
-case "$CODE" in
-  2*) exit 0 ;;
-  *) echo "webhook returned HTTP $CODE" >&2; exit 1 ;;
-esac
+if ! post "$(payload "$THREAD_ID")"; then
+    # A remembered id whose card is gone, say someone deleted it, fails every card
+    # after it. Forget it and open a new thread rather than going quiet.
+    [ -n "$THREAD_ID" ] || { echo "webhook returned HTTP $CODE" >&2; exit 1; }
+    echo "reply to thread $THREAD_ID failed (HTTP $CODE), starting a new thread" >&2
+    rm -f "$FILE"
+    post "$(payload "")" || { echo "webhook returned HTTP $CODE" >&2; exit 1; }
+fi
+
+if [ -n "$FILE" ]; then
+    NEW=$(printf '%s' "$RESP" | jq -r '.threadId // empty' 2>/dev/null || true)
+    if [ -n "$NEW" ]; then
+        mkdir -p "$STATE_DIR"
+        # Writing also refreshes the mtime, which is what the TTL above reads, so a
+        # thread that keeps getting cards keeps living.
+        printf '%s' "$NEW" > "$FILE"
+        find "$STATE_DIR" -maxdepth 1 -type f -mmin "+$(( TTL / 60 ))" -delete 2>/dev/null || true
+    fi
+fi
