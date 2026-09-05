@@ -142,8 +142,8 @@ boundary) - that is a spec-driven feature, not a loom run.
 
 The other way in. `/loom` starts from a request; `/loom-finish` starts from
 code that already works, which is what you have after a `/prototype` session.
-It is `wrap-it-up`'s counterpart inside loom, and the difference is where the
-tests come from.
+The difference from backfilling a suite over finished code is where the tests
+come from.
 
 ```
 /prototype ...          # rough it in, click it, iterate
@@ -242,27 +242,24 @@ rules, hard stops) live. Change a fact there and every loom skill follows.
 loom stops at a pushed (or deliberately local) branch plus its report. It
 never creates a work item, never opens a PR, never deletes a worktree:
 
-- `/paperwork` reads the loom report the way it reads a wrap-it-up report and
-  files the TFS item and the PR.
+- `/paperwork` reads the loom report and files the TFS item and the PR.
 - `/teardown` sweeps the worktree after the merge.
-- `/pr-review-fixer` still owns working reviewer comments on the PR.
 - `/loom-finish` picks the branch back up for the next round of changes,
   in place, without opening a second run.
 
-It coexists with the existing pipeline rather than replacing it: spec-ui and
-design-ui remain the right tools when the open question is what to build
-(product shape, UX research); loom assumes the request is roughly right and
-optimizes how it gets built. For a genuinely open design question, run
-ux-review or spec-ui first and loom the approved spec.
+loom assumes the request is roughly right and optimizes how it gets built, so
+it does not answer what to build. For a genuinely open design question, run
+`ux-review` first, then loom the approved shape.
 
-## How this differs from the joey-bot pipeline, deliberately
+## Why it is built this way
 
-- **Lanes instead of one path.** The old pipeline's smallest honest route was
-  still five stages; loom's patch lane is brief, build, probe, gate, land.
-- **Tests are born, not backfilled.** update-tests wrote the suite after the
-  fact and then had to mutation-check every test to prove it could fail.
-  loom's checks are written first and observed red, which is the same proof
-  for free, at the moment it is cheapest.
+- **Lanes instead of one path.** The smallest honest route through the old
+  pipeline it replaced was five stages; loom's patch lane is brief, build,
+  probe, gate, land.
+- **Tests are born, not backfilled.** A suite written after the fact has to
+  mutation-check every test to prove it could fail. loom's checks are written
+  first and observed red, which is the same proof for free, at the moment it
+  is cheapest.
 - **Probe replaces the review fan-out.** Four concurrent read-only reviews
   plus triage becomes one executing skeptic per slice plus one deep pass -
   fewer agents, findings that are reproductions instead of opinions, and the
@@ -279,8 +276,8 @@ ux-review or spec-ui first and loom the approved spec.
 ## Limitations, stated plainly
 
 - ui-app plus the realm BFFs, nothing further. A branch touching sso-auth,
-  bff-platform, another C# service, or infra gets loom for the parts it owns
-  and `prepare-to-ship` for the rest; the gate says so explicitly.
+  bff-platform, another C# service, or infra gets loom for the parts it owns,
+  and the gate says explicitly which components it did not cover.
 - Probe attacks through the unit-test harness, not a live browser. Live
   verification is deliberately out: chrome-devtools MCP cannot launch Chrome
   on this WSL box (see memory note; the Playwright-over-CDP workaround

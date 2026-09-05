@@ -9,7 +9,7 @@ One job: the current branch ends up containing the latest `origin/main`, with ev
 conflict resolved properly and the code still building. Nothing else. No reviews,
 no tests, no commits of unrelated work, no push, no PR.
 
-This is the merge phase of `wrap-it-up` on its own, for the times a branch needs to
+This is the merge phase of `loom-land` on its own, for the times a branch needs to
 catch up mid-session rather than at the end.
 
 ## Invocation
@@ -24,8 +24,8 @@ Say the resolved shape in your first line of output, before any tool call:
 
 ## Merge, never rebase
 
-`git merge origin/main`, always. The branch is usually already pushed (`new-work`
-publishes it at setup), and a rebase rewrites published history. If the user asked
+`git merge origin/main`, always. The branch is usually already pushed, and a
+rebase rewrites published history. If the user asked
 for a rebase, do the merge and say in one line that a merge was used because the
 branch is published.
 
@@ -80,8 +80,9 @@ comm -12 \
 ```
 
 - **No overlap** - merge now. The dirty files ride along untouched.
-- **Overlap** - the working tree has to land in commits first. Run `ship-it` in
-  commit-only mode (`--no-push`), then merge.
+- **Overlap** - the working tree has to land in commits first. Commit the
+  overlapping files yourself, with explicit paths and a short subject, then merge.
+  Do not push.
 
 Never `git stash`. A stash is easy to lose and the working tree is the human's
 review state.
@@ -153,7 +154,7 @@ is handed, and a bare relative build from a subagent stalls on a permission prom
 no subagent can answer.
 
 Tests, coverage, lint and the full gate are not this skill's job. That is
-`prepare-to-ship`.
+`loom-gate`.
 
 Skip this step on `--no-build`, and say in the report that it was skipped.
 
@@ -173,11 +174,10 @@ Short. What a person needs to know and nothing else:
 
 ## Notes
 
-- Never push. The branch is left local-ahead; `ship-it` or `wrap-it-up` pushes it.
+- Never push. The branch is left local-ahead; `loom-land` pushes it.
 - Never open a PR or touch a work item. That is `paperwork`.
 - Never commit unrelated working-tree changes. The only commit this skill makes is
-  the merge commit, plus the `ship-it --no-push` call in step 3 when a dirty file
-  blocks the merge.
+  the merge commit, plus the step 3 commit when a dirty file blocks the merge.
 - Never `git stash`, never `git rebase`, never `git reset --hard`.
 - If anything goes wrong mid-merge, `git merge --abort` puts the tree back. Prefer
   that over a half-resolved tree.

@@ -1,6 +1,6 @@
 ---
 name: teardown
-description: Sweep away the throwaway momentum worktrees and branches left behind by merged work, then put the workspace back on a fresh main. Removes only <root>/momentum-<desc> worktrees, never the default momentum worktree, manta, gnhf, or anything else under the root, and ends by putting momentum's default worktree on a freshly pulled main and pulling manta's main. Takes an optional target: a shortdesc, or `this` for the worktree the session is standing in. Default mode gates every removal on a clean tree, no unpushed commits, and a PR that is either merged or absent - an open or closed-unmerged PR is skipped; --yes keeps the gates but skips the confirmation question; --force skips all checks and resets. Invoke when the user types /teardown, or asks to "clean up the branch", "delete the worktree", "clean up my worktrees", "tidy up after the merge", or "post-merge cleanup".
+description: Sweep away the throwaway momentum worktrees and branches left behind by merged work, then put the workspace back on a fresh main. Removes only <root>/momentum-<desc> worktrees, never the default momentum worktree, manta, or anything else under the root, and ends by putting momentum's default worktree on a freshly pulled main and pulling manta's main. Takes an optional target: a shortdesc, or `this` for the worktree the session is standing in. Default mode gates every removal on a clean tree, no unpushed commits, and a PR that is either merged or absent - an open or closed-unmerged PR is skipped; --yes keeps the gates but skips the confirmation question; --force skips all checks and resets. Invoke when the user types /teardown, or asks to "clean up the branch", "delete the worktree", "clean up my worktrees", "tidy up after the merge", or "post-merge cleanup".
 ---
 
 # teardown: post-merge worktree sweep
@@ -28,9 +28,9 @@ those checks away by explicit request.
   Resolve it from the cwd - `git rev-parse --show-toplevel`, then check the result
   is a direct `<root>/momentum-<desc>` child - and name the resolved worktree back
   before doing anything. Stop and say so when it does not resolve: the cwd is not
-  in a git worktree, is the default `<root>/momentum` (which is never removed), or
-  is one of gnhf's nested worktrees. Do not fall back to sweeping everything - an
-  unresolvable `this` is an error, not "no argument".
+  in a git worktree, or is the default `<root>/momentum` (which is never removed).
+  Do not fall back to sweeping everything - an unresolvable `this` is an error, not
+  "no argument".
 - **`--yes`:** the list has already been confirmed, so do not ask again - resolve
   it, print it, and go. Every gate in step 1 still runs; that is what makes
   skipping the question safe.
@@ -55,10 +55,8 @@ reports as worktrees of the momentum repo.
 - `<root>/momentum` - the default worktree. It gets reset and pulled, never removed.
 - `<root>/manta` - separate repo, never worked in. Its main gets pulled (step
   5), nothing else, not even in force mode.
-- `<root>/gnhf` - nightly state, including the momentum worktrees it keeps at
-  `gnhf/stack/momentum-gnhf` and `gnhf/runs/*/work/*`. Those are real momentum
-  worktrees but they are gnhf's to manage, not this skill's. Path filter, not a
-  name filter: match only one level below the root.
+- Nested momentum worktrees kept by some other tool below the root. Path filter,
+  not a name filter: match only one level below the root.
 - Anything else under the root (`azure-devops-mcp`, loose notes and md files, any
   directory that is not a momentum worktree).
 
@@ -89,8 +87,7 @@ deleted** - keep sweeping the rest and report the skips at the end.
   `state: MERGED` clears the gate. `OPEN`, in review, or `CLOSED` unmerged means
   skip and say so - that is a decision the user has not made yet.
 
-  **No PR at all also clears the gate.** An abandoned `new-work` worktree never
-  gets one, and the other two gates already carry the safety here: a clean tree
+  **No PR at all also clears the gate.** An abandoned worktree never gets one, and the other two gates already carry the safety here: a clean tree
   means nothing is unsaved, and no unpushed commits means every commit is already
   on `origin/<branch>`, so removing the local worktree and branch loses no work.
   Delete it, do not ask. Two things go with it:
@@ -163,8 +160,8 @@ git -C "<root>/momentum" push origin --delete <branch>
 
 Always run, both modes, even when every candidate was skipped.
 
-For momentum, the default worktree may still be sitting on a feature branch that
-`new-work` created in place. Move it to `main` only when that is safe: clean tree,
+For momentum, the default worktree may still be sitting on a feature branch
+someone created in place. Move it to `main` only when that is safe: clean tree,
 and the branch either merged or already pushed. If it is dirty or carries
 unpushed commits, leave it where it is, pull nothing, and report why.
 
@@ -198,8 +195,8 @@ is about to go, but do not ask for a confirmation the flag already gave.
 Manta is untouched by force. It gets the same plain pull as step 5.
 
 The scope rules in "What may be touched" still hold. `--force` means no checks,
-not a wider blast radius: gnhf, manta, and everything else under the root are
-still off limits. A named target narrows force too - `this --force` or
+not a wider blast radius: manta and everything else under the root are still off
+limits. A named target narrows force too - `this --force` or
 `<shortdesc> --force` skips the gates for that one worktree and its branch, and
 leaves every other worktree and branch alone. The commands below are the
 no-argument case; run them against the resolved list, not against everything.
@@ -244,8 +241,8 @@ Say what went and what stayed:
   branch deleted on the no-PR path is never silent
 - momentum: on `main` and pulled, or the reason it is not
 - manta: main pulled, and what it moved (already up to date is worth a word)
-- anything deliberately left alone that the user might expect to be gone (gnhf's
-  worktrees, a manta branch)
+- anything deliberately left alone that the user might expect to be gone (a
+  nested worktree another tool owns, a manta branch)
 
 Do not report partial success as success. If a gate stopped a removal, that is
 the headline for that entry.

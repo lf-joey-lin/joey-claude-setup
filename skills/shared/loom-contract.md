@@ -31,7 +31,7 @@ loom is a dev pipeline for momentum `ui-app` work. The roster:
   plus the realm BFFs (`src/acs-bff`, `src/app-bff`) when a slice needs a new
   browser-facing route - see "BFF slices" below. A branch that touches
   anything else (`sso-auth`, `bff-platform`, another C# service, infra) is
-  outside loom's gate; hand those checks to `prepare-to-ship`.
+  outside loom's gate; run that component's own checks separately and say so.
 - **Commands**, from `src/ui-app`:
 
   | Check | Command |

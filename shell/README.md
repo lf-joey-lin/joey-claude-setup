@@ -9,7 +9,7 @@ Bash helpers for the momentum worktree workflow. Three files, all sourced from
   editing need neither herdr nor momentum; running an item needs both.
 - `herdr-momentum.sh` - `m-work`, `m-space`, `m-agents`. Needs herdr on the box;
   every function no-ops with a message when it is missing. Calls `_m_root` and
-  `_m_skill` out of `momentum.sh`, so that file has to be sourced too.
+  `_m_newworktree` out of `momentum.sh`, so that file has to be sourced too.
 
 Bash only. The Windows side has no equivalent yet.
 
@@ -48,27 +48,28 @@ Bash only. The Windows side has no equivalent yet.
 
 ### `m-work <short description>`
 
-The one to use day to day. Runs `/new-work` headless in `~/m-code/momentum`,
-which cuts a branch off a fresh `origin/main` and adds a worktree at
-`~/m-code/momentum-<desc>`, runs `npm install` in its `src/ui-app`, then opens
-that worktree as its own herdr space with claude already running in it.
+The one to use day to day. Cuts a branch off a freshly fetched `origin/main`
+into a worktree at `~/m-code/momentum-<branch>`, publishes it, runs
+`npm install` in its `src/ui-app`, then opens that worktree as its own herdr
+space with claude already running in it.
 
 ```bash
 m-work fix form submit null check
 ```
 
-Arguments: everything after the command is the description, passed straight to
-`/new-work`. No quoting needed.
+Arguments: everything after the command is the description. No quoting needed.
+The branch name is that description in camelCase - `fixFormSubmitNullCheck` -
+and the worktree is named to match. Hand it one camelCase word and it is used
+as-is.
 
-The new worktree is found by diffing `git worktree list` around the run, so
-nothing is parsed out of Claude's output. If no worktree appears, setup did not
-finish and the command fails rather than guessing.
+The default worktree at `~/m-code/momentum` is only fetched, never branched in.
+An existing branch or worktree of that name stops the command rather than being
+clobbered. A failed push does not: the worktree is good, publish it by hand.
 
 ### `m-newwork <short description>`
 
 Same setup, without herdr: it `cd`s you into the new worktree and starts claude
-in the pane you were already standing in. Falls back to `~/m-code/momentum`
-itself if `/new-work` branched in place instead of adding a worktree.
+in the pane you were already standing in.
 
 Under herdr the agent gets filed under whatever space that pane belonged to, so
 the panel cannot tell you which worktree is asking. That is the whole reason
@@ -413,7 +414,7 @@ A prefix match is enough as long as it is unambiguous; an ambiguous one lists th
 candidates and fails.
 
 Two things it handles on its own. A worktree with no `src/ui-app/node_modules`
-gets an `npm ci` first, since those are per-worktree and `/new-work` does not
+gets an `npm ci` first, since those are per-worktree and `m-newwork` does not
 install them. And it stops the stack with `TERM`, not `INT`, because the stack
 has no controlling terminal and would ignore a `SIGINT`.
 
@@ -508,11 +509,10 @@ holds the runner's: `n`, `cursor`, `runner.pid`, `runner.log` and one
 
 ## Headless Claude
 
-`m-newwork` and `m-work` go through `_m_skill`, which runs the skill with
-`claude -p --model sonnet` from `~/m-code/momentum` and allows only git, gh, jj
-and uname. Everything else in these files is plain git and process handling with
-no Claude in it, `m-teardown` included - it used to run `/teardown` headless and
-now applies the same gates itself.
+None left. Every function in these files is plain git and process handling.
+`m-newwork`/`m-work` used to run a `/new-work` skill headless and now run the
+git commands directly; `m-teardown` used to run `/teardown` the same way and now
+applies the same gates itself.
 
 `mqueue.sh` runs no Claude of its own either. It types at the ones already
 sitting in the herdr spaces, through `herdr agent prompt`, so a queued run

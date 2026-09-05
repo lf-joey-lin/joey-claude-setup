@@ -1,6 +1,6 @@
 ---
 name: loom-finish
-description: Bake a working prototype into a finished branch, in place, using the loom pipeline - adopt the uncommitted (or named) changes as the spec, revert them so the specs can be born red, rebuild slice by slice, probe, tidy, gate, merge main and push, with a report generated from the flight ledger. The loom counterpart to wrap-it-up. Creates no worktree and can run repeatedly on the same branch. Invoke when the user types /loom-finish, or asks to "finish this off", "bake this in", "make my prototype real", or "wrap this up the loom way".
+description: Bake a working prototype into a finished branch, in place, using the loom pipeline - adopt the uncommitted (or named) changes as the spec, revert them so the specs can be born red, rebuild slice by slice, probe, tidy, gate, merge main and push, with a report generated from the flight ledger. Creates no worktree and can run repeatedly on the same branch. Invoke when the user types /loom-finish, or asks to "finish this off", "bake this in", "make my prototype real", or "wrap this up the loom way".
 ---
 
 # loom-finish: the orchestrator for baking a prototype in
@@ -12,10 +12,9 @@ tidied, gated, merged with main, and explained from evidence. You are the
 into the flight ledger, and you never read source or write code in your own
 context.
 
-This is `wrap-it-up`'s counterpart inside loom, and the difference is where
-the tests come from. `wrap-it-up` backfills a suite over finished code and
-then has to mutation-check every test to prove it can fail. `loom-finish`
-takes the prototype out of the tree first, so the specs go genuinely red and
+The difference from backfilling a suite over finished code is where the tests
+come from. Backfilling has to mutation-check every test afterwards to prove it
+can fail. `loom-finish` takes the prototype out of the tree first, so the specs go genuinely red and
 the proof happens at birth, which is the same proof for free.
 
 Read [`../shared/loom-contract.md`](../shared/loom-contract.md) before

@@ -44,14 +44,14 @@ Out of scope, hand each to its owner and do not fold it in here:
 
 - **Functional bugs, correctness, silent failures, security** -> `/code-review`,
   `/security-review`.
-- **Tests and coverage** -> the `update-tests` skill. Test code is not reviewed
+- **Tests and coverage** -> `loom-slice` and `loom-gate`. Test code is not reviewed
   here at all - not its design, not its duplication. You may note that a design
   makes something untestable when that is the maintainability defect, but you do
   not write, judge, or review tests.
 - **Performance** unless the change makes an algorithmic mistake that is also a
   design mistake. A micro-optimization is not a solidify finding.
-- **Nuxt UI component choice, i18n, theming tokens, accessibility** in `ui-app`
-  -> `review-ui` and `implement-ui` own those. Do not re-litigate them.
+- **Nuxt UI component choice, i18n, theming tokens** in `ui-app`, and
+  accessibility (`loom-gate`'s storybook a11y run). Do not re-litigate them.
 
 If you spot one of these while reviewing, do not fix it. Collect it under "Out of
 scope but worth noting" at the end of the report, pointing at the owning skill.
@@ -162,7 +162,7 @@ Then group the changed files by component (`src/<component>/`,
 `infrastructure/<x>/`) - the review runs per component, because that is the unit that
 carries its own conventions. Two kinds of file are dropped from the review set here:
 
-- **Test files.** Tests belong to `update-tests` and are not reviewed by this skill.
+- **Test files.** Tests belong to the build pass and are not reviewed by this skill.
 - **Pipeline-generated files**: `fr.json`, `es.json`, `en-XA.json`, the XLIFF memory,
   generated API clients, and anything else a pipeline regenerates. A defect visible
   in generated output is reported against its source (`en.json`, `openapi.yaml`),
@@ -425,7 +425,7 @@ report that you did.
 
 ### When you cannot spawn subagents
 
-`wrap-it-up` and `joey-bot` run this skill inside a subagent already, and nesting has a
+A caller may already be running this skill inside a subagent, and nesting has a
 floor. If the Agent tool is unavailable, run the five lenses **sequentially in your own
 context** instead - one lens at a time, finishing its searches and writing its three
 lists before you start the next, and never holding two lenses open at once. That is
@@ -522,7 +522,7 @@ and show the real `git diff` for each. Then:
 - Run only the cheap check on what you touched - compile / typecheck / lint for that
   component (`npx eslint --fix <path>` for `ui-app` files, a build of the touched
   project for C#). Report the real output; never claim a check you did not run. The
-  test suite is a separate pass and belongs to `update-tests`.
+  test suite is a separate pass and belongs to `loom-slice` / `loom-gate`.
 - Do not commit or push unless the user asks (the global git rules).
 - Do not fix anything that was not named, and do not expand a fix past the finding.
 

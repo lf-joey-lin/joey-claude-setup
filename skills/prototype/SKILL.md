@@ -7,8 +7,8 @@ description: Build an implementation plan into working code the fastest way poss
 
 Turn a plan into code the human can run, in the fewest steps that still produce a
 working app. This is the fast half of the loop: prototype, the human tries it,
-feedback, prototype again. Everything that makes a branch shippable happens later
-in `loom-finish` (or `wrap-it-up` outside loom's scope) and `prepare-to-ship`.
+feedback, prototype again. Everything that makes a branch shippable happens later,
+in `loom-finish`.
 
 Optimise for time to a testable app, not for a finished branch.
 
@@ -26,7 +26,7 @@ Two rules still hold because breaking them costs more than it saves:
 
 - **Never edit the default worktree.** `~/m-code/momentum` (`C:\code2\momentum`
   on Windows) is read-only reference. If the session is standing in it, stop and
-  tell the user to run `/new-work` first.
+  tell the user to move to a `momentum-<feature>` worktree first.
 - **Localized strings: `en.json` only.** Never touch `fr.json`, `es.json`,
   `en-XA.json` or the XLIFF memory. Those are pipeline output.
 
@@ -115,8 +115,8 @@ Short. The human wants to start clicking.
    could not do, and why.
 5. **Deliberately not done** - one line: no tests, no coverage, no docs, no a11y
    run, nothing committed. Then name where that happens once the behavior is
-   settled: `loom-finish` for `ui-app` and the realm BFFs, `wrap-it-up` for
-   anything else.
+   settled: `loom-finish` for `ui-app` and the realm BFFs; for anything else, say
+   the branch still needs its own tests and gate by hand.
 
 Then stop. Do not volunteer the next step, do not start on tests, do not commit.
 
@@ -131,8 +131,9 @@ When the human says the behavior is right, point them at the finisher. For
 the spec, reverts it so the specs can be born red, rebuilds it slice by slice,
 then probes, tidies, gates, merges main and pushes. It runs in place, so nothing
 here needs a new worktree, and it can run again on the same branch after the next
-round of prototyping. For a branch touching anything outside loom's scope, that is
-`wrap-it-up` instead: merge, review passes, tests, the ship gate, push.
+round of prototyping. A branch touching anything outside loom's scope has no
+finisher skill: say so, and name what it still needs - `merge-main`, a review pass,
+tests, that component's own checks, then a push.
 
 Either way, leave the work uncommitted. The finisher reads the working tree as its
 input, and committing first only means naming a ref for it to read instead.

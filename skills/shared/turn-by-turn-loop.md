@@ -1,7 +1,7 @@
 # Turn-by-turn loop (shared)
 
-The shared engine behind the human-in-the-loop skills (`pr-review-fixer`,
-`review-ui`). It defines HOW work is driven - one item at a time, tracked in a
+The shared engine behind the human-in-the-loop skills (`review-forms-pr`).
+It defines HOW work is driven - one item at a time, tracked in a
 markdown state file, with a fresh subagent per item - so each host skill only
 defines WHAT the items are and what the per-item subagent does. Read this
 alongside the host skill; the host skill wins where they differ.

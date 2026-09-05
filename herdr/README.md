@@ -46,7 +46,7 @@ gate, then walk the stack through them.
 | Space                    | Holds                              |
 | ------------------------ | ---------------------------------- |
 | one per active worktree  | reviewr on tab 1, its Claude on tab 2 |
-| `momentum`               | ux-review, spec-ui, makeagoal, TFS |
+| `momentum`               | ux-review, loom, TFS |
 | `manta`                  | precedent lookups                  |
 | none for the dev server  | `ctrl+alt+d` popup                 |
 
@@ -86,7 +86,7 @@ and drops the space together; a plain `workspace close` leaves the checkout on d
 
 | Command             | Does                                                            |
 | ------------------- | --------------------------------------------------------------- |
-| `m-work <desc>`     | `/new-work` headless, then the worktree gets its own space with claude running in it |
+| `m-work <desc>`     | new branch and worktree, then it gets its own space with claude running in it |
 | `m-space [dir]`     | same, for a worktree that already exists. Idempotent            |
 | `m-agents`          | one line per live agent, from any pane                           |
 
@@ -96,7 +96,7 @@ so herdr files that agent under that pane's space, and the panel cannot tell you
 which worktree is asking. `m-work` gives the worktree a space and names the agent
 after it.
 
-Both call `_m_skill` and `_m_root` from `shell/momentum.sh`, so that file has to be
+Both call `_m_newworktree` and `_m_root` from `shell/momentum.sh`, so that file has to be
 sourced too. `m-dev`, `m-cd`, `m-newwork` and `m-teardown` are unchanged and still
 live there.
 

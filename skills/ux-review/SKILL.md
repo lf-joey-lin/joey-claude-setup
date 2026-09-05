@@ -20,11 +20,11 @@ recommendation with the reasoning exposed.
   conversation, and the visual comparison as a published Artifact whose source
   file lives in the session scratchpad (see Step 7). That page is throwaway HTML
   standing in for a picture, not a head start on the build: it never lands in the
-  repo and nothing in it is handed to `design-ui` or `implement-ui`. The other
+  repo and nothing in it is handed to the build. The other
   exception: the user explicitly asks you to save the review, and then you write
   only the review prose to the path they name.
-- Do **not** name library components as the answer (that is `design-ui`'s job).
-  Talk in pattern vocabulary: "an inline filter bar above the table", not
+- Do **not** name library components as the answer - the build picks those
+  against the installed API. Talk in pattern vocabulary: "an inline filter bar above the table", not
   "`UInput` plus `USelect` in a `UCard` header".
 - Do **not** edit anything, including copy or config. You may read the repo to
   understand constraints.
@@ -676,7 +676,7 @@ Close with:
   studies, or guidelines, and no contrast ratios or measurements you did not
   actually derive.
 - **Do not redesign the screen.** One concrete fix direction per finding. A full
-  alternative design is `spec-ui` and `design-ui` territory.
+  alternative design is out of scope.
 
 ## Scaling the depth
 
@@ -739,10 +739,9 @@ You produce advice, a picture of the options, and a copy line the user can paste
 into a fresh session. Nothing you make is buildable output. Close by naming the
 next step and stopping:
 
-- To turn the recommendation into testable requirements: `spec-ui`.
 - If a spec already exists and this settles an open question in it: say which
   section to update, and let the user do it.
-- To go from requirements to components: `design-ui`, then `implement-ui`.
+- To build the approved shape: `/prototype` to rough it in, or `/loom`.
 
 Do not start any of those yourself in this session unless the user asks.
 

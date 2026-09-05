@@ -9,7 +9,7 @@ You are adding a **browser-facing route to an existing realm BFF** in the moment
 monorepo, backed by an API that already exists in a legacy backend. The deliverable is
 a vertical slice on the BFF side: wire types, mapper, bridge method, endpoint,
 `contract/openapi.yaml`, and the `specs/design.md` entry, plus the tests that the
-separate `update-tests` pass will extend.
+slice's own checks will extend.
 
 A BFF route is not a proxy. Its whole job is to be the place where the legacy contract
 stops and the browser contract starts: the tenant comes off the session instead of the
@@ -288,9 +288,9 @@ Per the standing testing rule, this is the cheap check only, not the test pass:
 dotnet build src/acs-bff/acs-bff.slnx -c Release   # or src/app-bff/app-bff.slnx
 ```
 
-Then stop and hand back. Do not run or write the full suite here. When the user is ready
-to commit or open a PR, the `update-tests` skill covers everything the branch changed in
-one pass, against this repo's 100% line and branch coverage gate.
+Then stop and hand back. Do not run or write the full suite here. Inside a loom run
+`loom-slice` writes the checks and `loom-gate` enforces this repo's 100% line and branch
+coverage gate; standalone, that gate is still what the branch has to clear before a PR.
 
 If you do sketch tests as you go, follow the weighting the existing ones use: pin what
 this service alone can get wrong *inside a 200* - a field quietly bound to its default, a
@@ -303,7 +303,7 @@ scripted upstream; use it rather than a new harness.
 
 A BFF route with no caller is a legitimate deliverable here (the contract is the unit of
 work). Offer the client slice; build it only if the user says yes, and keep it thin -
-anything with real UI belongs to `design-ui` / `implement-ui`.
+anything with real UI belongs to a loom run.
 
 The established shape, one folder per service under `src/ui-app/app/composables/`:
 
@@ -330,7 +330,7 @@ npx nuxt typecheck
 npm run lint
 ```
 
-The specs come in the same `update-tests` pass.
+The specs come with the slice that consumes it.
 
 ## Step 9 - Hand back
 
@@ -340,7 +340,7 @@ Report:
 - Every file added or changed, grouped BFF / contract / ui-app / config.
 - What you deliberately did not forward, and why.
 - Any config or chart change required before this works in a deployed environment.
-- What is not yet tested, so the `update-tests` pass has a starting point.
+- What is not yet tested, so the testing pass has a starting point.
 - Anything you could not determine from the legacy source, stated as unknown rather than
   guessed.
 

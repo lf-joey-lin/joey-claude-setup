@@ -13,8 +13,8 @@ they are listed there once and not retyped here.
 Scope check first: `git diff --name-only origin/main...HEAD` plus
 `git status --porcelain` (uncommitted work counts). Files outside `src/ui-app`
 and the realm BFFs (`src/acs-bff`, `src/app-bff`) mean this gate covers only
-part of the branch - say so and point the rest at `prepare-to-ship`; do not
-silently certify half a branch as whole.
+part of the branch - say so and name the components whose own checks still
+have to be run; do not silently certify half a branch as whole.
 
 Then the story check. Every `.vue` file the branch added under
 `app/components`, `app/layouts` or `app/pages` must be rendered by some

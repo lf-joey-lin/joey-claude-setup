@@ -542,8 +542,10 @@ Then:
 
 ## Autonomous mode (headless, under another orchestrator)
 
-See [`../shared/autonomous-pipeline.md`](../shared/autonomous-pipeline.md). Each
-of this skill's questions gets a default:
+Headless means no human is available for a gate: never stop for approval, take
+the documented default below instead, decide as Joey would where a default runs
+out, and surface a genuine blocker in the report rather than guessing past it.
+Each of this skill's questions gets a default:
 
 | Interactive gate | Headless default |
 |---|---|

@@ -26,9 +26,10 @@ there":
 
 - functional bugs and correctness -> `/code-review`
 - security -> `/security-review`
-- tests, coverage, missing specs -> `update-tests`
-- Nuxt UI component choice, i18n, theming, accessibility -> `review-ui`
-- lint, build, typecheck, the CI gates -> `prepare-to-ship`
+- tests, coverage, missing specs -> `loom-slice`
+- Nuxt UI component choice, i18n, theming -> nobody's; raise it on the PR
+  (accessibility is `loom-gate`'s storybook a11y run)
+- lint, build, typecheck, the CI gates -> `loom-gate`
 - file-level nits: naming, comments, duplication counting, dead code -> `solidify`
   (note: `solidify2` already parks these under "Local defects noticed"; leave
   them exactly there)

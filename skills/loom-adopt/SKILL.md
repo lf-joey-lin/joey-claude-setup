@@ -128,7 +128,7 @@ Count the behaviors from step 3.
   contract, and mark the round as needing the orchestrator's contract gate.
 - **The diff touches anything outside `src/ui-app` and the two realm BFFs**:
   loom does not gate it. Keep building the parts loom owns and record the rest
-  for `prepare-to-ship`, per the contract.
+  as unchecked by this run, per the contract.
 
 Each slice entry carries what the contract's Plan template asks for: Behavior,
 Checks C1..Cn each naming its channel, Touches, A11y, Attack. The Attack line comes

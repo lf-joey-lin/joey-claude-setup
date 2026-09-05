@@ -48,7 +48,7 @@ else
   echo "==> $BASHRC already sources herdr-momentum.sh"
 fi
 grep -q "shell/momentum.sh" "$BASHRC" 2>/dev/null ||
-  echo "    note: $BASHRC does not source shell/momentum.sh, so m-work has no _m_skill to call"
+  echo "    note: $BASHRC does not source shell/momentum.sh, so m-work has no _m_newworktree to call"
 
 # Gives herdr the session id it needs to resume panes into their conversations
 # after a server restart. State still comes from screen detection.

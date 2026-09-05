@@ -1,7 +1,7 @@
 # herdr-aware momentum helpers: m-work, m-space, m-agents.
 #
-# Sourced from ~/.bashrc alongside momentum.sh, whose _m_root and _m_skill these
-# call. The source line is added by herdr/setup.sh; herdr/README.md has the rest
+# Sourced from ~/.bashrc alongside momentum.sh, whose _m_root and _m_newworktree
+# these call. The source line is added by herdr/setup.sh; herdr/README.md has the rest
 # of the workflow. Every function no-ops when herdr is missing, so the file is
 # safe to source on a box without it (Windows, today).
 #
@@ -73,20 +73,8 @@ m-work() {
     return 1
   fi
 
-  local main before after new
-  main="$(_m_root)/momentum"
-
-  # Same before/after diff m-newwork uses, so nothing has to be parsed out of
-  # Claude's output. Keep the two in step if either changes.
-  before="$(git -C "$main" worktree list --porcelain | awk '/^worktree /{print $2}')"
-  _m_skill "/new-work $*" || return 1
-  after="$(git -C "$main" worktree list --porcelain | awk '/^worktree /{print $2}')"
-  new="$(comm -13 <(printf '%s\n' "$before" | sort) <(printf '%s\n' "$after" | sort) | head -n 1)"
-
-  if [ -z "$new" ] || [ ! -d "$new" ]; then
-    echo "m-work: no new worktree appeared, so setup did not finish" >&2
-    return 1
-  fi
+  local new
+  new="$(_m_newworktree "$@")" || return 1
 
   # A fresh worktree has no node_modules, so nothing in ui-app can lint, test or
   # run until this finishes. Do it before the space, so claude opens on a tree

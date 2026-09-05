@@ -1,57 +1,85 @@
 # momentum workspace shortcuts: m-newwork, m-teardown, m-dev, m-cd.
 #
-# m-newwork runs its skill headless in ~/m-code/momentum and then leaves the
-# shell somewhere useful, which is the part a Claude session cannot do for
-# itself. m-teardown, m-dev and m-cd are plain git/process wrappers with no
-# Claude in them.
+# m-newwork sets up the branch and worktree, then leaves the shell somewhere
+# useful. m-teardown, m-dev and m-cd are plain git/process wrappers. No Claude
+# in any of them.
 #
 # Source from ~/.bashrc. Bash only; the Windows side has no equivalent yet.
 
 _m_root() { printf '%s\n' "${MOMENTUM_ROOT:-$HOME/m-code}"; }
 
-# Run a skill headless from the default worktree, with git-only tools allowed.
-_m_skill() {
-  local main="$(_m_root)/momentum"
+# "fix form submit null check" -> fixFormSubmitNullCheck. An argument that is
+# already one camelCase word comes back unchanged.
+_m_camel() {
+  printf '%s' "$*" | tr -c 'A-Za-z0-9' ' ' | awk '{
+    out = ""
+    for (i = 1; i <= NF; i++) {
+      w = $i
+      if (w ~ /^[A-Z0-9]+$/) w = tolower(w)
+      if (out == "") out = tolower(substr(w, 1, 1)) substr(w, 2)
+      else out = out toupper(substr(w, 1, 1)) substr(w, 2)
+    }
+    print out
+  }'
+}
+
+# _m_newworktree <short description>
+#
+# Branch off a freshly fetched origin/main into its own worktree next to the
+# reference checkout, and publish it. The default worktree stays on main and is
+# only fetched. Prints the new worktree path on stdout; everything else is
+# stderr, so callers can capture the path.
+_m_newworktree() {
+  local root main branch dir
+  root="$(_m_root)"
+  main="$root/momentum"
+
   if [ ! -e "$main/.git" ]; then
     echo "no momentum checkout at $main" >&2
     return 1
   fi
-  ( cd "$main" && claude -p "$1" --model sonnet \
-      --allowedTools "Bash(git:*),Bash(gh:*),Bash(jj:*),Bash(uname:*)" )
+
+  branch="$(_m_camel "$@")"
+  if [ -z "$branch" ]; then
+    echo "cannot derive a branch name from: $*" >&2
+    return 1
+  fi
+  dir="$root/momentum-$branch"
+
+  if git -C "$main" show-ref --verify --quiet "refs/heads/$branch"; then
+    echo "branch $branch already exists; pick another description" >&2
+    return 1
+  fi
+  if [ -e "$dir" ]; then
+    echo "$dir already exists; pick another description" >&2
+    return 1
+  fi
+
+  git -C "$main" fetch origin >&2 || return 1
+
+  # --no-track matters: inheriting origin/main as upstream makes a bare push
+  # fail under push.default=simple on the branch name mismatch.
+  git -C "$main" worktree add --no-track -b "$branch" "$dir" origin/main >&2 || return 1
+
+  # Sets origin/<branch> and the upstream, so commits show as outgoing in the
+  # editor from here on. A failed push leaves a perfectly usable worktree.
+  git -C "$dir" push -u origin HEAD >&2 ||
+    echo "push failed; the worktree is fine, publish the branch by hand" >&2
+
+  printf '%s\n' "$dir"
 }
 
 # m-newwork <short description>
 #
 # Sets up the branch/worktree, then drops you into it with Claude running.
-# The worktree is found by diffing `git worktree list` around the run, so
-# nothing has to be parsed out of Claude's output.
 m-newwork() {
   if [ "$#" -eq 0 ]; then
     echo "usage: m-newwork <short description of the work>" >&2
     return 1
   fi
 
-  local main="$(_m_root)/momentum"
-  local before after branch_before branch_after new dir=""
-  before="$(git -C "$main" worktree list --porcelain 2>/dev/null | awk '/^worktree /{print $2}')"
-  branch_before="$(git -C "$main" branch --show-current 2>/dev/null)"
-
-  _m_skill "/new-work $*" || return 1
-
-  after="$(git -C "$main" worktree list --porcelain | awk '/^worktree /{print $2}')"
-  branch_after="$(git -C "$main" branch --show-current)"
-  new="$(comm -13 <(echo "$before" | sort) <(echo "$after" | sort) | head -n 1)"
-
-  if [ -n "$new" ] && [ -d "$new" ]; then
-    dir="$new"                                    # new worktree
-  elif [ "$branch_before" != "$branch_after" ]; then
-    dir="$main"                                   # branched in place
-  fi
-
-  if [ -z "$dir" ]; then
-    echo "m-newwork: no new branch or worktree appeared, so setup did not finish; staying in $PWD" >&2
-    return 1
-  fi
+  local dir
+  dir="$(_m_newworktree "$@")" || return 1
 
   cd "$dir" || return 1
   claude -n "$*"
@@ -79,7 +107,7 @@ _m_td_action_log() { printf '%s\n' "$(_m_td_state)/action.log"; }
 _m_td_action_pid() { printf '%s\n' "$(_m_td_state)/action.pid"; }
 
 # The worktrees this may act on: the default one, which is only ever landed on
-# main, and its direct momentum-<desc> siblings. gnhf keeps real momentum
+# main, and its direct momentum-<desc> siblings. Another tool may keep real momentum
 # worktrees of its own a few directories further down; the filter is on the path
 # rather than the name, because by name they look like everything else.
 _m_td_targets() {
@@ -555,7 +583,7 @@ m-teardown() {
     else
       frame+="  up/down select   d tear down   D force   r rescan   p land main   q quit"
     fi
-    [ "$excluded" -gt 0 ] && frame+=$'\n'"  $excluded other momentum worktree(s) elsewhere (gnhf) are never touched"
+    [ "$excluded" -gt 0 ] && frame+=$'\n'"  $excluded other momentum worktree(s) elsewhere are never touched"
     [ -n "$job" ] && frame+=$'\n'"  running: $what"
     [ -n "$note" ] && frame+=$'\n'"  $note"
 
@@ -962,7 +990,7 @@ _m_dev_start() {
   mkdir -p "$(_m_dev_state)"
 
   # A fresh worktree has none of its own: they are per-worktree and ~670M, and
-  # new-work does not install them. `make dev` spawns ui-app's dev server as a
+  # m-newwork does not install them. `make dev` spawns ui-app's dev server as a
   # child, so it would fail well into startup rather than up front.
   if [ ! -d "$dir/src/ui-app/node_modules" ]; then
     echo "$label: first run here, installing ui-app dependencies (npm ci, a few minutes)"

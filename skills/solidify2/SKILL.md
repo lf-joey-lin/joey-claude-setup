@@ -44,7 +44,7 @@ here - this skill invokes nothing:
 
 - Functional bugs, correctness, security -> `/code-review`, `/security-review`.
 - Performance -> only when the structure forces an algorithmic mistake.
-- Nuxt UI component choice, i18n, theming, accessibility -> `review-ui`.
+- Nuxt UI component choice, i18n, theming, accessibility -> not this pass.
 - **Test design is out of scope, but test code is evidence.** You read specs and you
   never review them. See lens L4.
 
@@ -206,7 +206,7 @@ the signals that a second concept is living inside a unit that claims one.
    re-testing the same surface, or a fixture builder with a mode switch. Test structure
    often reveals the seam the source refused to make. **Read specs as evidence, never
    review them** - do not comment on their design, coverage or duplication, and hand
-   anything you notice to `update-tests`.
+   anything you notice to the build pass.
 
 10. **The "and" in the summary.** Write the one-sentence description of each central
     unit. If it needs "and" or "or" to be true, that is a candidate. Weak on its own,

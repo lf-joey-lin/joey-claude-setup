@@ -20,7 +20,7 @@ My skills, this CLAUDE.md, settings.json, and statusline.js are the canonical co
 Workflow for the `momentum` GitHub repo (org `Laserfiche`).
 
 - **The default worktree is read-only.** `C:\code2\momentum` is a reference checkout that stays on `main`, for reading code and answering questions. Never branch, commit, stash, reset, or edit a tracked file there — not even when it is clean. The only git commands allowed against it are `fetch` and `pull`.
-- **All dev work happens in its own worktree.** Every story, bug fix or experiment gets a fresh one at `C:\code2\momentum-<feature>`, with the branch cut off freshly fetched `origin/main` (see Git above — `git fetch origin`, then `git -C C:\code2\momentum worktree add --no-track -b <branch> C:\code2\momentum-<feature> origin/main`). `/new-work` does this. Don't start editing until the session is in that worktree.
+- **All dev work happens in its own worktree.** Every story, bug fix or experiment gets a fresh one at `C:\code2\momentum-<feature>`, with the branch cut off freshly fetched `origin/main` (see Git above — `git fetch origin`, then `git -C C:\code2\momentum worktree add --no-track -b <branch> C:\code2\momentum-<feature> origin/main`). Don't start editing until the session is in that worktree.
 - **Localized strings: edit `en.json` and nothing else.** `fr.json`, `es.json`, `en-XA.json` and the XLIFF memory are pipeline output. Never hand-edit them, never hand-prune keys a change removed, and never reach for `translate.ts --pseudo` to quiet a check — that writes fake accented text into real catalogs.
 - **`pr-i18n-parity` is cleared by a label, never by editing catalogs.** It fails on any branch that changed an `en.json`, which is the point: the **`to-be-translated`** label goes on the PR and the pipeline commits the regenerated catalogs back to the branch. It needs `MTRANS_*` credentials, so it cannot run locally anyway. Don't run `check-parity.ts` in a pre-push check, don't report it as a failure, and don't let it block a "ready to push" verdict.
   - The one place that label gets added for me is `paperwork --pr`, when it opens a ready-for-review PR and the branch changed an `en.json`. Everywhere else, including a draft PR, just remind me the label is still needed and give me the command. A pre-push check earns its keep on unit tests, the 100% coverage gates, lint, build and a11y.
@@ -140,7 +140,7 @@ Until I ask for it by name, don't:
 - chase coverage gates or run the a11y suite
 - refactor or tidy code the request didn't ask about
 
-`wrap-it-up` is where all of that lands. It runs once at the end, after I've verified the
+`loom-finish` is where all of that lands. It runs once at the end, after I've verified the
 behavior, and it covers the whole session. Leaving that gap is correct, not sloppy. Say
 what's still outstanding if it's worth knowing, but don't fill it in.
 
@@ -148,7 +148,7 @@ what's still outstanding if it's worth knowing, but don't fill it in.
 
 Testing is its own phase, not part of every edit (see Ad-hoc implementation above). Start
 the pass when I ask for it ("add tests", "cover this", "run the tests"), when I say I'm
-ready to commit or open a PR, or as part of `wrap-it-up`. Cover everything the session
+ready to commit or open a PR, or as part of `loom-finish`. Cover everything the session
 changed in one pass at that point.
 
 When the testing pass does run, match verification to risk and say which level you chose
