@@ -14,10 +14,17 @@ Read [`../shared/loom-contract.md`](../shared/loom-contract.md), then the
 ledger: the brief's awkward cases, the slice's planned Attack line, and what
 earlier probes already covered. Two depths:
 
-- **quick** - after one slice, scoped to that slice's code. Its planned
-  attacks plus whatever the diff suggests. Minutes, not an audit.
-- **deep** - once, after the last slice, over the whole branch. Everything
-  below, plus the combination states and the shuffled suite run.
+- **quick** (`loom-probe-quick`) - after one slice, scoped to that slice's
+  code. Its planned attacks plus whatever the diff suggests. Minutes, not an
+  audit.
+- **deep** (`loom-probe-deep`) - once, after the last slice, over the whole
+  branch. Everything below, plus the combination states and the shuffled suite
+  run.
+
+The two depths have separate agent types because they are different jobs: quick
+runs a list the plan already wrote, once per slice, and deep is an open-ended
+read of the whole branch, once per run. Your seed says which you are; run that
+one and not the other.
 
 ## How to attack
 
@@ -43,11 +50,11 @@ change), not on "nothing happened".
 - `data-testid` values built from array indexes
 - an `en.json` key added but never referenced, or referenced but never added
 
-**Spec-copy sweep (cheap, always).** Nothing else in the pipeline holds test
-code to a duplication bar: `solidify` drops spec files from its review set at
-Step 0, and `solidify2` reads them as evidence and refuses to review them. So
-the specs are yours, and skipping this is how a branch ships four copies of one
-70-line `IntersectionObserver` stub. Run it over the whole component's spec set,
+**Spec-copy sweep (cheap, always).** No other stage holds test code to a
+duplication bar - `loom-shape` reads specs as evidence and refuses to review
+them, and tidy only fixes what you name here. So the specs are yours, and
+skipping this is how a branch ships four copies of one 70-line
+`IntersectionObserver` stub. Run it over the whole component's spec set,
 never the diff alone - the copy the branch added is only a finding next to the
 ones already sitting there:
 

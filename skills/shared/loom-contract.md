@@ -10,12 +10,14 @@ loom is a dev pipeline for momentum `ui-app` work. The roster:
 | --- | --- |
 | `loom` | the orchestrator: drives a whole run, delegates every stage |
 | `loom-finish` | the orchestrator for baking a prototype in, in place |
+| `loom-ninja` | the orchestrator for a fast round on a branch that already landed one |
 | `loom-scout` | workspace setup, recon, the brief, lane routing |
 | `loom-adopt` | read a prototype diff as the spec, revert it, size the round |
 | `loom-plan` | slice plan (feature lane only) |
 | `loom-crew` | the foreman: runs the slice loop for one wave of slices |
 | `loom-slice` | build one slice, checks first (born red) |
 | `loom-probe` | adversarial verification: attack, reproduce, report |
+| `loom-shape` | one concept-level read of the branch, and the reshape it prices |
 | `loom-tidy` | one maintainability pass over the finished branch |
 | `loom-gate` | local mirror of the ui-app CI checks |
 | `loom-land` | merge main, push, write the report from the ledger |
@@ -84,14 +86,23 @@ loom is a dev pipeline for momentum `ui-app` work. The roster:
   catch. Hand-rolling what the platform provides costs a written trade-off
   naming the unit passed over and what it could not do. "Nothing here imports
   it yet" is not a trade-off, and neither is a line count.
-- **`@vueuse/core` is installed but undeclared.** It arrives as a dependency of
-  `@nuxt/ui`, nothing in `app/` imports it, and there is no `@vueuse/nuxt`, so
-  its composables are present but not auto-imported. Taking one means an
-  explicit `import { x } from '@vueuse/core'` plus promoting `@vueuse/core` to
-  a direct dependency in `src/ui-app/package.json`. That is a human decision
-  and never a silent one: attended, the stage that wants it carries it into its
-  own ask moment; solo, the run hand-rolls, records the unit it passed over,
-  and adds a line under "Needs human eyes".
+- **`@vueuse/core` is declared, and taking one is an ordinary choice now.** It
+  is a direct dependency of `src/ui-app` at `^14.4.0` (promoted in `8917f1a39`,
+  2026-09-01) as well as arriving under `@nuxt/ui`, and `app/` ships a real
+  consumer:
+  `app/components/common/table-listing/infinite/InfiniteTableListing.vue:2`
+  imports `useInfiniteScroll`. So there is nothing left to approve. A VueUse
+  composable sits where the platform ordering above puts it, and it needs no
+  ask moment, no "Needs human eyes" line, and no trade-off written for the
+  dependency.
+
+  One mechanical fact survives: there is still no `@vueuse/nuxt` and
+  `nuxt.config.ts` does not list one, so its composables are **not
+  auto-imported** and never appear in `.nuxt/imports.d.ts`. Taking one means an
+  explicit `import { x } from '@vueuse/core'`, and the roster to confirm the
+  name against is `node_modules/@vueuse/core/dist/index.d.ts` rather than the
+  auto-import file. Matching the existing consumer's import style is the whole
+  of it.
 - **Conventions**: `src/ui-app/CLAUDE.md` is binding - i18n through `t()` with
   keys in `en.json` only, theme palette tokens never hex, `<script setup
   lang="ts">`, semantic HTML first and `data-testid` (naming
@@ -142,8 +153,18 @@ the resume point, and the source the final report is generated from. Rules:
   branch however many rounds it takes; slice ids carry the round prefix
   (`R2.S1`) so they stay unique. A round whose stages are all `[x]` is history,
   not a resume point - the next round is `<n>+1`. Branch-scoped stages (probe
-  deep, tidy, gate, land) still read the whole branch, so a later round
+  deep, shape, tidy, gate, land) still read the whole branch, so a later round
   re-covers the earlier ones; that is intended, not waste.
+- **Ninja rounds**: a `loom-ninja` round is numbered the same way and heads
+  itself `## Round <n> (ninja)`. The tag is load-bearing: it is how a later
+  settle-up finds the rounds no branch-scoped review pass has covered. Such a
+  branch also carries one extra header line, which ninja writes on its first
+  round and rewrites on every round after:
+  `- Ninja debt: <n> rounds since <sha> (last full review: round <k>, <iso>)`.
+  `<sha>` is the commit `loom-probe-deep`, `loom-shape` and `loom-tidy` last
+  covered; every skill other than a ninja settle-up carries it forward
+  untouched. A full `loom` or `loom-finish` round landing on the branch clears
+  it to zero at its own HEAD, because its review tail covered everything.
 - **Decisions are logged where they are made**: the choice, the alternative,
   one line of why, and whether it was asked or defaulted.
 - **The spine is the state, so nothing is appended below it.** The
@@ -211,6 +232,13 @@ Template (stages append their own sections; keep this spine):
 - Timing: started <iso>, finished <iso>, took <hh:mm:ss>
 - F1: fixed in <commit> | deferred - <reason>
 
+## Shape - [ ]
+- Concept map: <concept> - <its home, or its homes>
+### Finding S1 - <concept in one noun phrase>
+- Budget: executable | follow-up - <the rule that stopped it>
+### Reshape S1 - [ ]        (only when a finding was executable)
+- Stages: <n>, each green alone    Tests: <before> to <after>
+
 ## Tidy - [ ]
 ## Gate - [ ]
 - <scorecard>    Verdict: READY | NOT READY
@@ -242,6 +270,8 @@ from, and what the prototype skipped:
 - M1: <file> - <what it did> (fixed in <commit> | recorded)
 ### Fixes
 #### Fix turn R<n>.P1.1 - [ ]
+### Shape - [ ]
+#### Reshape R<n>.S1 - [ ]
 ### Tidy - [ ]
 ### Gate - [ ]
 ### Land - [ ]
@@ -309,9 +339,72 @@ conflict-file. Gate decisions are owned by whoever ran the stage - the crew
 for its wave's slices, the orchestrator for everything else. Nobody else
 writes a `- Gate:` line.
 
-Every stage seed carries: the absolute worktree path, the ledger path, the
-mode line (`attended` or `solo`), and the instruction to read this contract
-file plus its own skill file before acting.
+Every stage seed carries: the absolute worktree path, the ledger path, the mode
+line (`attended` or `solo`), the round number where there is one, and the
+instruction to read this contract file plus its own skill file. It is spawned by
+the agent type named in the next section, never as a plain `general-purpose`
+agent.
+
+## Models
+
+Each stage has its own agent type under `~/.claude/agents/`, and the model and
+effort live in that file's frontmatter. **Spawn by `subagent_type`, and never
+pass `model` yourself.** One place holds the choice, whoever is doing the
+spawning, and a stage cannot end up on the wrong tier because the level above it
+was.
+
+| Stage skill | Agent type | Model | Effort | Runs per 4-slice run |
+| --- | --- | --- | --- | --- |
+| `loom-scout` | `loom-scout` | sonnet | medium | 1 |
+| `loom-plan` | `loom-plan` | opus | xhigh | 1 |
+| `loom-adopt` | `loom-adopt` | opus | xhigh | 1 to 2 |
+| `loom-crew` | `loom-crew` | sonnet | low | 1 to 2 |
+| `loom-slice` | `loom-slice` | opus | xhigh | 4, plus fix and reshape turns |
+| `loom-probe` quick | `loom-probe-quick` | sonnet | medium | 4, plus re-checks |
+| `loom-probe` deep | `loom-probe-deep` | opus | xhigh | 1 |
+| `loom-shape` | `loom-shape` | fable | xhigh | 1 |
+| `loom-tidy` | `loom-tidy` | opus | high | 1 |
+| `loom-gate` | `loom-gate` | sonnet | medium | 1 to 2 |
+| `loom-land` | `loom-land` | sonnet | medium | 1 |
+| land's conflict fan-out | `loom-merge-conflict` | opus | high | one per conflicted file |
+
+The orchestrators (`loom`, `loom-finish`, `loom-ninja`) run on the session's own model. They
+gate rather than think, but a rubber-stamped gate is the one failure this
+pipeline cannot absorb, so they are not somewhere to save.
+
+**The rule behind the table: downgrade by frequency, never by stakes.** A stage
+that runs four to twelve times per run and executes a list somebody else already
+wrote is where efficiency lives. A stage that runs once and produces a claim
+nobody can check from outside is where the money should go. That is why the
+per-slice probe is cheap and the once-per-run structural read is the most
+expensive thing in the pipeline: quick probe runs the Attack line the plan wrote
+for it, while `loom-shape`'s own failure mode is answering an easier question
+than the one asked, which is exactly what a weaker model does and nothing
+downstream would catch.
+
+Two stages are split for this reason alone. `loom-probe` has two agent types
+because its quick and deep depths are different jobs at the same desk, and one
+of them runs once while the other runs per slice. `loom-land` hands each
+conflicted file to `loom-merge-conflict` because the merge around it is
+mechanical and the resolution inside it is not.
+
+**The trap this exists to close.** A spawn with no agent type and no `model`
+inherits the model of whoever spawned it. `loom-crew` and `loom-land` both sit
+on a cheaper tier than the stages they spawn, so a bare `general-purpose` spawn
+from either one silently drops the code-writing or conflict-resolving stage a
+tier, with nothing in the ledger to show it happened and green checks either
+way. Both skills carry the rule at their spawn sites; the agent type is what
+makes it hold.
+
+**Haiku is not used anywhere here.** It is 200K context against everything
+else's 1M, and `loom-crew`, `loom-shape` and `loom-land` are precisely the
+context-absorbing roles.
+
+**If agent types are unavailable** (the runtime does not resolve them, or the
+skills are being run somewhere `~/.claude/agents/` is not installed), the
+spawner passes `model` explicitly from the table on every single call. Omitting
+it is not a neutral default, it is the trap above. Effort cannot be passed per
+call, so it goes back to the session default until the agent types are back.
 
 ## Context economy
 
@@ -326,8 +419,8 @@ A long run must not drown the orchestrator. Three rules keep it flat:
   ```
 
   The unit is whatever that stage produced one of: a slice for `loom-crew`, a
-  finding for `loom-probe`, a decision for `loom-scout`, a slice entry for
-  `loom-plan`, a scorecard row for `loom-gate`. Scout's and plan's records are
+  finding for `loom-probe` or `loom-shape`, a decision for `loom-scout`, a
+  slice entry for `loom-plan`, a scorecard row for `loom-gate`. Scout's and plan's records are
   the lines a human is about to be asked about, so they carry the choice
   rather than a hash; the shape is the same. Nothing in a return may claim
   what the ledger does not carry - the return is a pointer to evidence, not a

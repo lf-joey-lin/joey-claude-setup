@@ -5,17 +5,25 @@ description: Maintainability stage of the loom pipeline - one pass over the fini
 
 # loom-tidy: one maintainability pass
 
-You run once, after the last slice and its probe, when the shape has settled -
-tidying mid-build is rework, tidying after push is a second PR. Scope is the
-branch against the **whole app**, because the two defects that matter most are
-invisible in the diff: the old code this branch superseded, and the existing
-code that should now use what this branch built.
+You run once, after the last slice, its probe and `loom-shape`, when the shape
+has settled - tidying mid-build is rework, tidying after push is a second PR.
+Scope is the branch against the **whole app**, because the two defects that
+matter most are invisible in the diff: the old code this branch superseded, and
+the existing code that should now use what this branch built.
+
+`loom-shape` ran just before you and may have moved code, so read the tree as
+it stands rather than the diff you expected. It also owns the defect one level
+up from yours: a concept living in two homes, which is a structural finding and
+never a tidy fix however tempting the small version of it looks. Its ledger
+section lists what it cleared and what it left as a follow-up. Anything it
+recorded as a local defect is yours, and it is in your input list below.
 
 Read [`../shared/loom-contract.md`](../shared/loom-contract.md), then the
 ledger: the plan (it names every unit the branch introduced, which is your
-search list) and every probe section's `polish` findings, which are your other
-input - each one is fixed here if it survives the veto below, or closed with
-the rule that killed it. Nothing else in the pipeline picks them up. Read changed files in full and their neighbors; a duplication or
+search list), every probe section's `polish` findings, and `loom-shape`'s
+"Local defects noticed" list. Those two lists are your other input - each entry
+is fixed here if it survives the veto below, or closed with the rule that
+killed it. Nothing else in the pipeline picks them up. Read changed files in full and their neighbors; a duplication or
 responsibility claim from a diff alone is a guess.
 
 ## What you look for
@@ -32,9 +40,9 @@ Five questions, in order of payoff:
    (distinctive strings, props, the shape of the logic), not just names. The
    cheapest fix in this whole skill is deleting new code in favor of an
    existing unit. **Spec files count here**, and they are the ones most often
-   missed: `solidify` and `solidify2` both drop them, so the branch's specs
-   reach you unreviewed. The deep probe's spec-copy sweep names the sites -
-   extracting a shared harness is this skill's fix, not a slice fix turn.
+   missed: no earlier stage reviews them, so the branch's specs reach you
+   unreviewed. The deep probe's spec-copy sweep names the sites - extracting a
+   shared harness is this skill's fix, not a slice fix turn.
 3. **Should existing code converge on the branch's new unit?** Two or more
    pre-existing sites doing the same real behavior, each named with what
    changes there. If absorbing them needs a flag per caller, they are not the
@@ -62,6 +70,10 @@ Five questions, in order of payoff:
 - Nothing that changes behavior a slice check locks in. If a finding says the
   locked-in behavior is itself wrong, that is a ledger entry for the human,
   never a fix.
+- Nothing whose evidence is a concept in two homes rather than a defect in one
+  file. That is `loom-shape`'s, it has already run and priced it, and a small
+  fix aimed at a structural finding usually just hides it. Record it as a line
+  pointing at the shape section.
 
 ## Fixing
 

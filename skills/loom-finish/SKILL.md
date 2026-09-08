@@ -1,6 +1,6 @@
 ---
 name: loom-finish
-description: Bake a working prototype into a finished branch, in place, using the loom pipeline - adopt the uncommitted (or named) changes as the spec, revert them so the specs can be born red, rebuild slice by slice, probe, tidy, gate, merge main and push, with a report generated from the flight ledger. Creates no worktree and can run repeatedly on the same branch. Invoke when the user types /loom-finish, or asks to "finish this off", "bake this in", "make my prototype real", or "wrap this up the loom way".
+description: Bake a working prototype into a finished branch, in place, using the loom pipeline - adopt the uncommitted (or named) changes as the spec, revert them so the specs can be born red, rebuild slice by slice, probe, reshape what carries two ideas, tidy, gate, merge main and push, with a report generated from the flight ledger. Creates no worktree and can run repeatedly on the same branch. Invoke when the user types /loom-finish, or asks to "finish this off", "bake this in", "make my prototype real", or "wrap this up the loom way".
 ---
 
 # loom-finish: the orchestrator for baking a prototype in
@@ -46,9 +46,12 @@ sense - continue from its first stage not `[x]`.
 
 ## The round
 
-Every stage is one synchronous subagent, seeded per the contract's delegation
-section: the absolute worktree path, the ledger path, the round number, the
-mode line, and the instruction to read the contract plus its own skill file.
+Every stage is one synchronous subagent, spawned by the agent type the
+contract's "Models" section names for it - never as a plain `general-purpose`
+agent, and never with a `model` you chose yourself - and seeded per the
+contract's delegation section: the absolute worktree path, the ledger path, the
+round number, the mode line, and the instruction to read the contract plus its
+own skill file.
 Gate each stage on the ledger entries it appended - the evidence lines, never
 the prose - reading **only that stage's subsection of this round**. Record
 your own gate decision as the last line of that subsection (the contract's
@@ -90,20 +93,28 @@ your own gate decision as the last line of that subsection (the contract's
    skip it, and do not accept a reconcile that reports counts without naming
    what it compared.
 
-4. **Probe deep** (`loom-probe` over the whole branch, not just this round).
-   Same fix-turn rule, same cap. On a later round the branch includes earlier
-   rounds, which is the point: deep is branch-scoped and re-covers them.
+4. **Probe deep** (`loom-probe-deep`, over the whole branch, not just this
+   round). Same fix-turn rule, same cap. On a later round the branch includes
+   earlier rounds, which is the point: deep is branch-scoped and re-covers
+   them. It is a different agent type from the quick probes the crew ran.
 
-5. **Tidy** (`loom-tidy`). Gate: fixes committed with slice checks still green,
+5. **Shape** (`loom-shape` over the whole branch). Gated, budgeted and followed
+   by at most one `loom-slice` reshape turn exactly as `loom` describes it.
+   Worth its slot here more than on a normal run, for the same reason tidy is:
+   a round is where a prototype's second tenant moves into a unit that had one,
+   and the round after that is where somebody pays for it. A finding whose
+   second case arrived in an earlier round is still this round's to price.
+
+6. **Tidy** (`loom-tidy`). Gate: fixes committed with slice checks still green,
    follow-ups and vetoes recorded. Worth its slot here more than on a normal
    run: `prototype` is told to reuse but forbidden to refactor, so a second way
    to do an existing thing is exactly what a prototype leaves behind.
 
-6. **Gate** (`loom-gate`). READY: continue. NOT READY: one targeted fix turn
+7. **Gate** (`loom-gate`). READY: continue. NOT READY: one targeted fix turn
    seeded with the real failing output, re-run the gate once. Still NOT READY:
    stop the round - no push, ledger `[!]`, the output in Blockers.
 
-7. **Land** (`loom-land`). Merge `origin/main`, re-gate if it brought anything,
+8. **Land** (`loom-land`). Merge `origin/main`, re-gate if it brought anything,
    push when allowed, regenerate the report from the **whole** ledger so it
    covers every round rather than this one. Seed it with whether the branch
    already has an upstream - it cannot assume scout published one here.

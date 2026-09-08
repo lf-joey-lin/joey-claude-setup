@@ -46,14 +46,15 @@ replacement for one that ran out of room.
 For each of your slices, in order. This is the same loop the orchestrator used
 to run, moved down one level, with the same gates and the same caps.
 
-1. **`loom-slice`** (bff mode when the slice's `Kind` is bff), seeded per the
-   contract's delegation section plus anything your own seed said to pass
-   down. Gate: a red record exists for every check, a green commit exists, and
+1. **`loom-slice`** (`subagent_type: "loom-slice"`, bff mode when the slice's
+   `Kind` is bff), seeded per the contract's delegation section plus anything
+   your own seed said to pass down. Gate: a red record exists for every check, a green commit exists, and
    the slice's cheap verify lines report exit 0 - typecheck and eslint for a
    ui slice, the BFF build and test class for a bff slice. A slice summary
    claiming green with no red evidence in the ledger fails the gate. Send it
    back once; twice is a blocker.
-2. **`loom-probe` quick**, scoped to that slice. Gate: findings carry
+2. **`loom-probe` quick** (`subagent_type: "loom-probe-quick"`), scoped to
+   that slice. Gate: findings carry
    reproductions and severities, and probe specs are deleted or flagged
    promote.
 3. **Fix turn**, only if the probe returned must-fix findings: one
@@ -126,8 +127,13 @@ WAVE blocked | S6 [x], S7 [!] | remaining S7-S9 | ledger:## Blockers
   once.
 - You own the gate decisions for your wave's slices and nothing else. Every
   read of source and every edit happens in a stage subagent.
-- You spawn stages only. A stage you spawn spawns nothing - the contract's
-  depth limit is orchestrator, crew, stage, and you are the middle of it.
+- You spawn stages only, and **always by agent type**. A spawn with no agent
+  type and no `model` inherits yours, and you are deliberately on a cheaper
+  tier than `loom-slice` - so a bare `general-purpose` spawn quietly downgrades
+  the stage that writes the code, with green checks and nothing in the ledger
+  to show it. The contract's "Models" section is the table.
+- A stage you spawn spawns nothing - the contract's depth limit is
+  orchestrator, crew, stage, and you are the middle of it.
 - Gate on ledger evidence - commands, exit codes, red records - never on a
   stage's prose.
 - The bar is identical attended and solo, and identical however the wave was

@@ -35,9 +35,9 @@ pipeline; it deliberately fixes the problems that review found.
    static sweeps (hardcoded strings, hex, leftover console.logs). Findings
    are reproductions - an input and what it did - never style opinions, and
    the probe spec that caught a real bug gets promoted into the suite as a
-   regression test. Finder and fixer are never the same agent. The single
-   maintainability read (`loom-tidy`) runs once at the end, when the shape
-   has settled.
+   regression test. Finder and fixer are never the same agent. The two
+   reading passes run once each at the end, when the shape has settled:
+   `loom-shape` for the concepts and `loom-tidy` for the files.
 
 4. **Claims carry evidence.** Every stage appends to one flight ledger
    (`artifacts/loom/<slug>-ledger.md`): what it claims, the command that
@@ -98,14 +98,65 @@ queues run (`shell/README.md`), and it works typed by hand too.
 | ask moment 2 | (attended) | skipped | yes |
 | build + quick probe, per slice | loom-crew, driving loom-slice and loom-probe | one slice | 2 to 6 slices |
 | deep probe | loom-probe | yes | yes |
+| structural pass | loom-shape | yes | yes |
+| reshape turn, if one is priced | loom-slice | at most one | at most one |
 | maintainability pass | loom-tidy | yes | yes |
 | CI mirror | loom-gate | yes | yes |
 | merge main, push, report | loom-land | yes | yes |
+
+A `loom-ninja` round is a third route through the same table: build and one
+quick probe as subagents, the CI mirror and the merge as scripts, and deep
+probe, shape and tidy deferred to its settle-up. See "Fast rounds on a finished
+branch" below.
 
 Fix turns happen inside the loop: a must-fix probe finding goes back to
 loom-slice in fix mode (the reproduction becomes a failing spec, then a fix),
 capped at two turns per probe. A must-fix that survives the cap stops the run
 rather than accumulating - loom never carries a known-broken slice forward.
+
+## The structural pass (loom-shape)
+
+Every other stage in this pipeline judges code one file at a time. That misses
+one whole class of defect, and it is the expensive one: a unit that is well
+named, fully covered, probed and locally excellent while quietly carrying two
+ideas at once. Nothing is duplicated, nothing is dead, nothing is misnamed,
+every check passes. The bill arrives the next time somebody has to change one
+of the two ideas and finds it smeared across eight places.
+
+`loom-shape` asks one question over the whole branch: **does each idea the code
+expresses have exactly one home?** It reads and prices; it never edits.
+
+- **It runs after the deep probe and before tidy**, which is the only moment
+  the read is both possible and still cheap. Earlier and the shape is still
+  moving. Later and the gate has measured a shape nobody looked at, and the
+  fix is a second PR.
+- **The evidence is the tells**, not taste: a mode flag tested in three files
+  or passed down two levels, a comment spending a paragraph on what a member
+  means "while paging" versus "while scrolling", members no given caller can
+  ever reach, two vocabularies in one type, one predicate tested on eight
+  sites. One tell is a question. Two on the same unit is a finding.
+- **The bar is deliberately hard to clear.** The concept must already exist
+  twice in shipped code, never for a hypothetical third. The smear is listed
+  exhaustively by `path:line`. The finding is argued by pricing two or three
+  realistic next changes, in files named. It carries a staged plan where every
+  stage compiles and passes alone, the behaviors that must survive, an honest
+  cost including the test bill, and the strongest case against doing it at all.
+  A finding that cannot be staged is a rewrite, and it says so and stops.
+- **One reshape per run.** The top finding is executed as a `loom-slice`
+  reshape turn, so the finder and the fixer are still never the same agent.
+  Everything else is a named follow-up with its sites, which is a story rather
+  than scope creep here.
+- **What makes an unattended reshape safe** is the budget it has to clear:
+  every stage green on its own, no stage editing behavior, no spec assertion
+  weakened or deleted, the test count no lower after than before, one mutation
+  per seam introduced, and nothing reaching outside the branch's subsystem. A
+  plan failing any of those becomes a follow-up instead. It adds no ask moment
+  in either mode - a reshape needing permission is one that failed the budget.
+
+The plan already does the cheap half of this before any code exists: its shape
+check counts the copies a new pattern adds, prices a widening of a shared unit,
+and refuses a mode that cannot name two cases shipping today. What it cannot do
+is see the shape the code actually landed in, which is what this stage is for.
 
 ## Full-stack slices (the BFF half)
 
@@ -155,8 +206,8 @@ demonstrates from the gaps it skipped, writes the patch to
 `artifacts/loom/<slug>/round-N.patch`, verifies the patch replays, and only then
 stashes the tree. With the code out of the way the specs go genuinely red, so
 the born-red proof survives intact rather than degrading to an after-the-fact
-mutation check. Then the normal stages run unchanged: slice, probe, tidy, gate,
-land.
+mutation check. Then the normal stages run unchanged: slice, probe, shape,
+tidy, gate, land.
 
 Three things it does differently:
 
@@ -179,7 +230,10 @@ and recon (the diff and its neighbors are the recon), `loom-plan` (the diff
 supplies each slice's Touches for free), and both ask moments (you approved the
 shape by clicking it). The only planned pause is when the diff touches a realm
 BFF, because a browser contract is a design decision a diff cannot approve for
-itself. Probe deep stays: it is the review stage and it reads the whole branch.
+itself. Probe deep and shape both stay: they are the review stages and both
+read the whole branch. Shape earns its slot here more than anywhere, because
+`prototype` is told to reuse and forbidden to refactor, so a second idea moving
+into a unit that had one is exactly what a prototype leaves behind.
 
 Be honest about the saving. Measured on a four-slice round, probe and the fix
 turns it caused were over half the active time and the gate under four
@@ -191,6 +245,53 @@ already settled by clicking it.
 **Your prototype is never deleted.** The patch is on disk, the stash ref is in
 the ledger, and no skill drops either. If a round blocks, the blocker message
 carries both.
+
+## Fast rounds on a finished branch (loom-ninja)
+
+The third way in. `/loom` starts from a request, `/loom-finish` from a working
+prototype, and `/loom-ninja` from a branch that already landed a full round and
+now needs one more small thing.
+
+```
+/loom-ninja make the empty state read "No rules yet"
+/loom-ninja --refactor          # no behavior change; reshape discipline
+/loom-ninja                     # a dirty tree is the request
+/loom-ninja --settle            # pay the accumulated review debt, then land
+```
+
+It exists because of a measurement. The six ui-app CI checks cost 4:47
+sequential and 3:24 in three parallel lanes, while a finished patch-lane round
+on a two-file tweak took 54:52 with the gate only 5:37 of it. **The checks are
+cheap and the stages are expensive**, so ninja keeps every check and removes
+stages: two subagents where loom runs nine, the gate run as a script rather
+than delegated, and the merge scripted with an agent only where a conflict
+needs semantics. About twenty minutes instead of about fifty-five.
+
+The one thing it defers is the three branch-scoped review passes - probe deep,
+shape and tidy - which on a fourth tweak re-read code nothing has touched since
+they last cleared it. Ninja records that as **review debt** in the ledger
+header and `--settle` pays it in one pass scoped to the accumulated delta, so
+the review is amortized rather than skipped. The debt line is reported every
+round, in the ledger, the appended report and the closing message. It warns and
+never blocks, which makes reporting it loudly the whole mitigation.
+
+Its licence is one fact, checked by script and not by judgment: **the branch's
+last loom round landed.** Land is only marked `[x]` after a gate was accepted,
+so it is the single line proving the review tail really ran over this branch.
+No ledger, or a round still open, and ninja declines and points at `/loom --in`
+or `/loom-finish`.
+
+What it will not take: a new BFF route (a browser contract is loom's ask moment
+2), a new page or route, new shared state, or more than about three production
+files. Its build stage runs that guard before writing anything and bounces in
+about two minutes, because building the wrong shape costs a round and a revert.
+
+Born red still holds in the two modes that add behavior. In adopt mode, where
+the human hand-tweaked the tree, ninja does not revert: specs are written
+against the diff and proved by a targeted mutation instead. That is the one
+place its proof is weaker than loom's, and it buys back `loom-adopt`'s patch,
+stash, gap sweep and reconcile, about eleven minutes that exist only to make
+reverting somebody's working code safe.
 
 ## Context economics (why a long run does not drown)
 
@@ -217,6 +318,36 @@ nothing is lost: the ledger on disk is the authoritative state and the run
 re-grounds from it, which is the same mechanism that makes a killed run
 resumable.
 
+## Model economics (why the stages are not all on one model)
+
+Each stage has its own agent type under `~/.claude/agents/`, and its model and
+effort live in that file rather than in the orchestrator's judgment. The full
+table is in `skills/shared/loom-contract.md`; the rule behind it is one line:
+**downgrade by frequency, never by stakes.**
+
+A stage that runs four to twelve times per run and executes a list somebody else
+already wrote is where efficiency lives. So the per-slice quick probe is on
+sonnet - it runs the Attack line the plan wrote for it - and so is `loom-crew`,
+which reads no source and gates against an enumerated checklist. A stage that
+runs once and produces a claim nobody can check from outside is the opposite
+case, and gets more rather than less: `loom-shape` is the most expensive agent
+in the pipeline because its own failure mode is answering an easier question
+than the one asked, once per run, with nothing downstream that would catch it.
+Everything that writes code or judges evidence stays on opus.
+
+Two stages are split for this reason alone. `loom-probe` has two agent types,
+`loom-probe-quick` and `loom-probe-deep`, because the depths are different jobs
+at the same desk and one of them runs per slice while the other runs once.
+`loom-land` hands each conflicted file to `loom-merge-conflict`, because the
+merge around it is mechanical and the resolution inside it is not.
+
+The reason this is agent types and not a `model` argument: a spawn that names
+neither inherits the model of whoever spawned it. `loom-crew` and `loom-land`
+both sit below the stages they spawn, so a bare spawn from either would quietly
+drop the code-writing or conflict-resolving stage a tier - green checks, nothing
+in the ledger, no way to tell afterwards. Pinning the model in the agent file
+makes that unrepresentable.
+
 ## Using the stages standalone
 
 Each stage is a normal skill and useful alone:
@@ -225,6 +356,8 @@ Each stage is a normal skill and useful alone:
   anything, loom-built or not.
 - `/loom-gate` - "will CI pass" for ui-app and the BFFs. The local mirror in
   one shot.
+- `/loom-shape` - "is this the right shape". The concept-level read, and the
+  price of the reshape it recommends.
 - `/loom-tidy` - the maintainability pass with the over-engineering veto.
 - `/loom-slice` - hand it one small verifiable change and it will build it
   checks-first.
@@ -232,6 +365,12 @@ Each stage is a normal skill and useful alone:
   branch.
 - `/loom-adopt` - turn working changes into a slice list and get them out of
   the tree, without running the rest of a round.
+
+`loom-ninja` adds two scripts that are useful on their own:
+`skills/loom-ninja/scripts/gate.sh <slug> origin/main <round base>` is the
+whole ui-app CI mirror in three parallel lanes with a scorecard, and
+`skills/loom-ninja/scripts/debt.sh` reports a branch's loom state and how much
+of it no review pass has covered.
 
 Standalone runs still read `skills/shared/loom-contract.md`, which is the
 single place the repo facts (commands, coverage gate, translation rules, git
@@ -264,6 +403,10 @@ it does not answer what to build. For a genuinely open design question, run
   plus triage becomes one executing skeptic per slice plus one deep pass -
   fewer agents, findings that are reproductions instead of opinions, and the
   fixes happen while the slice is still in context.
+- **Structure gets a stage, not a wish.** The defect that survives every local
+  check is a concept with two homes, and no amount of per-file review finds it.
+  It gets its own pass with its own bar, and a budget to actually fix one
+  rather than only writing it down.
 - **Symmetric rigor.** The old autonomous path applied review fixes more
   aggressively than the attended path and skipped security-style scrutiny
   entirely; loom's bar is identical in both modes by construction.

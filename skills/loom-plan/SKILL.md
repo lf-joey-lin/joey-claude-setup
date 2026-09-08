@@ -83,11 +83,13 @@ is not done.
 Two things that are **not** a trade-off on their own, because both were used as
 one before:
 
-- **"It is not a declared dependency yet."** `@vueuse/core` is installed and
-  undeclared by design; the contract says what that costs and how to decide it.
-  Attended, it goes in ask moment 2 as its own line so the human answers it.
-  Solo, hand-roll, log the unit passed over, and add the line under "Needs
-  human eyes".
+- **"It is not auto-imported."** True of every `@vueuse/core` composable, and
+  it costs one `import { x } from '@vueuse/core'` line. The package is a
+  declared dependency and `app/` already ships a consumer, so this is not a
+  decision for the human and not a reason to write the effect by hand - see
+  the contract's VueUse bullet. Confirm the name in
+  `node_modules/@vueuse/core/dist/index.d.ts`, not in `.nuxt/imports.d.ts`
+  where it will never appear.
 - **"It is only about fifteen lines."** Fifteen lines of lifecycle and
   teardown is where the edge cases live - the server render with no observer,
   the double fire in one frame, the listener that outlives the element. That
@@ -120,7 +122,12 @@ and by then a slice check has locked the shape in.
    the caller that wants it, and the callers it will be meaningless for.
 3. **Follow a new mode.** Does a flag or discriminant the plan introduces get
    read in more than one file, or passed through more than one level? List the
-   sites off the `Touches:` lines.
+   sites off the `Touches:` lines. Then the test that decides it: **name the
+   two cases it tells apart, both shipping today.** A mode with one real case
+   is not a mode, it is a hard-coded answer with a switch in front of it, and
+   the honest plan writes the answer. A mode whose second case is expected
+   later is the same thing with optimism attached. Two cases live now, or the
+   slice carries no flag.
 
 One line each, whether or not it fires. A question that fires also gets a line
 in the return, and ask moment 2 carries it the way it carries a hand-roll.
@@ -128,8 +135,11 @@ Nothing firing is the normal result and is recorded as such, so a reader can
 tell the sweep from a skipped sweep.
 
 Stop there. This is a sweep over the shape the plan is about to commit to, not
-a structural review: a concept genuinely smeared across the subsystem is
-`/solidify2`, run on its own, whose output is a spec rather than a slice.
+a structural review. A concept genuinely smeared across the subsystem belongs
+to `loom-shape`, which runs after the last slice, when the shape has settled
+and the evidence is code rather than a prediction. Naming a suspicion here
+costs nothing and helps it: write it as one line under the shape check, and
+`loom-shape` will either build it into a finding or clear it.
 
 ## Grounding a bff slice (api-integrator, steps 0 to 4)
 
@@ -196,7 +206,9 @@ Mark the Plan `[x]` and return a summary: the slice list with one line each,
 every hand-roll with the platform unit it passed over, any custom component and
 its justification, prior art found, any shape-check question that fired, and
 any decision you defaulted (logged in the ledger per the contract). A
-hand-roll whose only obstacle is an undeclared dependency is called out by
-name in the return, because that one is the human's to answer, not yours. In
+hand-roll whose only obstacle is a package this repo does not already depend on
+is called out by name in the return, because adding a dependency is the human's
+to answer, not yours. `@vueuse/core` is not one of those: it is declared and
+already consumed, so it needs no line. In
 attended mode this is the orchestrator's second ask moment; in solo mode there
 is nothing to ask - the defaults are logged and the run continues.

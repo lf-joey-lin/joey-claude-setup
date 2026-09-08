@@ -45,16 +45,18 @@ already opened, one queue per worktree (`shell/mqueue.sh` in
   the branch already has, exactly as `loom-finish` does, and every stage seed
   carries the round number alongside the ledger path. Slice ids carry the
   round prefix (`R2.S1`). A finished round is history, never a resume point.
-- **Branch-scoped stages read the whole branch.** Probe deep, tidy, gate and
-  land cover every round on the branch, not just this one, so an earlier
+- **Branch-scoped stages read the whole branch.** Probe deep, shape, tidy, gate
+  and land cover every round on the branch, not just this one, so an earlier
   round's code is re-covered rather than assumed good. That is the point of
-  them being branch-scoped.
+  them being branch-scoped. Shape especially: a concept splits across rounds,
+  and the round that puts the second tenant in is the one that can see it.
 
 ## The run
 
-Every stage is one synchronous subagent, seeded per the contract's delegation
-section (worktree path, ledger path, mode line, read the contract plus its own
-skill file). Gate each stage on the ledger entries it appended - the evidence
+Every stage is one synchronous subagent, spawned by the agent type the
+contract's "Models" section names for it and seeded per its delegation section
+(worktree path, ledger path, mode line, read the contract plus its own skill
+file). Gate each stage on the ledger entries it appended - the evidence
 lines, never the subagent's prose - by reading **only that stage's section**
 of the ledger, per the contract's context-economy rules; never re-read the
 whole file mid-run. Record your own gate decision as the last line of that
@@ -78,10 +80,7 @@ never read them (step 3).
    legacy source (the contract's "BFF slices" section).
    - **Ask moment 2 (attended only)**: the slice list, one line each, plus
      every hand-roll with the platform unit it passed over, and any custom
-     component justification (approve / adjust / abort). A hand-roll whose only
-     obstacle is promoting `@vueuse/core` to a direct dependency gets its own
-     line in the question; that is the human's call and this is the moment for
-     it. When the plan
+     component justification (approve / adjust / abort). When the plan
      has a bff slice, this question also carries its browser-contract design -
      it doubles as api-integrator's approval gate, so show the route, verb,
      DTO cuts, and status map, not just the slice name. This is the last
@@ -110,17 +109,36 @@ never read them (step 3).
      replaces, and the patch lane then has no second code path.
    - You never see a slice seed, a stage return, or a slice's ledger section.
      If you find yourself reading one mid-run, the crew boundary has leaked.
-4. **Probe deep** (`loom-probe` over the whole branch). Same fix-turn rule,
-   same cap.
-5. **Tidy** (`loom-tidy`). Gate: fixes committed with slice checks still
+4. **Probe deep** (`loom-probe-deep`, over the whole branch). Same fix-turn
+   rule, same cap. It is a different agent type from the quick probes the crew
+   ran, because deep is a once-per-run read of everything and quick is a
+   per-slice run of a list the plan already wrote.
+5. **Shape** (`loom-shape` over the whole branch). The concept-level read: does
+   each idea the branch expresses have one home. It finds and prices; it never
+   edits. Gate: a concept map exists, every finding carries its complete site
+   list and its priced next change, and each one says executable or follow-up
+   with the budget rule that decided it. A structural claim with a partial site
+   list fails the gate - send it back once.
+   - **The reshape turn**, only when a finding came back executable: one
+     `loom-slice` in reshape mode, seeded with that finding's staged plan
+     verbatim. Gate it on the ledger's `### Reshape` entry: every stage green on
+     its own, the test count no lower after than before, one mutation per seam
+     introduced, and the must-survive list walked. A stage that could not land
+     green means the plan was wrong - the stage is reverted, the finding becomes
+     a follow-up, and the run continues; that is a recorded outcome, not a
+     blocker. **One reshape per run**, and no second attempt.
+   - No re-probe follows a reshape. It changed no behavior, the whole suite plus
+     the seam mutations is its evidence, and `loom-gate` measures the result
+     anyway.
+6. **Tidy** (`loom-tidy`). Gate: fixes committed with slice checks still
    green, follow-ups and vetoes recorded. Tidy reporting a locked-in behavior
    as wrong is a finding for the report, never a change.
-6. **Gate** (`loom-gate`). READY: continue. NOT READY: one targeted fix turn
+7. **Gate** (`loom-gate`). READY: continue. NOT READY: one targeted fix turn
    seeded with the real failing output (loom-slice fix mode for code, nothing
    for what the gate owns itself), re-run the gate once. Still NOT READY:
    stop the run - no push, ledger `[!]`, the output in Blockers. A faked
    pass is the worst outcome this pipeline can produce.
-7. **Land** (`loom-land`). Attended: show the report's inline sections, then
+8. **Land** (`loom-land`). Attended: show the report's inline sections, then
    confirm the push with one question (skipped under `--no-push`). Solo: land
    never pushes; the report says so.
 
@@ -145,7 +163,10 @@ next round of changes in place rather than opening a second run.
 ## Running several in parallel
 
 Spawn one background `general-purpose` agent per request, each told to invoke
-the loom skill with `--solo` and its request. Scout gives every solo run its
+the loom skill with `--solo` and its request. That one is deliberately not an
+agent type: it is standing in for you, the orchestrator, so it takes the
+session's model like you do. Everything it spawns below itself still goes by
+agent type. Scout gives every solo run its
 own worktree, so they cannot collide; the ledgers keep them independently
 resumable. Review each report in the main session, then push and run
 `/paperwork` per branch there.
@@ -156,10 +177,9 @@ deep, the crew is the level to drop - tell the background agent to run the
 slice loop inline per the contract's no-subagents fallback. Do not drop a
 stage instead; the stages are where the work happens.
 
-Model note: stages that think (plan, slice, probe deep, tidy) belong on the
-session's default model; scout, gate, and land are mechanical enough for a
-cheaper tier when spend matters. No fixed table - pass `model` per Agent call
-as judgment dictates.
+Model note: every stage has its own agent type and the model lives in that
+file, not in your judgment. Spawn by `subagent_type` and never pass `model`
+yourself - the contract's "Models" section is the table and the reasoning.
 
 ## Invariants
 

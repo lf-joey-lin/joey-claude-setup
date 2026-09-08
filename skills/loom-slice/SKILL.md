@@ -1,6 +1,6 @@
 ---
 name: loom-slice
-description: Build stage of the loom pipeline - implement ONE slice from the plan, checks first: write the slice's acceptance specs, see them fail, implement to green, verify, commit. Also runs in fix mode over probe findings. Invoke via /loom normally; directly when the user asks to "build slice N" or hands over one small verifiable change.
+description: Build stage of the loom pipeline - implement ONE slice from the plan, checks first: write the slice's acceptance specs, see them fail, implement to green, verify, commit. Also runs in fix mode over probe findings, and in reshape mode over a loom-shape finding. Invoke via /loom normally; directly when the user asks to "build slice N" or hands over one small verifiable change.
 ---
 
 # loom-slice: one slice, born red
@@ -146,10 +146,51 @@ run total has to account for it. If a finding turns out to be wrong or the fix
 would change behavior a check locks in, do not force it - record the
 disagreement and return; whoever spawned you decides.
 
+## Reshape mode
+
+When seeded with a `loom-shape` finding instead of a plan slice or probe
+findings: you are moving a concept into one home, and **you change no
+behavior**. The staged plan arrives with the finding; build it stage by stage,
+in its order.
+
+- **Every stage lands green on its own.** After each one, the whole unit suite
+  (`npx vitest run --project=unit`, or the BFF test project), typecheck and
+  eslint, all exit 0, before the next stage starts. A stage that cannot land
+  green alone means the plan was wrong: stop, record which stage and why, and
+  return. Do not carry a red tree into the next stage.
+- **Specs move, they never soften.** You may re-import, re-file and split a
+  spec. You may not weaken, delete or loosen an assertion, and the test count
+  after must be at least the count before. Record both counts; that pair is
+  this mode's headline evidence, the way the red record is a normal slice's.
+- **The suite staying green is necessary, not sufficient.** For each seam the
+  reshape introduced, one mutation: break it, run the specs that cover it,
+  expect red, restore, and confirm `git status` is clean. A moved concept that
+  nothing would notice changing has been moved into a blind spot, and that is a
+  finding of its own rather than a finished reshape.
+- **The finding's "must survive" list is the acceptance check.** Walk it before
+  committing and name the check that proves each line still holds.
+- **A split that creates a new `.vue` under `app/components`, `app/layouts` or
+  `app/pages` carries its story in the same stage.** The a11y suite mounts
+  stories and nothing else, so markup that moves into a new file leaves the
+  suite's coverage behind it, and loom-gate fails a new component with no
+  story. Extend the existing story where the parent already has one; add the
+  file where it does not.
+- Nothing else rides along. A tidy-shaped wart you pass on the way is a line in
+  the ledger for tidy, which runs next, not an edit.
+
+One commit per stage, subject `[<component>] <imperative>`, and the ledger
+entry under `### Reshape S<k>` carries its own `- Timing:` line, the stage
+list with each stage's commit and green evidence, the two test counts, the
+mutation per seam, and the must-survive walk. If a stage turns a slice check
+red, revert that stage and return: a reshape is never negotiated against a
+locked-in behavior.
+
 ## Return
 
 A short summary: the slice or findings worked, red-then-green confirmed per
 check, the count of checks that could not go red and which slice already
 carried each (more than one is a sizing signal for the plan, not a harness
 problem), the commit hash, verify results, and any deviation from the plan
-with its reason. The ledger already carries the detail.
+with its reason. In reshape mode: the stages landed, the two test counts, the
+mutation per seam, and anything the must-survive walk could not confirm. The
+ledger already carries the detail.
