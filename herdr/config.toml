@@ -74,12 +74,14 @@ description = "panels"
 # teams-sync on or off, and whether either half is really working. A popup because
 # it is a whole panel and nothing in a pane needs to stay visible behind it. y is free
 # on this layer and ctrl+y is not another key in disguise, unlike m, i, j and [.
+# Tall enough for the agent poll table, which is a row per live agent on top of the
+# status lines; at 45% the last cards and replies fell off the bottom.
 [[keys.command]]
 key = "ctrl+alt+y"
 type = "popup"
 command = "bash -lic 'herdr-teams-toggle panel'"
 width = "70%"
-height = "45%"
+height = "65%"
 description = "teams-sync panel"
 
 # Same switch without looking at it, for walking away from the desk. It moves both

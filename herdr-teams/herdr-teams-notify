@@ -13,6 +13,10 @@
 #   only ever shows up as "sent a card".
 # Only the Adaptive Card shape renders as a card. The flow accepts any JSON, so a wrong
 #   shape still answers 200 and posts the raw body as text.
+# A body too long for one post is split and the rest go out as replies under the same
+#   thread, so the whole message arrives instead of stopping mid-sentence. See
+#   split_body for why the split has to respect code fences. Continuation posts carry
+#   "n/N" as their title instead of repeating the original title and facts.
 # --dry-run prints the payload and posts nothing. It is also what you paste into the
 #   flow trigger's schema field.
 set -euo pipefail
@@ -22,6 +26,17 @@ STATE_DIR="${HERDR_TEAMS_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/herdr/
 # Forget a thread after this many seconds with no card in it, so tomorrow's run opens
 # a new thread instead of replying under yesterday's.
 TTL="${HERDR_TEAMS_THREAD_TTL:-86400}"
+# Characters of body per post. Escaping expands this on the wire: every "<" becomes
+# four bytes and every newline becomes a "<br>", so a chunk of 2000 can reach roughly
+# 8KB of payload. That is well under any card size Teams has refused so far, and the
+# real ceiling is not documented anywhere we trust, so the headroom is deliberate.
+CHUNK="${HERDR_TEAMS_CHUNK:-2000}"
+# A runaway body should not turn into fifty phone notifications. Past this many chunks
+# the last one carries a note saying how much was dropped.
+MAX_CHUNKS="${HERDR_TEAMS_MAX_CHUNKS:-12}"
+# Seconds between chunk posts. The flow is a Power Automate webhook and posting a long
+# body back to back is the one thing here that can get throttled.
+CHUNK_DELAY="${HERDR_TEAMS_CHUNK_DELAY:-1}"
 
 THREAD=""
 DRY=0
@@ -72,6 +87,48 @@ if [ -n "$THREAD" ]; then
     fi
 fi
 
+# Cut the body into chunks of at most $1 characters, one file per chunk in $2, named
+# chunk.001 upward. Splitting on a plain character count would break a ``` block in
+# half, and md2html below decides code from prose by counting fences: a chunk holding
+# an odd number of them renders every later segment inverted, prose as a code block
+# and code as prose. So a block that has to be split is closed at the break and
+# reopened with its own language tag on the far side.
+split_body() {
+    local max="$1" dir="$2"
+    awk -v max="$max" -v dir="$dir" '
+    function flush(   path) {
+        if (buf == "") return
+        if (open) buf = buf "```\n"
+        path = sprintf("%s/chunk.%03d", dir, ++idx)
+        printf "%s", buf > path
+        close(path)
+        buf = open ? "```" tag "\n" : ""
+    }
+    {
+        line = $0 "\n"
+        # A single line longer than a whole chunk (a minified blob, a long url) is cut
+        # rather than allowed to push one chunk past the limit on its own.
+        while (length(line) > max) {
+            take = max - length(buf)
+            if (take < 1) { flush(); take = max - length(buf) }
+            if (take < 1) take = 1
+            buf = buf substr(line, 1, take)
+            line = substr(line, take + 1)
+            flush()
+        }
+        if (buf != "" && length(buf) + length(line) > max) flush()
+        buf = buf line
+        # Track the fence state after appending, so a flush knows whether it is
+        # breaking inside a block. The tag is kept to reopen the block unchanged.
+        if ($0 ~ /^[ \t]*```/) {
+            if (open) { open = 0; tag = "" }
+            else { open = 1; tag = $0; sub(/^[ \t]*```/, "", tag) }
+        }
+    }
+    END { flush() }
+    '
+}
+
 # jq builds the JSON so quotes/newlines in agent output can't break the payload.
 # threadId sits beside attachments rather than inside the card: the card is what Teams
 # renders, this is what the flow routes on.
@@ -83,8 +140,10 @@ fi
 # <pre>, and stores <pre> as its own code block, which is the whole subset used here.
 # Code fences are split off first so nothing inside a block is read as markdown, and a
 # block keeps its real newlines where everything else turns into <br>.
+# A continuation post passes an empty title and no facts, so both are omitted rather
+# than rendered as an empty bold tag with two breaks under it.
 payload() {
-    jq -nc --arg ti "$TITLE" --arg tx "$TEXT" --argjson facts "$FACTS" --arg tid "$1" '
+    jq -nc --arg ti "$2" --arg tx "$3" --argjson facts "$4" --arg tid "$1" '
     def md_inline:
         @html
         | gsub("`(?<c>[^`\n]+)`"; "<code>" + .c + "</code>")
@@ -108,20 +167,53 @@ payload() {
         content:{
           "$schema":"http://adaptivecards.io/schemas/adaptive-card.json",
           type:"AdaptiveCard", version:"1.4",
-          body:([
-            {type:"TextBlock", text:$ti, weight:"Bolder", size:"Medium", wrap:true}
-          ]
+          body:([]
+          + (if ($ti|length) > 0 then [{type:"TextBlock", text:$ti, weight:"Bolder", size:"Medium", wrap:true}] else [] end)
           + (if ($facts|length) > 0 then [{type:"FactSet", facts:$facts}] else [] end)
           + (if ($tx|length) > 0 then [{type:"TextBlock", text:$tx, wrap:true}] else [] end)
           )}}],
-      text:( "<b>" + ($ti|@html) + "</b>"
+      text:( (if ($ti|length) > 0 then "<b>" + ($ti|@html) + "</b>" else "" end)
              + ($facts | map("<br><b>" + (.title|@html) + "</b> " + (.value|@html)) | join(""))
-             + (if ($tx|length) > 0 then "<br><br>" + ($tx|md2html) else "" end) )}
+             + (if ($tx|length) > 0
+                then (if ($ti|length) > 0 or ($facts|length) > 0 then "<br><br>" else "" end)
+                     + ($tx|md2html)
+                else "" end) )}
       + (if ($tid|length) > 0 then {threadId:$tid} else {} end)'
 }
 
+# Chunk the body up front so the dry run shows exactly what a real run would send.
+CHUNK_DIR=$(mktemp -d)
+trap 'rm -rf "$CHUNK_DIR"' EXIT
+if [ -n "$TEXT" ]; then
+    printf '%s' "$TEXT" | split_body "$CHUNK" "$CHUNK_DIR"
+fi
+PARTS=()
+while IFS= read -r p; do PARTS+=("$p"); done < <(find "$CHUNK_DIR" -name 'chunk.*' | sort)
+# No body at all still posts once: the title and facts are the message.
+[ "${#PARTS[@]}" -gt 0 ] || PARTS=("")
+
+if [ "${#PARTS[@]}" -gt "$MAX_CHUNKS" ]; then
+    DROPPED=0
+    for p in "${PARTS[@]:$MAX_CHUNKS}"; do DROPPED=$(( DROPPED + $(wc -c < "$p") )); done
+    PARTS=("${PARTS[@]:0:$MAX_CHUNKS}")
+    printf '\n\n[%s more characters not posted, raise HERDR_TEAMS_MAX_CHUNKS]' \
+        "$DROPPED" >> "${PARTS[-1]}"
+    echo "body over $MAX_CHUNKS chunks, dropped $DROPPED characters" >&2
+fi
+TOTAL="${#PARTS[@]}"
+
+part_text() { [ -n "$1" ] && cat "$1" || printf ''; }
+
 if [ "$DRY" = 1 ]; then
-    payload "$THREAD_ID" | jq .
+    n=0
+    for p in "${PARTS[@]}"; do
+        n=$(( n + 1 ))
+        if [ "$n" = 1 ]; then
+            payload "$THREAD_ID" "$TITLE" "$(part_text "$p")" "$FACTS" | jq .
+        else
+            payload "${THREAD_ID:-<from-first-post>}" "$n/$TOTAL" "$(part_text "$p")" '[]' | jq .
+        fi
+    done
     exit 0
 fi
 
@@ -137,22 +229,44 @@ post() {
     return 1
 }
 
-if ! post "$(payload "$THREAD_ID")"; then
+# Remember the thread id in memory as well as on disk. The continuation posts need it
+# even when no --thread was given, or a split hand-sent card would post its tail as
+# separate top-level cards.
+remember() {
+    local new
+    new=$(printf '%s' "$RESP" | jq -r '.threadId // empty' 2>/dev/null || true)
+    [ -n "$new" ] && THREAD_ID="$new"
+    if [ -n "$FILE" ] && [ -n "$new" ]; then
+        mkdir -p "$STATE_DIR"
+        # Writing also refreshes the mtime, which is what the TTL above reads, so a
+        # thread that keeps getting cards keeps living.
+        printf '%s' "$new" > "$FILE"
+        find "$STATE_DIR" -maxdepth 1 -type f -mmin "+$(( TTL / 60 ))" -delete 2>/dev/null || true
+    fi
+}
+
+if ! post "$(payload "$THREAD_ID" "$TITLE" "$(part_text "${PARTS[0]}")" "$FACTS")"; then
     # A remembered id whose card is gone, say someone deleted it, fails every card
     # after it. Forget it and open a new thread rather than going quiet.
     [ -n "$THREAD_ID" ] || { echo "webhook returned HTTP $CODE" >&2; exit 1; }
     echo "reply to thread $THREAD_ID failed (HTTP $CODE), starting a new thread" >&2
     rm -f "$FILE"
-    post "$(payload "")" || { echo "webhook returned HTTP $CODE" >&2; exit 1; }
+    THREAD_ID=""
+    post "$(payload "" "$TITLE" "$(part_text "${PARTS[0]}")" "$FACTS")" \
+        || { echo "webhook returned HTTP $CODE" >&2; exit 1; }
 fi
+remember
 
-if [ -n "$FILE" ]; then
-    NEW=$(printf '%s' "$RESP" | jq -r '.threadId // empty' 2>/dev/null || true)
-    if [ -n "$NEW" ]; then
-        mkdir -p "$STATE_DIR"
-        # Writing also refreshes the mtime, which is what the TTL above reads, so a
-        # thread that keeps getting cards keeps living.
-        printf '%s' "$NEW" > "$FILE"
-        find "$STATE_DIR" -maxdepth 1 -type f -mmin "+$(( TTL / 60 ))" -delete 2>/dev/null || true
-    fi
-fi
+# The rest go out as replies under the thread the first post just established. No
+# healing here: a failure halfway through means part of the message is already in the
+# channel, and starting a fresh thread for the tail would split one answer across two
+# places. Report which chunk failed and stop, leaving what landed.
+n=1
+for p in "${PARTS[@]:1}"; do
+    n=$(( n + 1 ))
+    [ -z "$THREAD_ID" ] && { echo "no thread id, chunks $n-$TOTAL not posted" >&2; exit 1; }
+    [ "$CHUNK_DELAY" -gt 0 ] && sleep "$CHUNK_DELAY"
+    post "$(payload "$THREAD_ID" "$n/$TOTAL" "$(part_text "$p")" '[]')" \
+        || { echo "chunk $n/$TOTAL failed (HTTP $CODE), $(( TOTAL - n + 1 )) not posted" >&2; exit 1; }
+    remember
+done

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Turn the Teams sync on and off, and show what it is doing.
 # Usage: herdr-teams-toggle [panel|toggle|on|off|status|autostart
-#                           |cards|cards-on|cards-off|replies|replies-on|replies-off]
+#                           |cards|cards-on|cards-off|replies|replies-on|replies-off
+#                           |next [--sending]]
 # teams-sync is both halves at once: cards out (herdr-teams-watch) and replies back in
 #   (herdr-teams-listen). toggle/on/off move the pair, which is what the walk-away chord
 #   wants. They stay two units, and cards/replies still switch one on its own, because
@@ -13,6 +14,10 @@ UNIT=herdr-teams-watch.service
 LISTEN_UNIT=herdr-teams-listen.service
 WEBHOOK="$HOME/.config/herdr/teams-webhook"
 REPLIES_WEBHOOK="$HOME/.config/herdr/teams-replies-webhook"
+# Written by herdr-teams-listen at the end of every pass: the tier ladder plus one row per
+# agent it looked at. The table below only renders it, so it can never disagree with the
+# listener about which tier an agent is on.
+LISTEN_STATUS="${HERDR_LISTEN_STATUS_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/herdr/teams-listen-status}"
 HERDR_BIN="${HERDR_BIN_PATH:-$(command -v herdr || echo "$HOME/.local/bin/herdr")}"
 
 active() { systemctl --user is-active --quiet "${1:-$UNIT}"; }
@@ -24,7 +29,204 @@ both_active() { active "$UNIT" && active "$LISTEN_UNIT"; }
 journal() { journalctl --user -u "${2:-$UNIT}" --no-pager -o short-iso -n "${1:-500}" 2>/dev/null; }
 
 # journalctl's own line, cut down to the clock time and the watcher's message.
-messages() { journal "${1:-500}" "${2:-$UNIT}" | sed -E 's/^[0-9-]+T([0-9]{2}:[0-9]{2}):[0-9]{2}[^ ]* [^ ]+ [^:]+: /\1 /'; }
+messages() {
+    journal "${1:-500}" "${2:-$UNIT}" \
+        | sed -E 's/^[0-9-]+T([0-9]{2}):([0-9]{2}):[0-9]{2}[^ ]* [^ ]+ [^:]+: /\1 \2 /' \
+        | awk '{ h = $1 + 0; m = $2; ap = (h < 12 ? "AM" : "PM"); h = h % 12; if (h == 0) h = 12
+                 $1 = h ":" m ap; $2 = ""; sub(/  /, " "); print }'
+}
+
+# Seconds as something readable at a glance, since every number in the table is an age
+# or a cadence and the raw seconds are unreadable at 1800 and up.
+dur() {
+    local s="$1"
+    if   [ "$s" -lt 0 ];     then printf -- '-'
+    elif [ "$s" -lt 60 ];    then printf '%ds' "$s"
+    elif [ "$s" -lt 3600 ];  then printf '%dm' $(( s / 60 ))
+    elif [ "$s" -lt 86400 ]; then
+        if [ $(( (s % 3600) / 60 )) -eq 0 ]; then printf '%dh' $(( s / 3600 ))
+        else printf '%dh%dm' $(( s / 3600 )) $(( (s % 3600) / 60 )); fi
+    else                          printf '%dd' $(( s / 86400 ))
+    fi
+}
+
+# Wall clock the way it reads on a phone, so a time here matches the taskbar without
+# translating a 24-hour reading.
+clock() { date -d "@$1" +'%-I:%M%p'; }
+
+# Same clock, plus the day when it is not today. A thread is dropped a day after its last
+# card, so a bare "3:46PM" there reads as this afternoon, which is already gone.
+clock_day() {
+    local t
+    t=$(clock "$1")
+    [ "$(date -d "@$1" +%F)" = "$(date +%F)" ] && { printf '%s' "$t"; return; }
+    [ "$(date -d "@$1" +%F)" = "$(date -d tomorrow +%F)" ] && { printf '%s tomorrow' "$t"; return; }
+    printf '%s %s' "$(date -d "@$1" +'%b %-d')" "$t"
+}
+
+hdr() { sed -n "s/^$1=//p" "$LISTEN_STATUS" 2>/dev/null | head -1; }
+
+# Splits the panel into areas: the units and URLs, then the agent table, then the two
+# logs. Without it the table's own header row reads as one more status line.
+# tput needs a terminal, which a piped `status` does not have, so fall back to the width
+# the table itself needs.
+rule() {
+    local cols
+    cols=$(tput cols 2>/dev/null) || cols=""
+    [ -n "$cols" ] && [ "$cols" -ge 40 ] 2>/dev/null || cols=94
+    printf '%*s\n' "$cols" '' | tr ' ' '-'
+}
+
+# The listener's own view of every agent it looked at: which tier its thread is on, how
+# often that tier is polled, and the clock its next poll lands on.
+agents_table() {
+    if [ ! -s "$LISTEN_STATUS" ]; then
+        printf 'agents:        nothing yet, the listener writes the table on its first pass\n'
+        return
+    fi
+
+    local pass next interval hot cold_every cold_until cold_slow dead now age stale
+    pass=$(hdr pass); next=$(hdr next); interval=$(hdr interval); hot=$(hdr hot)
+    cold_every=$(hdr cold_every); cold_until=$(hdr cold_until)
+    cold_slow=$(hdr cold_slow_every); dead=$(hdr dead)
+    : "${pass:=0}" "${interval:=180}"
+    now=$(date +%s); age=$(( now - pass ))
+
+    # The file survives the unit being stopped, so say when it is history rather than
+    # letting an old table read as the current state.
+    if ! active "$LISTEN_UNIT"; then stale='   STALE: replies are OFF'
+    elif [ "$age" -gt $(( interval * 2 )) ]; then stale='   STALE: no pass since'
+    else stale=''
+    fi
+
+    printf 'agents:        pass %s, %s ago%s\n' "$(clock "$pass")" "$(dur "$age")" "$stale"
+    printf '  tiers: hot under %s polls every pass, warm under %s every %s, cold every %s, dropped at %s\n' \
+        "$(dur "$hot")" "$(dur "$cold_until")" "$(dur "$cold_every")" "$(dur "$cold_slow")" "$(dur "$dead")"
+    printf '  %-26s %-8s %-7s %-8s %-9s %-9s %-10s %s\n' \
+        agent state tier 'card age' every 'last poll' next 'last pass'
+
+    local n=0 tag name st tier a every lastpoll nx note pane
+    while IFS=$'\t' read -r tag name st tier a every lastpoll nx note pane; do
+        [ "$tag" = agent ] || continue
+        n=$(( n + 1 ))
+        [ "$n" -le 12 ] || continue
+
+        local col_every col_polled col_next
+        if   [ "$every" -lt 0 ]; then col_every='-'
+        elif [ "$every" -eq 0 ]; then col_every='each pass'
+        else col_every=$(dur "$every"); fi
+
+        if [ "$lastpoll" -lt 0 ]; then col_polled='never'
+        else col_polled="$(dur $(( now - lastpoll ))) ago"; fi
+
+        case "$note" in
+            working)   col_next='after turn' ;;
+            no-thread) col_next='no thread' ;;
+            expired)   col_next='expired' ;;
+            *)         [ "$nx" -lt 0 ] && col_next='-' || col_next=$(clock "$nx") ;;
+        esac
+
+        printf '  %-26s %-8s %-7s %-8s %-9s %-9s %-10s %s\n' \
+            "${name:0:26}" "${st:0:8}" "$tier" "$(dur "$a")" "$col_every" "$col_polled" "$col_next" "$note"
+    done < "$LISTEN_STATUS"
+
+    [ "$n" -eq 0 ] && printf '  no agents in the last pass\n'
+    [ "$n" -gt 12 ] && printf '  and %d more\n' $(( n - 12 ))
+    return 0
+}
+
+# This agent's own row out of the table, found by the pane herdr runs it in.
+# HERDR_PANE_ID is set in every agent's environment; outside one there is no row.
+# Sets MY_TIER, MY_AGE, MY_NEXT and MY_NOTE, and fails when there is no row to set them
+# from, so the footer can leave that half off rather than inventing it.
+MY_TIER='' MY_AGE='' MY_NEXT='' MY_NOTE=''
+# Set by `next --sending`, for a caller that is posting a card right now. See
+# thread_clause for why that changes which clock the hot window is measured from.
+SENDING=0
+my_row() {
+    local tag name st tier a every lastpoll nx note pane
+    [ -n "${HERDR_PANE_ID:-}" ] && [ -s "$LISTEN_STATUS" ] || return 1
+    while IFS=$'\t' read -r tag name st tier a every lastpoll nx note pane; do
+        [ "$tag" = agent ] && [ "$pane" = "$HERDR_PANE_ID" ] || continue
+        MY_TIER="$tier"; MY_AGE="$a"; MY_NEXT="$nx"; MY_NOTE="$note"
+        return 0
+    done < "$LISTEN_STATUS"
+    return 1
+}
+
+# When the next poll of this thread actually lands, which off the hot tier is not the
+# next pass.
+poll_phrase() {
+    [ -n "$MY_NEXT" ] || { printf 'next poll unknown'; return; }
+    printf 'next poll %s (in %s)' "$(clock "$MY_NEXT")" "$(dur $(( MY_NEXT - $1 )))"
+}
+
+# The half of the footer about this agent's own thread. A thread is polled every pass
+# only while it is hot, so the clock that matters is when it stops being hot and a reply
+# starts waiting half an hour instead of three minutes.
+thread_clause() {
+    local now="$1" hot cold_every cold_until dead sent
+    my_row || return 0
+    hot=$(hdr hot); cold_every=$(hdr cold_every)
+    cold_until=$(hdr cold_until); dead=$(hdr dead)
+    [ -n "$hot" ] || return 0
+
+    # A card goes out whenever a turn ends, and that card resets the thread to hot. So
+    # while this agent is working, the window is measured from now rather than from the
+    # card sitting in the channel from last time, which is about to be superseded.
+    # --sending is the same case said outright: the caller is posting a card now, so the
+    # deadline it prints has to be the one that card creates, not the old one it replaces.
+    if [ "$MY_NOTE" = working ] || [ "$SENDING" = 1 ]; then
+        printf '; thread hot until %s, then every %s' \
+            "$(clock_day $(( now + hot )))" "$(dur "$cold_every")"
+        return 0
+    fi
+
+    sent=$(( $(hdr pass) - MY_AGE ))
+    # A one-shot listener run writes -1 for every next poll, so a clock built from it
+    # would read as 1969. Say nothing about the poll rather than that.
+    [ "$MY_NEXT" -ge 0 ] 2>/dev/null || MY_NEXT=''
+    case "$MY_TIER" in
+        none)    printf '; no thread for this agent yet' ;;
+        expired) printf '; thread expired, the next card starts a new one' ;;
+        hot)     printf '; thread hot until %s, then every %s' \
+                     "$(clock_day $(( sent + hot )))" "$(dur "$cold_every")" ;;
+        warm)    printf '; thread warm, %s, cold at %s' \
+                     "$(poll_phrase "$now")" "$(clock_day $(( sent + cold_until )))" ;;
+        cold)    printf '; thread cold, %s, dropped at %s' \
+                     "$(poll_phrase "$now")" "$(clock_day $(( sent + dead )))" ;;
+    esac
+}
+
+# One line, for pasting at the bottom of something else: is the sync up, when does the
+# listener next look for a reply, and how long this agent's own thread stays on the fast
+# tier. `status` is a screenful, which no footer wants.
+next_line() {
+    local nx now sync
+    [ "${1:-}" = --sending ] && SENDING=1
+    if ! active "$UNIT" && ! active "$LISTEN_UNIT"; then
+        printf 'teams-sync OFF\n'; return
+    fi
+    if ! active "$LISTEN_UNIT"; then
+        printf 'teams-sync PARTIAL: cards out only, no reply can come back\n'; return
+    fi
+    if ! active "$UNIT"; then
+        printf 'teams-sync PARTIAL: replies in only, no card goes out\n'; return
+    fi
+
+    nx=$(hdr next); now=$(date +%s)
+    if [ -z "$nx" ] || ! [ "$nx" -ge 0 ] 2>/dev/null; then
+        sync='teams-sync ON, next pass unknown (no pass yet)'
+    elif [ "$nx" -lt "$now" ]; then
+        # The listener writes this at the end of each pass, so a time already gone means
+        # it has not finished one since. Say that rather than printing a stale clock.
+        sync="teams-sync ON, next pass overdue since $(clock "$nx")"
+    else
+        sync="teams-sync ON, next pass $(clock "$nx") (in $(dur $(( nx - now ))))"
+    fi
+
+    printf '%s%s\n' "$sync" "$(thread_clause "$now")"
+}
 
 status() {
     local cards=OFF replies=OFF sync ac=off ar=off line
@@ -56,20 +258,30 @@ status() {
     line=$(messages 500 "$LISTEN_UNIT" | grep 'listening every' | tail -1)
     printf 'listening:     %s\n' "${line:-no startup line in the journal}"
 
-    # The listener's per-pass line, which is the only place the next poll time appears.
-    # The listener stamps its own clock, so drop journalctl's or the line reads twice.
-    line=$(messages 500 "$LISTEN_UNIT" | grep -E 'next [0-9]{2}:|nothing to poll' | tail -1 | sed -E 's/^[0-9]{2}:[0-9]{2} //')
-    printf 'next poll:     %s\n' "${line:-nothing yet}"
+    if [ -n "$(hdr next)" ] && [ "$(hdr next)" -ge 0 ] 2>/dev/null; then
+        printf 'next pass:     %s\n' "$(clock "$(hdr next)")"
+    else
+        # A listener that predates the status file still says it in the journal. It stamps
+        # its own clock, so drop journalctl's or the line reads twice.
+        line=$(messages 500 "$LISTEN_UNIT" | grep -E 'next [0-9]+:|nothing to poll' | tail -1 | sed -E 's/^[0-9]+:[0-9]{2}[AP]M //')
+        printf 'next pass:     %s\n' "${line:-nothing yet}"
+    fi
 
+    rule
+    agents_table
+
+    rule
     printf 'last cards:\n'
     local cardlog
     cardlog=$(messages | grep -E 'notify:|heartbeat:' | tail -5 | sed 's/^/  /')
     printf '%s\n' "${cardlog:-  none yet}"
 
+    rule
     printf 'last replies:\n'
     local reps
     reps=$(messages 500 "$LISTEN_UNIT" | grep -E 'reply ->' | tail -5 | sed 's/^/  /')
     printf '%s\n' "${reps:-  none yet}"
+    rule
 }
 
 toast() {
@@ -124,6 +336,7 @@ autostart() {
 
 case "${1:-panel}" in
     status) status ;;
+    next) shift; next_line "$@" ;;
     on) sync_on ;;
     off) sync_off ;;
     toggle) sync_toggle ;;
@@ -153,5 +366,5 @@ case "${1:-panel}" in
             esac
         done
         ;;
-    *) printf 'usage: herdr-teams-toggle [panel|toggle|on|off|status|autostart|cards|cards-on|cards-off|replies|replies-on|replies-off]\n' >&2; exit 2 ;;
+    *) printf 'usage: herdr-teams-toggle [panel|toggle|on|off|status|autostart|cards|cards-on|cards-off|replies|replies-on|replies-off|next [--sending]]\n' >&2; exit 2 ;;
 esac

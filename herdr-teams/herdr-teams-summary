@@ -43,7 +43,10 @@ if [ "$MODE" = loom ]; then
     exit 0
 fi
 
-MAX_CHARS="${HERDR_SUMMARY_MAX:-1200}"
+# How much of a turn is worth reporting at all. Not a transport limit any more:
+# herdr-teams-notify splits anything too long for one post across replies, so this
+# is only the point where a very long answer stops being worth pushing to a phone.
+MAX_CHARS="${HERDR_SUMMARY_MAX:-12000}"
 PROJECTS="${HERDR_CLAUDE_PROJECTS:-$HOME/.claude/projects}"
 
 # Claude Code names a project folder after the cwd with every non-alphanumeric

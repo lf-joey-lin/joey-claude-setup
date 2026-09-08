@@ -68,8 +68,8 @@ herdr, and polls whether herdr is running or not.
 `ctrl+alt+y` opens the panel. `[space]` is **teams-sync**, both halves at once, which is
 the normal way to use it; `[c]` and `[i]` still flip one on its own. Under that:
 autostart, restart, logs, the startup lines that say whether either half is really
-working, and the listener's next poll time. `ctrl+alt+shift+y` flips teams-sync without
-the panel, for walking out of the room, and toasts what it did.
+working, and [the agent poll table](#the-agent-poll-table). `ctrl+alt+shift+y` flips
+teams-sync without the panel, for walking out of the room, and toasts what it did.
 
 Both halves are on by default and start with WSL. Cards without replies is the setting
 worth knowing about: Teams can page you while nothing in Teams can type into a live
@@ -81,6 +81,7 @@ herdr-teams-toggle                            # the same panel in a shell
 herdr-teams-toggle toggle                     # teams-sync, both halves; or on / off / status
 herdr-teams-toggle cards                      # cards only, or cards-on / cards-off
 herdr-teams-toggle replies                    # replies only, or replies-on / replies-off
+herdr-teams-toggle next                       # one line: is it on, next pass, and this thread's tier
 systemctl --user status herdr-teams-watch     # is it alive
 systemctl --user stop herdr-teams-watch       # quiet, at the desk
 systemctl --user start herdr-teams-watch      # heading out
@@ -97,7 +98,7 @@ herdr-teams-summary --loom <id> <cwd>         # how far through its loom run
 line in the journal is the real check:
 
 ```
-watching every 5s; finished=done idle, plus blocked; heartbeat 900s; one thread per session
+watching every 5s; finished=done idle, plus blocked; heartbeat 15m; one thread per session
 ```
 
 If the clause is missing altogether the running watcher predates the threads code,
@@ -122,6 +123,18 @@ merely starting sends nothing, so the thread opens on the first thing worth read
 text**, because Teams puts text in the phone notification, where a card only ever shows
 up as "sent a card". Every call carries both shapes and the flow picks: the card out of
 `attachments` when it is starting a thread, the HTML out of `text` when it is replying.
+
+**A body too long for one post is split across replies**, so a long answer arrives whole
+instead of stopping mid-sentence. The first chunk is the card, the rest reply under it
+carrying `n/N` as their title rather than repeating the title and facts. The split is not
+a plain character count: `md2html` below tells code from prose by counting ``` fences, so
+a chunk holding an odd number of them would render every later segment inverted. A block
+that has to be broken is closed at the break and reopened with its own language tag on
+the far side, which is why the fence count goes up and the content still round-trips.
+
+The cost is one phone notification per chunk, which is the reason `HERDR_TEAMS_CHUNK` is
+2000 rather than something smaller. `HERDR_TEAMS_MAX_CHUNKS` stops a runaway body from
+becoming fifty of them; past it the last chunk says how much was dropped.
 
 ## What is on the card
 
@@ -277,10 +290,23 @@ an agent's thread only when all of this holds:
 - the agent is **not `working`**. A reply typed at an agent mid-turn lands in its prompt
   box rather than being answered, so it waits for the turn to end
 - the agent has a thread, which is the file `herdr-teams-notify` already writes
-- that file's mtime is inside `HERDR_LISTEN_HOT` (default 1800s). A thread nothing has
-  carded in half an hour is one nobody is replying to
+- the thread has not expired, meaning its last card is inside `HERDR_LISTEN_DEAD`
+  (default 86400s)
+- it is that thread's turn. How often a thread is polled decays with the age of its last
+  card, because nobody is usually mid-reply half an hour on and polling everything every
+  pass burns the quota:
 
-That gate is the whole reason this is affordable, see below.
+| tier      | last card                            | polled          |
+| --------- | ------------------------------------ | --------------- |
+| `hot`     | under `HERDR_LISTEN_HOT`, 1800s      | every pass      |
+| `warm`    | under `HERDR_LISTEN_COLD_UNTIL`, 3600s | every `HERDR_LISTEN_COLD_EVERY`, 1800s |
+| `cold`    | under `HERDR_LISTEN_DEAD`, 86400s    | every `HERDR_LISTEN_COLD_SLOW_EVERY`, 3600s |
+| `expired` | past `HERDR_LISTEN_DEAD`             | never           |
+
+A reply that lands puts its thread back on `hot`, so a conversation you are in the
+middle of is read every pass whether or not a card is still arriving.
+
+That ladder is the whole reason this is affordable, see below.
 
 New replies are the ones newer than a per-thread cursor under
 `~/.local/state/herdr/teams-replies`. A thread seen for the first time records the clock
@@ -291,14 +317,86 @@ Every pass ends with a line saying what it did and when the next one is, because
 loop looks exactly like a dead one and nothing else answers "when will my reply be read":
 
 ```
-16:22:37 polled 1 thread(s), delivered 0; next 16:25:37, then 16:28 and 16:31
-16:25:37 nothing to poll: 1 working, 11 with no thread, 0 gone cold; next 16:28:37, then 16:31 and 16:34
+4:22PM polled 1 thread(s), delivered 0; next 4:25PM, then 4:28PM and 4:31PM
+4:25PM nothing to poll: 1 working, 11 with no thread, 0 gone cold; next 4:28PM, then 4:31PM and 4:34PM
 ```
 
 The second form is the one worth having: it names which of the three gates above is
 holding things up, so a reply that is going nowhere is not a silent wait. The two extra
 times are dropped when the interval is under a minute, where they round to the same
 clock minute and read as a bug.
+
+### One line for a footer
+
+`herdr-teams-toggle next` is the table's answer to "when will my reply be read", in one
+line, for pasting at the bottom of something else. It reports the sync, the next pass,
+and the calling agent's own thread:
+
+```
+teams-sync ON, next pass 5:12PM (in 2m); thread hot until 5:40PM, then every 30m
+teams-sync ON, next pass 5:12PM (in 1m); thread warm, next poll 5:25PM (in 14m), cold at 5:30PM
+teams-sync ON, next pass 5:12PM (in 1m); thread cold, next poll 5:45PM (in 35m), dropped at 3:47PM tomorrow
+teams-sync PARTIAL: cards out only, no reply can come back
+teams-sync OFF
+```
+
+The tier half is what makes it worth reading: on the hot tier a reply is picked up at the
+next pass, and off it a reply waits for that thread's own slower poll instead. The clock
+says when the fast window closes.
+
+It finds its own row by `HERDR_PANE_ID`, which herdr sets in every agent's environment,
+so the row is the one for the agent running the command. That is also why the status file
+carries a pane per row: the display name is suffixed for duplicates and no session id is
+written to the file. Outside an agent there is no row and the tier half is left off.
+
+While an agent is working, the window is measured from now rather than from the card
+already in the channel, because ending the turn sends a card and that card resets the
+thread to hot. So the clock in a footer is the one that applies to the reply being read.
+`next --sending` says that outright, for a caller posting a card right now: measure the
+window from this card, not from the one it is about to replace.
+
+`herdr-teams-watch` puts the line on every card it sends, as a `Sync:` fact, by calling
+`next --sending` with that agent's own `HERDR_PANE_ID`. Nothing else has to add it.
+
+This used to be Claude's job, told to it by the WSL `~/.claude/CLAUDE.md`, and it failed
+the way an instruction to an agent fails: one session ended two replies with
+`herdr-teams-toggle: command not found` having never run the command, on a machine where
+it runs fine. A sender cannot forget the line and cannot invent it. The trade is that the
+line now sits in a fact row at the top of the card rather than at the foot of the reply,
+and that a missing or slow toggle costs the fact but never the card.
+
+### The agent poll table
+
+The journal says what the pass did as a whole. The panel says it per agent, which is
+where "when will my reply be read" is actually answered:
+
+```
+agents:        pass 3:18PM, 11s ago
+  tiers: hot under 30m polls every pass, warm under 1h every 30m, cold every 1h, dropped at 1d
+  agent                      state    tier    card age every     last poll next       last pass
+  momentum-aspire-local-dev  idle     hot     5m       each pass 2m ago    3:21PM     polled
+  momentum-inbox             blocked  warm    33m      30m       12m ago   3:50PM     backoff
+  momentum-docs              done     cold    1h23m    1h        41m ago   4:20PM     backoff
+  momentum                   working  none    -        -         never     after turn working
+```
+
+Two agents in one worktree would otherwise be two rows called `momentum`, so a repeated
+name is numbered `-1`, `-2` in pane order. The numbering is by pane rather than by the
+order herdr lists agents in, so a row keeps its number for as long as both panes live. A
+name used once is left alone.
+
+`card age` is how long since the last card in that thread, which is what picks the tier;
+`every` is that tier's cadence, `each pass` on `hot`. `next` is the clock its next poll
+lands on, or the reason there isn't one: `after turn` for a working agent, `no thread`
+for one that has never carded, `expired`. `last pass` is what the listener did with it
+last time round: `polled`, `delivered`, `backoff`, `seeded`, `expired`, or `flow-down`
+when the Power Automate call failed.
+
+The listener writes the table itself at the end of every pass, to
+`~/.local/state/herdr/teams-listen-status`, and the panel only renders it. That is the
+point: the panel cannot report a tier the listener is not really using. It also means
+the table is as old as the last pass, so the header carries the pass time, and the panel
+marks it `STALE` when replies are off or no pass has landed in two intervals.
 
 ### How the text gets in
 
@@ -330,8 +428,8 @@ forwarded.
 Every action in a run is a Power Platform request and an Office 365 seeded licence is
 6,000 per user per 24 hours, shared with the cards flow. This flow is four actions, so
 one thread polled every 180s around the clock would be about 1,900 by itself. The
-not-working and warm-thread gates are what hold it to a few hundred: a thread only costs
-anything inside the window where you might really be replying to it.
+not-working gate and the tier ladder are what hold it to a few hundred: a thread only
+costs full price inside the window where you might really be replying to it.
 
 `HERDR_LISTEN_INTERVAL=60` is fine for one thread and not for four. Long polling is
 worse, not better: a `Do until` with a 5s `Delay` spends about 60 requests per 100
@@ -341,7 +439,8 @@ seconds against about 35 for plain polling, for the same latency.
 
 ```bash
 herdr-teams-toggle replies        # or replies-on / replies-off
-herdr-teams-toggle status         # both units, both URLs, next poll, last cards and replies
+herdr-teams-toggle status         # both units, both URLs, the poll table, last cards and replies
+herdr-teams-toggle next           # the same thing in one line, for a footer
 journalctl --user -u herdr-teams-listen -f
 herdr-teams-listen 60             # foreground, faster, for a test
 ```
@@ -419,6 +518,12 @@ fixes the first half and not the second.
 Worst case a blocked agent is 5 seconds late. `herdr-teams-watch 2` if that ever
 matters, though it will not.
 
+The ceiling on a single post is not established. Teams and the flow both have one, but
+neither is documented anywhere worth trusting, so `HERDR_TEAMS_CHUNK` is set well under
+any size that has been refused rather than at a measured limit. Escaping is what makes
+the margin necessary: every `<` becomes four bytes on the wire and every newline becomes
+a `<br>`, so 2000 characters of body can reach roughly 8KB of payload.
+
 Not output only any more. Replying from the phone works, see [Replies](#replies). It
 needs no Entra app registration and no `Chat.ReadWrite` consent, because the second
 flow reads the thread under Joey's own Teams connection and hands the text back over
@@ -435,5 +540,7 @@ Tunables, all read from the environment, all fine as they are:
 seconds), `HERDR_WATCH_THREADS` (default `1`), `HERDR_WATCH_THREAD_KEY` (default
 `session`, or `worktree`), `HERDR_TEAMS_THREAD_TTL` (default 86400 seconds of silence
 before a thread is dropped), `HERDR_TEAMS_STATE_DIR` (default
-`~/.local/state/herdr/teams-threads`), `HERDR_SUMMARY_MAX` (default 1200 characters of
-body), and the poll interval as `$1`.
+`~/.local/state/herdr/teams-threads`), `HERDR_SUMMARY_MAX` (default 12000 characters of
+body), `HERDR_TEAMS_CHUNK` (default 2000 characters per post), `HERDR_TEAMS_MAX_CHUNKS`
+(default 12), `HERDR_TEAMS_CHUNK_DELAY` (default 1 second between posts), and the poll
+interval as `$1`.

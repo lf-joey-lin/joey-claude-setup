@@ -30,19 +30,33 @@ PANE_MAX_CHARS="${HERDR_WATCH_PANE_MAX_CHARS:-1500}"
 # names silently find nothing and the whole loop does nothing while looking healthy.
 HERDR_BIN="${HERDR_BIN_PATH:-$(command -v herdr || echo "$HOME/.local/bin/herdr")}"
 NOTIFY_BIN="${HERDR_NOTIFY_BIN:-$(command -v herdr-teams-notify || echo "$HOME/.local/bin/herdr-teams-notify")}"
+TOGGLE_BIN="${HERDR_TOGGLE_BIN:-$(command -v herdr-teams-toggle || echo "$HOME/.local/bin/herdr-teams-toggle")}"
 SUMMARY_BIN="${HERDR_SUMMARY_BIN:-$(command -v herdr-teams-summary || echo "$HOME/.local/bin/herdr-teams-summary")}"
 SOURCE="${HERDR_WATCH_SOURCE:-$HERDR_BIN agent list}"
 
 log() { printf '%s\n' "$*" >&2; }
+
+# Seconds as something readable: the startup line quotes cadences, and 900 or 86400
+# means nothing at a glance.
+dur() {
+    local s="$1"
+    if   [ "$s" -lt 60 ];    then printf '%ds' "$s"
+    elif [ "$s" -lt 3600 ];  then printf '%dm' $(( s / 60 ))
+    elif [ "$s" -lt 86400 ]; then
+        if [ $(( (s % 3600) / 60 )) -eq 0 ]; then printf '%dh' $(( s / 3600 ))
+        else printf '%dh%dm' $(( s / 3600 )) $(( (s % 3600) / 60 )); fi
+    else                          printf '%dd' $(( s / 86400 ))
+    fi
+}
 
 for bin in "$HERDR_BIN" "$NOTIFY_BIN" "$SUMMARY_BIN"; do
     [ -x "$bin" ] || { log "FATAL: not executable: $bin"; exit 1; }
 done
 command -v jq >/dev/null || { log "FATAL: jq not found (PATH=$PATH)"; exit 1; }
 if [ "$THREADS" = 1 ]; then
-    log "watching every ${INTERVAL}s; finished=${FINISHED_STATES}, plus blocked; heartbeat ${HEARTBEAT}s; one thread per ${THREAD_KEY_MODE}"
+    log "watching every $(dur "$INTERVAL"); finished=${FINISHED_STATES}, plus blocked; heartbeat $(dur "$HEARTBEAT"); one thread per ${THREAD_KEY_MODE}"
 else
-    log "watching every ${INTERVAL}s; finished=${FINISHED_STATES}, plus blocked; heartbeat ${HEARTBEAT}s; threads off"
+    log "watching every $(dur "$INTERVAL"); finished=${FINISHED_STATES}, plus blocked; heartbeat $(dur "$HEARTBEAT"); threads off"
 fi
 
 declare -A LAST WORK_SINCE LAST_BEAT
@@ -121,9 +135,23 @@ pane_prompt() {
 # A card that is meant to reach your phone. In the agent's own thread when threads
 # are on, a top-level card when they are not.
 send_event() {
-    local id="$1" cwd="$2" subject="$3" body="$4"; shift 4
-    local thread_args=()
+    local id="$1" cwd="$2" pane="$3" subject="$4" body="$5"; shift 5
+    local thread_args=() sync
     [ "$THREADS" = 1 ] && thread_args=(--thread "$(thread_key "$id" "$cwd")")
+    # Every card says how long a reply to it still gets picked up on the fast tier, so
+    # someone reading it on their phone knows their own deadline without asking. It is
+    # built here, as the card goes out, rather than written by the agent into the body:
+    # the agent could forget the line or get it wrong, and this cannot.
+    # HERDR_PANE_ID is how the toggle finds this agent's row in the listener status, and
+    # --sending measures the window from this card rather than the one it replaces.
+    # A missing or slow toggle costs the line, never the card.
+    sync=$(HERDR_PANE_ID="$pane" timeout 5 "$TOGGLE_BIN" next --sending 2>/dev/null) || sync=""
+    # This card is proof that cards are on, so a line saying they are off is wrong rather
+    # than merely unhelpful, and the fact is dropped instead of printed. It happens when
+    # the toggle cannot reach the user bus and reads every unit as dead. "cards out only"
+    # is a different thing and is kept: the listener really can be down while we send.
+    case "$sync" in "teams-sync OFF"*) sync="" ;; esac
+    [ -n "$sync" ] && set -- "$@" "Sync=$sync"
     "$NOTIFY_BIN" "${thread_args[@]}" "$subject" "$body" "$@"
 }
 
@@ -159,7 +187,7 @@ while :; do
             beat_facts=("Task=$title" "Running=$for_how_long")
             [ -n "$loom" ] && beat_facts+=("Loom=$loom")
             log "heartbeat: $worktree working for $for_how_long ($doing)"
-            send_event "$id" "$cwd" "$worktree: still working" "$doing" "${beat_facts[@]}" \
+            send_event "$id" "$cwd" "$pane" "$worktree: still working" "$doing" "${beat_facts[@]}" \
                 || log "heartbeat send failed for $worktree"
         fi
 
@@ -195,7 +223,7 @@ while :; do
         [ -n "$loom" ] && facts+=("Loom=$loom")
 
         log "notify: $worktree $prev -> $status ($title)"
-        send_event "$id" "$cwd" "$worktree: $subject" "$body" "${facts[@]}" \
+        send_event "$id" "$cwd" "$pane" "$worktree: $subject" "$body" "${facts[@]}" \
             || log "send failed for $worktree"
     done < <(snapshot)
     sleep "$INTERVAL"

@@ -4,8 +4,10 @@
 # herdr-teams-watch sends the cards out; this is the way back in. Nothing outside can
 #   reach this box, so instead of being pushed to, it polls a second Power Automate
 #   flow that reads the replies sitting under one card.
-# Every poll costs a Power Platform request and the daily cap is small, so a thread is
-#   only polled while its agent is waiting and its card is still recent. See README.md.
+# Every poll costs a Power Platform request and the daily cap is small, so how often a
+#   thread is polled decays with the age of its last card: every pass while it is hot,
+#   then every half hour while warm, then hourly while cold, until the thread file itself
+#   expires. See README.md.
 set -uo pipefail
 
 INTERVAL="${1:-${HERDR_LISTEN_INTERVAL:-180}}"
@@ -14,9 +16,23 @@ URL_FILE="${HERDR_LISTEN_WEBHOOK_FILE:-$HOME/.config/herdr/teams-replies-webhook
 # of that thread's root card.
 THREAD_DIR="${HERDR_TEAMS_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/herdr/teams-threads}"
 CURSOR_DIR="${HERDR_LISTEN_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/herdr/teams-replies}"
-# Stop polling a thread this long after its last card. A thread nothing has carded in
-# half an hour is one nobody is replying to, and polling it forever burns the quota.
+# Rewritten at the end of every pass: the tier ladder in force plus one row per agent the
+# pass looked at. herdr-teams-toggle's table reads it, so the panel shows what this loop
+# actually decided instead of guessing the same rules a second time.
+STATUS_FILE="${HERDR_LISTEN_STATUS_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/herdr/teams-listen-status}"
+# How long after its last card a thread stays hot, meaning polled every pass. Past this
+# it is still polled, just slowly: nobody is usually mid-reply half an hour on, and
+# polling every thread every pass forever burns the quota.
 HOT="${HERDR_LISTEN_HOT:-1800}"
+# An old thread is still someone's open conversation, so it keeps a heartbeat instead of
+# going silent. Past HOT it is warm, polled every COLD_EVERY until COLD_UNTIL, then cold,
+# polled every COLD_SLOW_EVERY. Any reply that lands puts it back on the hot tier.
+COLD_EVERY="${HERDR_LISTEN_COLD_EVERY:-1800}"
+COLD_UNTIL="${HERDR_LISTEN_COLD_UNTIL:-3600}"
+COLD_SLOW_EVERY="${HERDR_LISTEN_COLD_SLOW_EVERY:-3600}"
+# Stop entirely here. Matches herdr-teams-notify's thread TTL, which is when the thread
+# file is deleted anyway, so this only covers a file nothing has pruned yet.
+DEAD="${HERDR_LISTEN_DEAD:-86400}"
 # Only forward replies written by this Entra user id. Anyone who can post in the channel
 # can otherwise type into a live Claude. Empty accepts every author.
 ONLY_USER="${HERDR_LISTEN_USER_ID:-}"
@@ -36,6 +52,23 @@ SOURCE="${HERDR_WATCH_SOURCE:-$HERDR_BIN agent list}"
 
 log() { printf '%s\n' "$*" >&2; }
 
+# Seconds as something readable: the startup line and the pass line quote cadences, and
+# 1800 or 86400 means nothing at a glance.
+dur() {
+    local s="$1"
+    if   [ "$s" -lt 60 ];    then printf '%ds' "$s"
+    elif [ "$s" -lt 3600 ];  then printf '%dm' $(( s / 60 ))
+    elif [ "$s" -lt 86400 ]; then
+        if [ $(( (s % 3600) / 60 )) -eq 0 ]; then printf '%dh' $(( s / 3600 ))
+        else printf '%dh%dm' $(( s / 3600 )) $(( (s % 3600) / 60 )); fi
+    else                          printf '%dd' $(( s / 86400 ))
+    fi
+}
+
+# Wall clock the way you read it off a phone. No argument means now; an argument is an
+# epoch second.
+clock() { date ${1:+-d "@$1"} +'%-I:%M%p'; }
+
 [ -x "$HERDR_BIN" ] || { log "FATAL: not executable: $HERDR_BIN"; exit 1; }
 command -v jq >/dev/null || { log "FATAL: jq not found (PATH=$PATH)"; exit 1; }
 [ -s "$URL_FILE" ] || { log "FATAL: no replies webhook url at $URL_FILE"; exit 1; }
@@ -43,7 +76,7 @@ URL=$(tr -d '\n' < "$URL_FILE")
 
 if [ -n "$ONLY_USER" ]; then who="only $ONLY_USER"; else who="any author"; fi
 [ "$DRY" = 1 ] && dry=" DRY RUN, delivering nothing" || dry=""
-log "listening every ${INTERVAL}s; threads warm for ${HOT}s, keyed per ${THREAD_KEY_MODE}; ${who}${dry}"
+log "listening every $(dur "$INTERVAL"); hot for $(dur "$HOT"), then warm every $(dur "$COLD_EVERY") until $(dur "$COLD_UNTIL"), then cold every $(dur "$COLD_SLOW_EVERY"), dropped at $(dur "$DEAD"); keyed per ${THREAD_KEY_MODE}; ${who}${dry}"
 
 # Same shape the watcher reads, plus pane_id, which is what herdr accepts as a target.
 snapshot() {
@@ -96,29 +129,100 @@ deliver() {
     "$HERDR_BIN" agent send-keys "$pane" enter >/dev/null 2>&1
 }
 
-mkdir -p "$CURSOR_DIR"
+mkdir -p "$CURSOR_DIR" "$(dirname "$STATUS_FILE")"
+
+# One line per agent the pass looked at, for the status file. Written from the loop's own
+# variables at the point it decides, so the panel cannot report a tier this loop is not using.
+row_add() {
+    rows_out+=$(printf 'agent\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s' \
+        "$name" "$status" "$tier" "$age" "$every" "$lastpoll" "$1" "$pane")$'\n'
+}
+
+# Two agents in one worktree share a name, so their rows read as the same agent twice.
+# Number those by pane id, which holds still while both panes live, rather than by the
+# order herdr happened to list them in. A name only used once is left alone.
+suffix() {
+    local name="$1" pane="$2" n=0 rank=1 rname rpane
+    while IFS=$'\t' read -r _ rname _ _ _ _ _ _ rpane; do
+        [ "$rname" = "$name" ] || continue
+        n=$(( n + 1 ))
+        [ "$rpane" \< "$pane" ] && rank=$(( rank + 1 ))
+    done <<< "$rows_out"
+    [ "$n" -gt 1 ] && printf '%s-%s' "$name" "$rank" || printf '%s' "$name"
+}
+
+# The clock the row's next poll lands on: the first pass at or after the thread is due
+# again. A hot thread is due every pass, and a row nothing will poll gets -1.
+next_poll() {
+    local every="$1" lastpoll="$2" note="$3" nextpass="$4" due
+    [ "$nextpass" -lt 0 ] && { printf -- '-1'; return; }
+    case "$note" in working|no-thread|expired) printf -- '-1'; return ;; esac
+    if [ "$every" -le 0 ] || [ "$lastpoll" -lt 0 ]; then printf '%s' "$nextpass"; return; fi
+    due=$(( lastpoll + every ))
+    [ "$due" -le "$nextpass" ] && { printf '%s' "$nextpass"; return; }
+    printf '%s' $(( nextpass + ( (due - nextpass + INTERVAL - 1) / INTERVAL ) * INTERVAL ))
+}
+
+# Whole file at once, then move it into place, so the panel never reads half a table.
+# The pane id rides along on each row so a caller running inside one of these agents can
+# find itself: the display name is suffixed for duplicates and no session id is written.
+write_status() {
+    local nextpass="$1" tmp name status tier age every lastpoll note pane
+    tmp="$STATUS_FILE.$$"
+    {
+        printf 'pass=%s\nnext=%s\ninterval=%s\nhot=%s\ncold_every=%s\ncold_until=%s\ncold_slow_every=%s\ndead=%s\ndry=%s\npolled=%s\ndelivered=%s\n' \
+            "$(date +%s)" "$nextpass" "$INTERVAL" "$HOT" "$COLD_EVERY" "$COLD_UNTIL" \
+            "$COLD_SLOW_EVERY" "$DEAD" "$DRY" "$n_polled" "$n_delivered"
+        while IFS=$'\t' read -r _ name status tier age every lastpoll note pane; do
+            [ -n "${name:-}" ] || continue
+            printf 'agent\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(suffix "$name" "$pane")" \
+                "$status" "$tier" "$age" "$every" "$lastpoll" \
+                "$(next_poll "$every" "$lastpoll" "$note" "$nextpass")" "$note" "$pane"
+        done <<< "$rows_out"
+    } > "$tmp" && mv -f "$tmp" "$STATUS_FILE"
+}
 
 while :; do
     now=$(date +%s)
     # Counted per pass, for the heartbeat at the bottom of the loop.
-    n_working=0; n_nothread=0; n_cold=0; n_seeded=0; n_polled=0; n_delivered=0
+    n_working=0; n_nothread=0; n_backoff=0; n_dead=0; n_seeded=0; n_polled=0; n_delivered=0
+    rows_out=""
     while IFS=$'\t' read -r pane status session cwd title; do
         [ -n "${pane:-}" ] || continue
-        # A working agent is mid-turn. A reply typed at it now lands in the prompt box
-        # rather than being answered, so leave it for the next time it stops.
-        [ "$status" = working ] && { n_working=$((n_working + 1)); continue; }
+        name="${cwd##*/}"; [ -n "$name" ] || name="${title:-agent}"
 
         tfile=$(key_file "$THREAD_DIR" "$(thread_key "$session" "$cwd")")
-        [ -r "$tfile" ] || { n_nothread=$((n_nothread + 1)); continue; }
-        # The mtime is the last card sent into the thread, which notify refreshes.
-        [ $(( now - $(stat -c %Y "$tfile") )) -lt "$HOT" ] || { n_cold=$((n_cold + 1)); continue; }
+        # The mtime is the last card sent into the thread, which notify refreshes. Its age
+        # picks the tier; how long since the last poll then decides whether one is due.
+        if [ -r "$tfile" ]; then age=$(( now - $(stat -c %Y "$tfile") )); else age=-1; fi
+        if   [ "$age" -lt 0 ];             then tier=none;    every=-1
+        elif [ "$age" -ge "$DEAD" ];       then tier=expired; every=-1
+        elif [ "$age" -lt "$HOT" ];        then tier=hot;     every=0
+        elif [ "$age" -lt "$COLD_UNTIL" ]; then tier=warm;    every="$COLD_EVERY"
+        else                                    tier=cold;    every="$COLD_SLOW_EVERY"
+        fi
 
-        thread_id=$(tr -d '\n' < "$tfile")
-        [ -n "$thread_id" ] || continue
+        thread_id=""
+        [ "$age" -ge 0 ] && thread_id=$(tr -d '\n' < "$tfile")
+        # The cursor's contents are the newest reply seen; its mtime is the last poll.
+        # Off the hot tier that mtime is what paces the backoff.
+        cfile=""; lastpoll=-1
+        if [ -n "$thread_id" ]; then
+            cfile="$CURSOR_DIR/$thread_id"
+            [ -r "$cfile" ] && lastpoll=$(stat -c %Y "$cfile")
+        fi
 
-        cfile="$CURSOR_DIR/$thread_id"
-        if [ -r "$cfile" ]; then
+        # A working agent is mid-turn. A reply typed at it now lands in the prompt box
+        # rather than being answered, so leave it for the next time it stops.
+        [ "$status" = working ] && { n_working=$((n_working + 1)); row_add working; continue; }
+        [ -n "$thread_id" ] || { n_nothread=$((n_nothread + 1)); row_add no-thread; continue; }
+        [ "$tier" = expired ] && { n_dead=$((n_dead + 1)); row_add expired; continue; }
+
+        if [ "$lastpoll" -ge 0 ]; then
             cursor=$(tr -d '\n' < "$cfile")
+            if [ "$every" -gt 0 ] && [ $(( now - lastpoll )) -lt "$every" ]; then
+                n_backoff=$((n_backoff + 1)); row_add backoff; continue
+            fi
         elif [ "$DRY" = 1 ]; then
             # A dry run must not seed, or the real run after it starts already caught up.
             # Look back an hour instead, so there is something to show.
@@ -128,13 +232,19 @@ while :; do
             # replays the whole thread into the agent.
             date -u +%Y-%m-%dT%H:%M:%S.000Z > "$cfile"
             n_seeded=$((n_seeded + 1))
+            lastpoll=$now
+            row_add seeded
             continue
         fi
 
         n_polled=$((n_polled + 1))
+        # Stamp before the call, so a flow that is down backs off with everything else
+        # rather than being retried every pass.
+        [ "$DRY" = 1 ] || { touch "$cfile"; lastpoll=$now; }
+        got=0
         body=$(jq -nc --arg t "$thread_id" '{threadId:$t}')
         resp=$(curl -sS --max-time 60 -X POST "$URL" \
-                 -H 'Content-Type: application/json' -d "$body" 2>/dev/null) || continue
+                 -H 'Content-Type: application/json' -d "$body" 2>/dev/null) || { row_add flow-down; continue; }
 
         # Base64 so a reply containing tabs or newlines survives the read loop.
         # The first select drops anything the Flow bot posted, which carries "from.application"
@@ -147,7 +257,7 @@ while :; do
             | map(select((.from.user.id // "") != ""))
             | map(select($me == "" or (.from.user.id // "") == $me))
             | sort_by(.createdDateTime)
-            | .[] | [.createdDateTime, ((.body.content // "") | @base64)] | @tsv' 2>/dev/null) || continue
+            | .[] | [.createdDateTime, ((.body.content // "") | @base64)] | @tsv' 2>/dev/null) || { row_add flow-down; continue; }
 
         worktree="${cwd##*/}"; [ -n "$worktree" ] || worktree="agent"
         while IFS=$'\t' read -r when b64; do
@@ -156,14 +266,19 @@ while :; do
             [ -n "$text" ] || { [ "$DRY" = 1 ] || printf '%s' "$when" > "$cfile"; continue; }
             if deliver "$pane" "$status" "$text"; then
                 n_delivered=$((n_delivered + 1))
+                got=$((got + 1))
                 log "reply -> $worktree ($status): $(printf '%s' "$text" | head -c 80)"
-                [ "$DRY" = 1 ] || printf '%s' "$when" > "$cfile"
+                # A thread being replied into is live. Put it back on the hot tier even
+                # with no card in it, which is the case when cards are off and replies on.
+                [ "$DRY" = 1 ] || { printf '%s' "$when" > "$cfile"; touch "$tfile"; }
+                age=0; tier=hot; every=0
             else
                 # Leave the cursor alone so the next pass retries this reply.
                 log "deliver failed for $worktree ($pane)"
                 break
             fi
         done <<< "$rows"
+        [ "$got" -gt 0 ] && row_add delivered || row_add polled
     done < <(snapshot)
 
     # Say what the pass did and when the next one is. An idle loop otherwise looks exactly
@@ -171,17 +286,19 @@ while :; do
     if [ "$n_polled" -gt 0 ]; then
         did="polled $n_polled thread(s), delivered $n_delivered"
     else
-        did="nothing to poll: $n_working working, $n_nothread with no thread, $n_cold gone cold"
+        did="nothing to poll: $n_working working, $n_nothread with no thread, $n_backoff backing off, $n_dead expired"
     fi
     [ "$n_seeded" -gt 0 ] && did="$did; started watching $n_seeded thread(s), replies count from now"
 
     if [ "$ONCE" = 1 ]; then
-        log "$(date +%H:%M:%S) $did"
+        write_status -1
+        log "$(clock) $did"
         break
     fi
-    nxt="next $(date -d "+$INTERVAL seconds" +%H:%M:%S)"
+    write_status $(( $(date +%s) + INTERVAL ))
+    nxt="next $(clock $(( $(date +%s) + INTERVAL )))"
     # Below a minute the two after it round to the same clock minute and read as a bug.
-    [ "$INTERVAL" -ge 60 ] && nxt="$nxt, then $(date -d "+$((INTERVAL * 2)) seconds" +%H:%M) and $(date -d "+$((INTERVAL * 3)) seconds" +%H:%M)"
-    log "$(date +%H:%M:%S) $did; $nxt"
+    [ "$INTERVAL" -ge 60 ] && nxt="$nxt, then $(clock $(( $(date +%s) + INTERVAL * 2 ))) and $(clock $(( $(date +%s) + INTERVAL * 3 )))"
+    log "$(clock) $did; $nxt"
     sleep "$INTERVAL"
 done
