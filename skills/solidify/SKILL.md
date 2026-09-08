@@ -1,559 +1,399 @@
 ---
 name: solidify
-description: Review the current branch's work for SOLID, DRY, and code maintainability quality only, and report the findings as one flat list ranked most to least important. REVIEW ONLY, no edits unless separately asked. Language-agnostic across the momentum monorepo (C# services and ui-app alike). Judges the branch in the context of the whole app rather than the diff alone, so it also catches superseded code the change left behind and existing code that should converge on a shared unit the branch introduced. Discovery fans out one subagent per review lens (duplication and convergence, superseded code, responsibility and structure, contracts and seams, coupled constants and blast radius) so no dimension gets dropped, then merges and dedupes what they return. Every finding must first survive a strict over-engineering veto, so what comes back is a short list of real maintainability defects, not textbook advice. Functional bugs, security, tests, performance, and accessibility are out of scope and get handed to the skills that own them. Invoke when the user types /solidify, or asks to "check this for SOLID", "review for DRY", "am I duplicating anything", "is this maintainable", "code quality pass on my branch", or hands over a branch and asks whether the design holds up.
+description: Design and maintainability review of the current branch, at two altitudes. The structural half asks whether each concept the code expresses has exactly one home, and is willing to recommend a large refactor when the evidence supports it; the maintainability half covers SOLID, DRY, superseded code, convergence, dead surface and coupled constants, ranked most important first. REVIEW AND PLAN ONLY - it changes no product code unless separately asked, and writes only its own report and specs under the gitignored `artifacts/solidify/`, which a later run picks up from. Discovery works by pairing each unit the branch introduced with its nearest sibling and diffing the two, so it runs as one sequential pass rather than a fan-out. Language-agnostic across the momentum monorepo (C# services and ui-app alike). Functional bugs, security, tests, performance and accessibility are out of scope and get handed to the skills that own them. Invoke when the user types /solidify, or asks "is this the right shape", "should this be split", "would a refactor pay here", "this code is clean but feels wrong", "check this for SOLID", "review for DRY", "am I duplicating anything", "is this maintainable", "code quality pass on my branch", or hands over a branch and asks whether the design holds up.
 ---
 
 # solidify Skill
 
-You review the work on the current branch for **design and maintainability
-quality**: SOLID, DRY, and the ordinary things that make code expensive to change
-later. You report findings as one flat list, ranked most important first, so the
-reader can stop partway down and know the worst is behind them.
+You review the current branch at **two altitudes**, from one set of reads.
 
-The bar you are holding is "will the next person changing this code be misled, or
-have to make the same edit in three places" - not "does this match a textbook
-pattern". Most reviews of this kind fail by recommending architecture nobody asked
-for. The veto below exists to stop that.
+- **Structural.** Does each concept the code expresses have exactly one home? This is
+  the pass that catches locally-clean code carrying two ideas at once, and it prices a
+  refactor rather than rejecting it for being big.
+- **Maintainability.** SOLID, DRY, superseded code left behind, convergence on a unit
+  the branch introduced, dead surface, coupled constants. The ordinary things that make
+  code expensive to change later.
 
-You judge the branch **in the context of the whole app, not the diff alone**. A diff
-only shows what was added; the maintainability cost usually lives in what the addition
-did to everything around it. Two classes of defect are invisible from the diff and are
-squarely yours:
+**Read [`../shared/structural-bar.md`](../shared/structural-bar.md) first.** It carries
+the structural altitude, the pair-discovery frame, the ten tells, the seven-rule bar and
+the not-a-finding list. It is binding and must not be paraphrased from memory. This file
+carries the maintainability half, the scope, the phases and the report.
 
-- **What the change superseded and left behind.** A new file, component, endpoint,
-  composable or migration that replaces an old one is only half a change until the old
-  one is deleted. Two ways to do the same thing is the expensive outcome, and the
-  second person cannot tell which is current.
-- **What should now converge on the new shape.** When the branch builds a better unit
-  (a shared UI component, a helper, a base type), the pre-existing hand-rolled copies
-  of that same thing are now duplication the branch created the resolution for. That
-  is worth a finding even though those files are not in the diff.
+The two altitudes are not two passes. The pair diff that finds a structural concept is
+the same read that shows you the superseded copy and the third duplication site, so
+maintainability findings come out of evidence you already have rather than out of a
+second sweep. That is what makes this cheap.
 
-Both still go through the veto. The point is that reading wider finds real defects,
-not that a wider scope licenses a bigger wishlist.
+## One agent, sequential. Spawn nothing.
 
-## Hard boundary: maintainability only
+Earlier versions of this skill fanned out five concurrent lenses, and so did the
+structural pass beside it. Both were expensive for the wrong reason: each lens read
+substantially the same files in its own context, the orchestrator read them again
+first, and the merge had to re-verify every site because the fragments arrived
+pre-packaged.
 
-In scope: the dimensions in Step 2 - single responsibility, open/closed,
-substitutability, interface segregation, dependency inversion, DRY / duplication,
-naming and readability, dead code, public surface width, coupled constants,
-shared-unit blast radius, superseded code left behind, and convergence on a unit the
-branch introduced.
+Run the phases below **in order, in your own context**, finishing each and writing its
+output before opening the next. The pair table, then the pair diffs, then the axis
+check. A finding assembled from four tells is easier to see when one reader holds all
+four, not harder.
 
-Out of scope, hand each to its owner and do not fold it in here:
+## Hard boundary
+
+In scope: concept placement, the shape of contracts and types, flags and discriminants
+and where they are tested, what each caller can actually reach, vocabulary coherence,
+single responsibility, open/closed, substitutability, interface segregation, dependency
+inversion, DRY, naming, dead code, public surface width, coupled constants, shared-unit
+blast radius, superseded code, convergence.
+
+Out of scope. Note each in one line, name the owner, and do not run that review here:
 
 - **Functional bugs, correctness, silent failures, security** -> `/code-review`,
   `/security-review`.
-- **Tests and coverage** -> `loom-slice` and `loom-gate`. Test code is not reviewed
-  here at all - not its design, not its duplication. You may note that a design
-  makes something untestable when that is the maintainability defect, but you do
-  not write, judge, or review tests.
-- **Performance** unless the change makes an algorithmic mistake that is also a
-  design mistake. A micro-optimization is not a solidify finding.
-- **Nuxt UI component choice, i18n, theming tokens** in `ui-app`, and
-  accessibility (`loom-gate`'s storybook a11y run). Do not re-litigate them.
+- **Tests and coverage** -> `loom-slice`, `loom-gate`. Test code is not reviewed here at
+  all, not its design and not its duplication. You **read** specs as evidence (tell 9)
+  and you never review them.
+- **Performance**, unless the structure forces an algorithmic mistake.
+- **Nuxt UI component choice, i18n, theming, accessibility.**
 
-If you spot one of these while reviewing, do not fix it. Collect it under "Out of
-scope but worth noting" at the end of the report, pointing at the owning skill.
+## The over-engineering veto
 
-## The over-engineering veto (run before every finding)
+The structural bar gates the structural findings. This gates the **maintainability**
+ones, and it is the point of that half: be strict and drop things.
 
-A finding is only reported if it passes **all** of these. This is the point of the
-skill; be strict and drop things.
+1. **One call site raises the bar; it does not close the door.** The default is to wait
+   for the second real use, and for polymorphism machinery it is a flat no: no
+   interface, base class, generic parameter, factory, strategy, registry or plugin seam
+   for a variation that does not exist yet. "It might be reused" is not a use.
 
-1. **One call site raises the bar; it does not close the door.** The default is still
-   to wait for the second real use, and for polymorphism machinery it is a flat no:
-   no interface, base class, generic type parameter, factory, strategy, registry or
-   plugin seam for a variation that does not exist yet. "It might be reused" is not a
-   use.
+   A plain extraction is different, and earns its keep on either count: **the host file
+   gets better** (say roughly how many lines leave the caller and what the new unit is
+   called), or **the unit is generic so a second use is likely** (it takes everything it
+   needs as arguments, knows nothing about the caller's screen, carries no
+   caller-specific flags, and its name would still be right elsewhere - name the
+   plausible next caller). A unit that only makes sense where it sits fails this, and so
+   does one that would need a flag per caller.
 
-   A plain extraction is different. A helper, composable, module or child component
-   called from one place is worth recommending when it earns its keep on either count:
+   Existing code elsewhere that already does the same thing by hand **does** count as a
+   real use - cite it by `path:line`. One call site in the diff plus three hand-rolled
+   copies is four uses, not one. A single-use extraction is **recommended** at best,
+   more often **minor**, never must-fix.
 
-   - **The host file gets better.** Pulling a self-contained chunk out leaves the
-     caller shorter and easier to follow, and the chunk is coherent enough to name in
-     a few words. Say roughly how many lines leave the caller and what the new unit is
-     called. Length alone is not the argument - a long file that tells one story stays
-     as it is (dimension 1 still holds).
-   - **The unit is generic, so a second use is likely.** Judge that on the code, not on
-     optimism. It takes everything it needs as arguments, knows nothing about the
-     caller's screen or feature, carries no caller-specific flags, and its name would
-     still be right somewhere else in the app. Name the plausible next caller or the
-     class of caller. A unit that only makes sense where it already sits fails this,
-     and so does one that would need a flag per caller.
-
-   Existing code elsewhere in the app that already does the same thing by hand **does**
-   count as a real use - cite it by `path:line`. One call site in the diff plus three
-   hand-rolled copies in the app is four uses, not one.
-
-   A single-use extraction reported on these grounds is **recommended** at best, more
-   often **minor**, never must-fix, and it still has to clear rule 4.
-
-2. **One implementation means no interface.** Extracting a contract for a type with
-   one implementation only earns its keep when there is a real seam behind it (a
-   boundary the code already crosses - clock, filesystem, HTTP, DB - or an existing
-   DI registration the surrounding component already uses). Say which seam.
-3. **Two is a note, three is a finding.** Rule of three for duplication. Two copies
-   are reported only when they share an invariant that will silently drift (they must
-   agree for the code to be correct), and then the fix is to name the value once, not
-   to build a framework.
-4. **The fix must pay for what it adds.** State the cost of every proposal in
-   concrete terms: files touched, indirection added, net lines. Net lines is not the
-   only ledger - an extraction that adds a file but leaves the caller materially
-   easier to read pays for itself, as long as the reader follows one hop and not
-   three. What does not pay is more files, more hops, and a caller that reads exactly
-   the same as before.
-5. **No pattern names as justification.** If you cannot argue the fix in plain terms
-   by what it removes or what future edit it de-risks, it is not a finding. "Use a
-   strategy pattern here" on its own is not an argument.
+2. **One implementation means no interface**, unless there is a real seam behind it (a
+   boundary the code already crosses - clock, filesystem, HTTP, DB - or an existing DI
+   registration the component already uses). Say which seam.
+3. **Two is a note, three is a finding.** Rule of three for duplication. Two copies are
+   reported only when they share an invariant that will silently drift, and then the fix
+   is to name the value once, not to build a framework.
+4. **The fix must pay for what it adds.** State files touched, indirection added, net
+   lines. An extraction that adds a file but leaves the caller materially easier to read
+   pays for itself, as long as the reader follows one hop and not three. What does not
+   pay is more files, more hops, and a caller that reads exactly as before.
+5. **No pattern names as justification.** Argue the fix by what it removes or what
+   future edit it de-risks, in plain terms, or it is not a finding.
 6. **The repo's existing pattern wins.** Match how the surrounding component already
-   does this (nearest `CLAUDE.md`, sibling files) over generic best practice. A
-   finding that asks the branch to be the one file in the component doing it
-   differently is a wrong finding.
-7. **Anchored to the branch's work, not confined to the diff.** Every finding must
-   trace back to something the change did. You read the whole app to judge that, and a
-   finding may name files outside the diff, but you need one sentence saying what the
-   branch did to make it a finding now. Three legitimate shapes:
-   - the change **superseded** it (the old file, component, endpoint, route, key or
-     flag has no reason to exist now),
-   - the change **built the resolution** for it (the branch introduced the unit those
-     pre-existing copies should use),
-   - the change **made it materially worse** (added the third copy, widened the
-     interface, built on the wrong seam).
+   does this (nearest `CLAUDE.md`, sibling files) over generic best practice. A finding
+   that asks the branch to be the one file in the component doing it differently is a
+   wrong finding.
+7. **Anchored to the branch's work, not confined to the diff.** Every finding traces
+   back to something the change did, in one sentence, in one of three shapes: the change
+   **superseded** it, the change **built the resolution** for it, or the change **made
+   it materially worse** (added the third copy, widened the interface, built on the
+   wrong seam). Say which, and say plainly when the root predates the branch. A wart
+   fitting none of the three is a backlog item, and belongs at most in one line.
+8. **Convergence must be worth the migration.** "Refactor the old components onto the
+   new one" costs edits in files the branch never opened, so: at least two pre-existing
+   sites, behavior genuinely the same rather than similar-looking, each site named with
+   what changes there. If absorbing them all needs a flag or a variant per caller, the
+   honest finding is "these are not the same thing" and you drop it. Where the migration
+   is real but larger than the branch, recommend it as follow-up.
 
-   Say which one, and say plainly when the root of it predates the branch. A wart that
-   fits none of the three is not this review's business, however tempting - it is a
-   backlog item, and belongs at most in one line at the end.
-8. **Convergence must be worth the migration.** A "refactor the old components onto
-   the new one" finding costs edits in files the branch never opened, so it carries a
-   higher bar: at least two pre-existing sites, behavior that is genuinely the same
-   rather than merely similar-looking, and each site named with what changes there. If
-   the sites differ enough that the shared unit would need a flag or a variant per
-   caller to absorb them, the honest finding is "these are not the same thing" and you
-   drop it. Where the migration is real but larger than the branch, say so and
-   recommend it as follow-up work rather than pretending it is a small diff.
+What fails the veto but is still worth a line goes in **Deliberately not flagged**, with
+the rule that killed it.
 
-When something fails the veto but you still think it is worth one line, put it in a
-short "Deliberately not flagged" list at the end of the report with the reason. That
-is how the reader knows you looked and decided, rather than missed it.
+## Step 0 - Scope
 
-## Step 0 - Establish the scope
-
-Review the current branch against the latest `origin/main`, including committed,
-staged, unstaged, and new files. Run from the worktree root (`C:\code2\momentum` on
-Windows, `~/m-code/momentum` on WSL, or the feature worktree you are standing in):
+Run from the worktree root you are standing in.
 
 ```bash
 git fetch origin main -q
-git diff --name-only origin/main          # tracked changes: committed + staged + unstaged
-git diff --stat origin/main               # size of the change
-git ls-files --others --exclude-standard  # new untracked files
+git log origin/main..HEAD --oneline                 # the story the commits tell
+git diff --stat origin/main                         # size and shape
+git diff --name-only origin/main
+git diff --diff-filter=A --name-only origin/main    # added: what might supersede something
+git diff --diff-filter=D --name-only origin/main    # deleted: what was already cleaned up
+git ls-files --others --exclude-standard            # new untracked files
 ```
 
-Sanity-check the file list looks like the work the user described.
+No diff against `origin/main` and no named target: say so and stop.
 
-If there is no diff against `origin/main`, say so and stop - there is nothing to
-review. If the user named a specific file, class, or component instead, review that
-target in full and the no-diff stop does not apply. In that mode the target itself is
-the anchor: veto rule 7's tracing requirement is waived, and where a dimension says
-"the branch", read "the target".
+If the user named a file, composable, component or subsystem instead, review that in
+full. In that mode the target is the anchor, bar rule 1 reads against the target rather
+than the branch, and veto rule 7's tracing requirement is waived.
 
-Then group the changed files by component (`src/<component>/`,
-`infrastructure/<x>/`) - the review runs per component, because that is the unit that
-carries its own conventions. Two kinds of file are dropped from the review set here:
-
-- **Test files.** Tests belong to the build pass and are not reviewed by this skill.
-- **Pipeline-generated files**: `fr.json`, `es.json`, `en-XA.json`, the XLIFF memory,
-  generated API clients, and anything else a pipeline regenerates. A defect visible
-  in generated output is reported against its source (`en.json`, `openapi.yaml`),
-  never against the generated file.
-
-The diff is the anchor, not the boundary. Before Step 1, get the shape of the change so
-you know how wide to read:
-
-```bash
-git diff --diff-filter=A --name-only origin/main   # added files: what might supersede something
-git diff --diff-filter=D --name-only origin/main   # deleted files: what was already cleaned up
-git diff --diff-filter=M --stat origin/main        # modified files: where the change landed
-git log origin/main..HEAD --oneline                # the story the commits tell
-```
+Group by component (`src/<component>/`, `infrastructure/<x>/`), read the nearest
+`CLAUDE.md` and the repo root's, and drop pipeline-generated files (`fr.json`, `es.json`,
+`en-XA.json`, XLIFF, generated clients) - a defect visible there is reported against its
+source. Do **not** drop spec files; they are evidence (tell 9).
 
 Ask the user what the change is meant to replace when it is not obvious, and take their
-answer as the map. When there is no human to ask (a headless or pipeline run), infer it
-from the commit messages and file names and state the assumption in the report. An
-added file with a name close to an existing one, a new component
-that renders what an existing page renders inline, a new endpoint next to an old route,
-a v2 of anything: each is a signal that Step 1 needs to go looking outside the diff.
-Note them now as questions to answer, not as findings.
+answer as the map. Headless, infer it from commit messages and file names and state the
+assumption.
 
-## Step 1 - Ground truth before judging
+### Pick up a prior run
 
-Duplication and responsibility claims cannot be made from a diff. Before writing any
-finding:
+```bash
+ls artifacts/solidify/<branch>-report.md artifacts/solidify/<branch>/specs/ 2>/dev/null
+ls artifacts/solidify2/<branch>-report.md 2>/dev/null    # runs from before the two skills merged
+```
 
-- Read each changed or added file **in full**, not just the changed hunks. A
-  single-responsibility or public-surface claim needs the whole file.
-- Read the **neighbours**: the sibling files in the same folder, the callers of what
-  changed, and the interface or base type it implements. This is what separates real
-  duplication from two things that merely look alike, and it is where the veto's
-  rules 1, 2, and 6 get their evidence.
-- Read the **nearest `CLAUDE.md`** (the component's, then the repo root's) for the
-  conventions that component holds itself to. The root file's code style is binding:
-  C# `net10.0`, nullable enabled, no `var`, `Laserfiche.*` namespaces, minimal public
-  surface with `internal` plus `InternalsVisibleTo` rather than widening access,
-  SOLID for new code, no em dash / emoji / arrows / box-drawing characters.
-- For a duplication claim, **grep for the other copies** and cite each one by
-  `path:line`. A DRY finding without the other locations named is not a finding.
-- For a TypeScript symbol, the LSP tool answers "who reaches this" exactly where grep
-  guesses. Load it once with `ToolSearch("select:LSP")`, then use `findReferences` on
-  the export and `goToDefinition` to get through `index.ts` barrels.
-  `.vue` needs a separate Vue language server that not every machine has. Try one
-  `.vue` path first: if it answers "No LSP server available for file type", the
-  reference list is a floor and not the whole set, so grep the `.vue` files as well
-  before any "nothing reaches this any more" or "these four places do the same thing"
-  claim. Cite `path:line` either way. For C# this tool does nothing; grep as before.
+If a report is there, read it in full first and treat it as a starting position rather
+than as truth:
 
-Never assert that an API, type, or helper exists without having read it. A wrong
-"there is already a helper for this" is worse than saying nothing.
+- Its **cleared**, **Low** and **Deliberately not flagged** lists are settled work. Do
+  not re-litigate an item unless the branch has changed the code it names. Say in your
+  report that you inherited them.
+- Each finding is still open, now fixed, or now wrong. Check the `path:line` sites
+  before carrying it forward. A finding whose code has been reworked is re-derived from
+  scratch, not copied. Bar rule 3 applies to an inherited site list exactly as it does
+  to a fresh one.
+- A finding recorded as **spec written** has a file under
+  `artifacts/solidify/<branch>/specs/`. Update it rather than writing a second one.
+- New commits since the recorded merge base are where the phases concentrate.
 
-### The app-context pass
+## Phase A - Pair up
 
-Run this for every added file and every new exported unit (component, composable,
-helper, endpoint, type, constant). It is the part a diff-only review skips. In Step 3 it
-is split across two lenses: bullets 1, 3 and 4 below belong to lens A, bullet 2 to lens
-B. If you are a lens, run your own bullets properly rather than all four lightly.
+The only discovery step, and it is greps and directory listings rather than reads. Run
+the three searches from the shared bar for every unit the branch introduced or
+substantially rewrote, plus the parallel-name check one level up.
 
-- **Does something already do this?** Search by name, by the distinctive strings and
-  props it carries, and by the shape of the markup or logic - not just the filename.
-  Names diverge; behavior does not. Look in the component's own folder, the shared /
-  common folder, and the app's existing pages. In `ui-app`, an obvious tell is the same
-  markup or the same state machine written inline in two pages.
-- **What did it replace, and is the old one still there?** For each added unit, find the
-  old one and check whether anything still reaches it. Follow every thread it was wired
-  into, because deletion is rarely one file:
-  - imports, barrel exports, `index` re-exports, auto-import globs
-  - routes, pages, nav entries, DI registrations, service collection wiring
-  - `en.json` keys, `data-testid` references, storybook stories, tests
-  - config, feature flags, openapi entries, generated clients
-  A superseded file with zero remaining references is a deletion finding. One that still
-  has live references is not dead yet, and the finding is that the branch left two live
-  paths to the same behavior, which is a different and often worse problem. Say which
-  case it is.
-- **Who else should be using the new thing?** For each genuinely reusable unit the
-  branch added, grep the app for the code it makes redundant, open each hit, and decide
-  whether it is the same behavior or only the same silhouette. Count the sites. That
-  count, plus how generic the unit is, is what veto rules 1 and 8 are decided on.
-- **Did the branch add its own second way of doing something?** The reverse case: an
-  added file that hand-rolls what a shared unit already provides. The fix is to adopt
-  the existing one and delete the new code, which is the cheapest finding in the whole
-  report - prefer it over any new abstraction.
+Output a **pair table** before reading anything: the branch's unit, its candidate
+sibling, and which search found it. A unit with no sibling gets a row saying so, and is
+carried into Phase C and Phase E on its own.
 
-Do not guess at reference counts. Every "nothing uses this any more" and every "these
-four places do the same thing" claim needs the search behind it, and the report cites
-the locations.
+## Phase B - Diff each pair
 
-## Step 2 - The dimensions
+Read both sides in full and build the part-by-part table. Lines up row for row: a
+structural candidate. Diverges after two rows: cleared, one line, move on.
 
-Run each dimension against the changed code. Each one says what to flag and, just as
-importantly, what not to.
+Run the prose grep over the changed files while you are here:
 
-1. **Single responsibility.** Flag a class, component, composable, or function that
-   has two genuinely separate reasons to change, where the split is **already visible
-   in the code** - two disjoint clusters of fields or state, a method that both
-   decides and performs, a component that both fetches and renders in a codebase
-   whose siblings separate the two. Do not flag a file for being long, and do not
-   propose a split you cannot draw the seam of in one sentence. Lifting one
-   self-contained chunk out of a file to make it read better is not this dimension; it
-   is the extraction case in veto rule 1, and it is reported at that lower severity.
+```bash
+grep -nE 'rather than|while |unless |in the other case|only when' <changed files>
+```
 
-2. **Open/closed.** Flag when the change added the **second or third** branch to an
-   existing conditional on the same axis (a `switch` on type, an `if` chain on kind,
-   a lookup that now needs a new arm each time) and the arms are visibly parallel. Do
-   not flag the first branch, and do not ask for an extension point for a variation
-   that does not exist yet (veto rule 1).
+Tells 2, 4, 5, 8, 9 and 10 all surface in this phase. For tell 9, a
+`grep -n 'describe(\|it('` index of the two spec files is usually enough; a spec file is
+rarely worth a full read.
 
-3. **Substitutability (LSP).** Flag an implementation or subclass that lies about its
-   contract: throwing `NotSupportedException`, silently no-oping a member, narrowing
-   what a base accepts, or strengthening what callers must do. This is a must-fix
-   class of finding when a caller can reach it through the base type - the next
-   person will hit it.
+Never assert a type, helper or consumer exists without having read it.
 
-4. **Interface segregation.** Flag an interface or props contract whose members the
-   new consumer does not use while another consumer only wants a subset, or one that
-   forces an implementation to stub members it has no meaning for. Do not split an
-   interface whose only implementation and only consumer both use all of it.
+## Phase C - Axis check, on the branch's own units
 
-5. **Dependency inversion.** Flag new code that constructs a concrete dependency
-   inline (an HTTP client, DB context, `DateTime.Now`, filesystem, config read) when
-   the surrounding component already takes its dependencies through DI or its
-   constructor - it is now a hidden dependency and an untestable seam. Do not demand
-   an interface for a plain data type or a helper with no seam (veto rule 2).
+Every mode flag, discriminant, enum and correlated-optional set the new or rewritten
+units carry. For each, **every** site that sets or tests it, by `path:line`, and how many
+levels it is passed through. Tells 1, 6 and 7.
 
-6. **DRY / duplication.** Flag logic (not shape) repeated in three or more places, or
-   twice where the copies must agree to be correct. Count the copies **across the app**,
-   not just inside the diff: the branch adding the third copy of something that already
-   existed twice is the same finding as three copies inside one new file, and it is the
-   more common one. Same-looking code that answers different questions is not
-   duplication, and coupling it is the worse outcome - say so when you decide that. Name
-   every location. The proposal should be the smallest thing that removes the drift: one
-   named constant, one call, one existing helper already in the repo. Prefer moving a
-   duplicate to the helper that already exists over inventing a new one, and prefer
-   deleting the branch's new copy over generalizing it.
+This is scoped to the branch's units on purpose, which is what keeps it cheap: the set is
+small because the units are few. Where a flag sits on a public type with more than about
+three consumers, take the shared bar's one escalation and build the matrix for that type
+alone.
 
-7. **Coupled constants and implicit invariants.** A literal whose correctness depends
-   on matching a value somewhere else is a defect even when nothing looks duplicated
-   - a size that must equal a sibling's padding, a timeout that must be under a
-   caller's, a string key spelled in two files, a limit that must match a DB column.
-   Trace each new constant to what it is implicitly coupled to and confirm they
-   agree; the fix is one source of truth (derive it, or name it once).
+For a TypeScript symbol, load the LSP once with `ToolSearch("select:LSP")`, then
+`findReferences` on the export and `goToDefinition` through barrels. Try one `.vue` path
+first: if it answers "No LSP server available for file type", the list is a floor, so
+grep the `.vue` files too and say so. For C#, grep. Cite `path:line` either way.
 
-8. **Naming, readability, dead code.** Flag names that mislead (a `Get` that mutates,
-   a plural holding one thing, a bool named for the negative), dead or commented-out
-   code, unused parameters/props/returns, deep nesting where an early return is the
-   idiom in that file, and boolean flag parameters that select between two behaviors.
-   Dead code inside the diff belongs here; a whole unit the change orphaned elsewhere in
-   the app belongs to dimension 11.
-   Flag comments that narrate what the code says; the repo wants comments only for a
-   non-obvious "why".
+## Phase D - Shared contracts
 
-9. **Public surface width.** Flag a member, prop, export, or return value made public
-   that no consumer reads, and access widened past what tests need. The repo's rule is
-   `internal` plus `InternalsVisibleTo` over `public` in C#, and props down / events
-   up with the narrowest contract in `ui-app`.
+For each shared type, props contract or component the branch touched: how many places
+declare what it accepts? Read the declarations, not every consumer. Members with three
+different optionalities across three declarations, a prop with zero production
+set-sites, a mirror interface claiming to be "exactly the props this page binds" - that
+is tell 3 at declaration level, and it is where `bpDelete` H3 came from.
 
-10. **Shared-unit blast radius.** When the change touches something shared - a common
-    component, a composable, a state or cookie key, an extension method, a base class
-    - the design must hold for **every** consumer, not the one in front of you. Grep
-    the call sites and open each. A change correct at the definition and for one
-    caller is often silently wrong for a sibling that never appears in the diff. This
-    is also where an unused prop or return value becomes visible.
+## Phase E - Maintainability, from what you already read
 
-11. **Superseded code left behind.** Flag the old thing the change replaced but did not
-    remove: the previous component, file, endpoint, route, composable, DTO, constant,
-    feature flag, `en.json` key, story or test that now has no live reference. Two ways
-    to do the same job is the real cost - the next person picks one at random, or
-    changes the dead one and wonders why nothing happened. Name every leftover
-    reference thread you found (barrel export, route table, DI registration, translation
-    key) so the deletion is a checklist, not a guess. Do not flag something as dead
-    without the search behind it, and do not flag a deliberate deprecation path (a
-    published contract, an in-flight migration, anything marked obsolete on purpose) -
-    that is a choice, and if it is undocumented the finding is the missing note, not the
-    deletion. When the old path is still live, the finding is the duplicate path itself
-    and the proposal is to pick one.
+No new sweep. Run the dimensions below over the evidence Phases A to D produced: the
+branch's units read in full, each pair's sibling, the axis sites, the shared
+declarations. Where a dimension needs one more grep, run it; where it would need a
+subsystem read, say what you could not judge instead of paying for it.
 
-12. **Convergence on the branch's own unit.** Flag pre-existing code that should now be
-    refactored onto something the branch introduced: the new shared component that two
-    pages already hand-roll, the new helper that replaces three inline copies, the base
-    type the existing siblings should sit under. The branch did the hard part by
-    building the unit; leaving the old copies means the app now has the abstraction and
-    the duplication at once, and the next edit to that behavior still has to be made in
-    four places. Bar for reporting is veto rule 8: two or more pre-existing sites, real
-    behavioral sameness, each site named with what changes there and whether the shared
-    unit needs to grow to absorb it. If absorbing them all needs a flag or a variant per
-    caller, say they are not the same thing and drop it. Size the migration honestly and
-    call it follow-up work when it is bigger than the branch.
+| # | Dimension | Flag | Do not flag |
+| --- | --- | --- | --- |
+| 1 | Single responsibility | A unit with two genuinely separate reasons to change where the split is **already visible** - two disjoint clusters of state, a method that both decides and performs, a component that fetches and renders where siblings separate the two | A long file that tells one story; a split whose seam you cannot draw in one sentence |
+| 2 | Open/closed | The **second or third** parallel arm added to a conditional on one axis | The first branch; an extension point for a variation that does not exist |
+| 3 | Substitutability | An implementation that lies about its contract: `NotSupportedException`, a silently no-op member, narrowing what a base accepts. Must-fix when a caller can reach it through the base type | |
+| 4 | Interface segregation | A contract whose members the new consumer does not use while another wants a subset; one that forces stub members | An interface whose only implementation and only consumer both use all of it |
+| 5 | Dependency inversion | New code constructing a concrete dependency inline (HTTP client, DB context, `DateTime.Now`, filesystem, config read) where the component already takes dependencies through DI | A plain data type, or a helper with no seam |
+| 6 | DRY | Logic repeated in three or more places, or twice where the copies must agree to be correct. Count across the app. The pair table is usually the evidence | Same-looking code answering different questions - say so when you decide it |
+| 7 | Coupled constants | A literal whose correctness depends on matching a value elsewhere: a size matching a sibling's padding, a timeout under a caller's, a key spelled twice, a limit matching a DB column. Trace each new constant and confirm they agree | |
+| 8 | Naming, readability, dead code | Names that mislead (a `Get` that mutates, a plural holding one thing, a bool named for the negative), dead or commented-out code, unused params/props/returns, boolean flag parameters, comments narrating what the code says | |
+| 9 | Public surface width | A member, prop, export or return value made public that no consumer reads; access widened past what tests need. `internal` plus `InternalsVisibleTo` over `public` in C#; props down, events up in `ui-app` | |
+| 10 | Shared-unit blast radius | A change to a shared component, composable, state or cookie key, extension method or base class that is correct for the caller in front of you and silently wrong for a sibling. Phase D's declarations plus the escalation cover this | |
+| 11 | Superseded code left behind | The old component, file, endpoint, route, composable, DTO, constant, flag, `en.json` key or story the change replaced but did not remove. Follow every thread: imports, barrel and `index` re-exports, auto-import globs, routes, nav entries, DI registrations, `en.json` keys, `data-testid`, stories, config, openapi entries. Zero live references is a deletion finding; **live references on both paths is the worse finding** - say which case it is | A deliberate deprecation path (published contract, in-flight migration, marked obsolete). If it is undocumented the finding is the missing note, not the deletion |
+| 12 | Convergence on the branch's own unit | Pre-existing code that should now sit on something the branch introduced. Bar is veto rule 8 | Sites that would need a flag or variant each to absorb |
 
-## Step 3 - Discover the findings (one subagent per lens)
+**A caller may ask for structural only** - `m-pr-review` does, because it answers "is
+it the right shape" and nothing else. Then skip this phase, and report anything you
+noticed in passing as Low one-liners.
 
-Discovery is **read-only**. It makes no edits, in any mode.
+Dimensions 1, 2, 4 and 6 **escalate** when the pair table shows the same idea in two
+homes: then it is structural, not maintainability, and it goes through the seven-rule bar
+instead of the veto. That escalation is the whole reason both altitudes live in one skill.
 
-One reviewer holding twelve dimensions at once quietly drops most of them, and the
-dimensions do not even want the same kind of looking: duplication is an app-wide grep,
-superseded code is a reference thread pulled through barrels and routes, responsibility
-is a whole-file read. So discovery **fans out - one `general-purpose` subagent per
-lens**, all launched concurrently in a single message, each one covering the whole
-change set rather than a slice of it.
+## Step 2 - Assemble and judge
 
-Launch all of them even for a small change. The cost is one round of concurrent reads;
-the thing this skill keeps getting wrong is misses, not spend. The only exception is a
-change too small to have structure - a single file, a handful of lines - and even then
-run lenses A and B, because those two are the ones that read outside the diff.
+1. **Assemble before you dedupe.** Follow the shared bar's assemble rule: a flag's site
+   count, an empty rectangle, a dual-meaning comment and a two-home concept are usually
+   one finding seen four ways.
+2. **Sort by altitude, mechanically.** **Structural** is a concept with more than one
+   home, so the next change to it is made in several places and nothing fails if you do
+   only some of them; it must clear all seven bar rules. **Maintainability** is
+   everything else that clears the veto. **Low** is what is worth writing down and does
+   not clear either: one line, no proposal. If you cannot show a second home, it is not
+   structural however much you dislike the code.
+3. **Rank structural by the price of the next change**, not by textbook severity. Cap at
+   three. A branch with four is one you have misjudged or one that needs a design
+   conversation rather than a review: say which.
+4. **Rank maintainability** by severity (**must-fix** / **recommended** / **minor**),
+   then blast radius, then how cheap the fix is. Rank a leftover-superseded finding
+   high: it is cheap and two live paths mislead everyone. Group trivia into one entry.
+5. **Re-run the veto over the merged set.** Two proposals that each pay for themselves
+   separately may not pay together on the same file.
+6. **Resolve contradictions.** Asking for a shared unit and asking to split the same code
+   are the same lines pulled two ways. Decide, keep one, record the other as not flagged.
+7. **Never forward an unverified site list or file count.**
 
-### The lenses
+A clean result is a legitimate result. An empty structural list with a real cleared list
+is a good outcome, and it is worth saying plainly rather than padding.
 
-| Lens | Dimensions it owns | How it looks |
-| --- | --- | --- |
-| **A. Duplication and convergence** | 6, 12 (veto 1, 3, 8) | App-wide search. For every new unit, grep the app by name, by distinctive strings and props, and by the shape of the logic, then open each hit and decide same behavior or same silhouette. Count copies across the app, not inside the diff. |
-| **B. Superseded and dead code** | 11, the dead-code half of 8 (veto 7) | Reference threading. For every added file and unit, find what it replaced, then follow every thread: imports, barrel and `index` re-exports, auto-import globs, routes, nav entries, DI registrations, `en.json` keys, `data-testid`, stories, config, feature flags, openapi entries. Zero live references is a deletion finding; live references on both paths is the worse finding. |
-| **C. Responsibility and structure** | 1, 2, the naming and readability half of 8 | Whole-file reads of every changed and added file, top to bottom. Two disjoint clusters of state, a method that decides and performs, the second or third parallel arm added to a conditional, names that mislead, flag parameters, comments that narrate the code. |
-| **D. Contracts and seams** | 3, 4, 5, 9 (veto 2) | Follow the types. Read each interface, base type, props contract and public member the change touched or added, and every implementation of it. Contracts that lie, members a consumer never uses, a concrete dependency built inline where the component takes its dependencies through DI, access widened past what a consumer needs. |
-| **E. Coupled constants and blast radius** | 7, 10 | Trace values and call sites. For every new or changed literal, find what its correctness silently depends on and confirm they agree. For every shared unit the change touched, grep the call sites and open each - the design has to hold for the sibling that never appears in the diff. |
+## Step 3 - The report
 
-Nothing is left uncovered: every dimension in Step 2 sits in exactly one lens.
+**Write the report to a file, and print a short version in the chat.** The file is what a
+later run picks up from; the chat version is what the user reads now.
 
-### Seeding a lens subagent
+```
+artifacts/solidify/<branch>-report.md      # the report
+artifacts/solidify/<branch>/specs/*.md     # any spec you are asked to write
+```
 
-Each seed carries all of this. The subagent has none of it loaded, and a paraphrased
-veto is a weakened veto.
+`artifacts/` is gitignored in momentum, so nothing here reaches a commit or a PR. Create
+the directories if needed. Name the report for the branch, not the date, so a second run
+updates it in place.
 
-- **Read this skill file first**: `~/.claude/skills/solidify/SKILL.md`. The veto, the
-  Step 1 ground-truth rules, the app-context pass and the dimensions all live there and
-  are binding. Quote none of it from memory.
-- **The scope from Step 0**: the added, modified and deleted file lists, the component
-  roots, the nearest `CLAUDE.md` paths, the worktree root, and the one-line summary of
-  what the change is meant to do or replace.
-- **Its lens**: the dimensions it owns, how it looks (the row above, verbatim), and this
-  boundary - *everything outside your lens belongs to another reviewer running right now.
-  Do not report it and do not go looking for it. Depth on your own dimensions is the
-  whole reason you exist.*
-- **The LSP note**: *for a symbol rather than a string, load the LSP once with
-  `ToolSearch("select:LSP")`, then `findReferences` for who reaches an export,
-  `goToDefinition` through `index.ts` barrels, `hover` for a resolved type. `.vue` needs
-  a separate Vue language server that not every machine has, so try one `.vue` path
-  first: if it answers "No LSP server available for file type", the reference list is a
-  floor, and grep the `.vue` files too before any count or any "nothing uses this".
-  For C# it does nothing; grep. Cite `path:line` either way.*
-- **Apply the veto yourself before reporting anything**, and return what you vetoed as
-  well as what survived. A lens that reports everything it noticed has just moved the
-  work, not done it.
-- **Read-only**: make no edits, write no files.
+The chat version is the summary, the findings index, and the structural findings' concept
+plus price lines. Point at the file for the rest rather than pasting it twice.
 
-Ask each lens to return three lists:
+The file opens with a header block - branch, merge base, date, components, the pair table,
+files read in full, specs written, and a status line saying review only and whether any
+code was changed - then two or three sentences on what the branch did and whether the
+shape it landed in is the one to keep. Then a **findings index** (id, altitude, concept or
+title, homes or severity, status), then the findings.
 
-1. **Findings** in the field shape below (severity, location, principle, finding, code
-   context, proposal, cost, outside the diff), each surviving the veto.
-2. **Searched** - what it actually covered: the files read in full, the greps and
-   `findReferences` run and what they returned, and any claim it could not verify. An
-   empty findings list with a real searched list is a good result and says so.
-3. **Deliberately not flagged** - what it considered and vetoed, one line each with the
-   rule that killed it.
+### Structural
 
-Scale by lens, not by component: a lens covers the whole change. Split one lens across
-components only when its own file list is genuinely too big for one agent (roughly more
-than fifteen changed files, or components with conflicting conventions), and say in the
-report that you did.
+Ids `S1`, `S2`, `S3`, ranked by the price of the next change. Each carries:
 
-### When you cannot spawn subagents
+- **concept** - the idea in one noun phrase (bar rule 2)
+- **where it lives now** - the part-by-part table, every site, `path:line`, complete
+  (rule 3)
+- **the tells** - which fired, with the quoted comment, the empty rectangle or the site
+  count as evidence
+- **price of the next change** - files touched today by change X, by name; files after
+  (rule 4)
+- **target shape** - type signatures, file names, component boundaries, specific enough
+  to build from
+- **staged plan** - numbered stages, each compiling and passing on its own (rule 5)
+- **must survive** - the behaviors the refactor may not change (rule 6)
+- **cost** - files added, files touched, specs split, net line direction, an honest word
+  on the test bill
+- **the case against** - the strongest argument for leaving it alone (rule 7)
 
-A caller may already be running this skill inside a subagent, and nesting has a
-floor. If the Agent tool is unavailable, run the five lenses **sequentially in your own
-context** instead - one lens at a time, finishing its searches and writing its three
-lists before you start the next, and never holding two lenses open at once. That is
-slower and it is still the point: one pass per lens is what stops the dimensions from
-being dropped. Say in the report that the lenses ran sequentially.
+A finding whose fix you could not stage still belongs here if the concept repeats - say
+plainly that it is a rewrite rather than a refactor, and where the stageable half is.
 
-### Step 3b - Merge what comes back
+### Maintainability
 
-The lenses find; you decide. Do this before writing a single line of report.
+One flat numbered list, most important first, so a reader who stops at three has handled
+the three that mattered. Each: **severity and title**, **location(s)**, **code context**
+(a fenced, language-tagged block with real line numbers), **finding** (one sentence: what
+is wrong and what it costs later), **proposal** (name the existing helper, the constant to
+extract, the branch to collapse), **cost** (files touched, net direction), and **outside
+the diff** when the fix reaches files the branch never opened - list them, say which of
+veto rule 7's three shapes makes it a finding now, and give the search behind it. For a
+deletion that is the reference checklist; for a convergence finding, the per-site
+migration list.
 
-1. **Dedupe.** The same defect reaches you from two lenses often - a duplicated block is
-   both a DRY finding and a responsibility finding. One entry, the better evidence, the
-   dimension that describes it most directly.
-2. **Run the veto again over the merged set.** Five reviewers each want to have found
-   something, so the merged list is longer than the branch deserves. Rule 4 in
-   particular only makes sense across the whole set: two proposals that each pay for
-   themselves separately may not pay for themselves together on the same file.
-3. **Resolve contradictions.** Lens A asking for a shared unit and lens C asking to split
-   the same code are the same lines pulled two ways. Decide, keep one, and say in
-   "Deliberately not flagged" which you dropped and why.
-4. **Never forward an unverified count.** Any "nothing references this any more" or
-   "these four places do the same thing" that arrives without the search behind it goes
-   back to that lens or gets dropped. This is the one place a fan-out can make the report
-   worse than a single reviewer, because the claim arrives pre-packaged and reads as
-   checked.
-5. **Keep the coverage.** Merge the five searched lists into the report's "App context
-   checked", including the lenses that came back empty.
+### Low
 
-For each surviving finding, produce:
+One table, ids `L1`, `L2`, ... One row each, no analysis and no proposal. Cite `path:line`
+and say in a clause whether it is pre-existing or the branch's. A later run inherits this,
+so a vague row costs someone a re-read.
 
-- `severity` - **must-fix** (the next change to this code will be wrong or will have
-  to be made in several places; a contract that lies), **recommended** (real
-  maintenance cost, no correctness trap), **minor** (cleanup worth doing while you
-  are in there).
-- `location` - `path:line`, plus every other location for a duplication finding.
-- `principle` - which dimension it came from, in a couple of words.
-- `finding` - one sentence: what is wrong and what it will cost later.
-- `code context` - the current code as a fenced, language-tagged block, enough lines
-  to stand alone, each line prefixed with its real line number.
-- `proposal` - the concrete smaller shape, specific enough to act on. Name the
-  existing helper, the constant to extract, the branch to collapse.
-- `cost` - files touched and the net direction (fewer lines / same lines, more
-  indirection). This is the veto's rule 4, shown to the reader.
-- `outside the diff` - only when the fix reaches files the branch never touched: list
-  them, say what the branch did that makes it a finding now (veto rule 7's three shapes),
-  and give the evidence - the search you ran and the references you found or did not
-  find. For a deletion this is the reference checklist; for a convergence finding it is
-  the per-site migration list. Findings entirely inside the diff omit this field.
+Then, in short lists:
 
-Group trivia into one finding (all the unused imports in one entry), never one
-headline each. If nothing survives the veto, say that plainly and stop - do not pad
-the report. A clean branch is a legitimate result and worth saying out loud.
+- **Cleared** - the pairs that diverged and the central units that are structurally fine,
+  one line each with why. Write it so a later run does not re-litigate them.
+- **Coverage** - the pair table with what each search returned, files read in full, greps
+  and `findReferences` run, the escalations you paid for, any method caveat (an
+  unavailable LSP, a grep-only reference list), and **what the frame could not reach**
+  (the shared bar's stated blind spots: a smear with no pair and no shared declaration, a
+  pre-existing smear between two untouched units).
+- **Deliberately not flagged** - considered and vetoed, one line each with the rule.
+- **Out of scope** - bug, security, test, performance, a11y observations, each pointing at
+  the owning skill.
 
-## Step 4 - Report, ranked top to bottom
+Offer at the end to write a structural finding up as a spec, or to implement its stage 1.
+Do neither unless asked.
 
-One flat numbered list, **most important first**, not grouped by file. Rank by
-severity first, then by blast radius (how many call sites or future edits it
-touches), then by how cheap the fix is. Number them so the user can say "fix 1 and 3".
+### Writing a spec when asked
 
-For each finding, in this order: **severity and title**, **location(s)**, **code
-context** (the line-numbered block), **finding**, **proposal**, **cost**, and
-**outside the diff** when the fix reaches beyond it.
+Build it from `docs/spec-template.md` and write it to
+`artifacts/solidify/<branch>/specs/<kebab-slug>.md`. Not into `src/<component>/specs/`:
+that path is for specs that ship with the component, and a review's proposal is not one
+until someone decides to build it.
 
-Rank a leftover-superseded finding high: it is cheap to fix, and two live paths to the
-same behavior misleads everyone who reads the code next. Rank a convergence finding by
-how many sites it collapses, and put it below the must-fix items when it is follow-up
-work rather than part of this branch.
+Keep the spec to requirements - WHAT and WHY plus acceptance criteria in the template's
+EARS phrasing. The target shape, the staged plan and the signatures stay in the report
+because they are the HOW. A refactor's requirements are mostly invariance requirements, so
+the finding's **must survive** list is what turns into acceptance criteria. Record the
+spec's path in the header block and set that finding's index status to **spec written**.
 
-Then close with:
+## Step 4 - If the user asks for fixes
 
-- **Verdict** - one or two sentences: is the design sound, and what must-fix items
-  are open. Say so plainly when it is sound.
-- **Coverage** - the merged "searched" lists from the five lenses, a line or two each:
-  which added units prior art was searched for, what was confirmed orphaned, what was
-  confirmed still live, which call sites were opened, and anything a lens could not
-  verify. Name any lens that came back empty, and say so if a lens was split or skipped.
-  This is how the reader knows the whole pass ran, and it is worth writing even when it
-  found nothing.
-- **Deliberately not flagged** - the things you considered and vetoed, one line each
-  with the reason (usually "one call site and not generic enough to move", "only
-  implementation", "shape not logic",
-  "predates the branch", "still has live callers", "similar shape, different behavior").
-- **Out of scope but worth noting** - bug / security / test / performance / a11y
-  observations, each pointing at the owning skill.
+The default is review only. If the user names findings ("do 1 and 4", "take S1 stage 1"),
+apply each as the smallest correct diff, one at a time, matching the surrounding style,
+and show the real `git diff` for each. Then run only the cheap check on what you touched -
+compile, typecheck or lint for that component (`npx eslint --fix <path>` for `ui-app`, a
+build of the touched project for C#). Report the real output; never claim a check you did
+not run. The test suite is a separate pass and belongs to `loom-slice` / `loom-gate`.
 
-Present the report inline in the conversation. Write no files.
+Do not commit or push unless asked. Do not fix anything that was not named, and do not
+expand a fix past the finding.
 
-## Step 5 - If the user asks for fixes
+Two extra rules for fixes reaching outside the diff:
 
-The default is report only. If the user names findings to fix ("do 1 and 4"), apply
-each one as the smallest correct diff, one at a time, matching the surrounding style,
-and show the real `git diff` for each. Then:
-
-- Run only the cheap check on what you touched - compile / typecheck / lint for that
-  component (`npx eslint --fix <path>` for `ui-app` files, a build of the touched
-  project for C#). Report the real output; never claim a check you did not run. The
-  test suite is a separate pass and belongs to `loom-slice` / `loom-gate`.
-- Do not commit or push unless the user asks (the global git rules).
-- Do not fix anything that was not named, and do not expand a fix past the finding.
-
-Two extra rules for the fixes that reach outside the diff:
-
-- **A deletion gets re-verified and confirmed before it happens.** Re-run the reference
-  search at fix time, show what it returned, and get an explicit go-ahead before removing
-  a file. Then remove the whole thread in one go - the file, its barrel export, its route
-  or DI registration, its story, its tests, its now-unused `en.json` keys - so the branch
-  is not left half-cleaned. `en.json` only: never touch `fr.json`, `es.json`, `en-XA.json`
-  or the XLIFF memory, the pipeline owns those. Never delete something the search still
-  finds live references to.
-- **A convergence migration goes one site at a time.** Refactor one call site onto the
-  new unit, show the diff, run the cheap check, then move to the next. Stop and report if
-  a site turns out to need behavior the shared unit does not have, rather than growing
-  the unit to fit; that is a new decision for the user, not a fix. Say up front how many
-  sites the user is agreeing to.
+- **A deletion gets re-verified before it happens.** Re-run the reference search at fix
+  time, show what it returned, and get an explicit go-ahead. Then remove the whole thread
+  in one go - the file, its barrel export, its route or DI registration, its story, its
+  tests, its now-unused `en.json` keys. `en.json` only: never touch `fr.json`, `es.json`,
+  `en-XA.json` or the XLIFF memory. Never delete something the search still finds live
+  references to.
+- **A convergence migration goes one site at a time.** One call site, show the diff, run
+  the cheap check, next. Say up front how many sites the user is agreeing to. Stop and
+  report if a site needs behavior the shared unit does not have, rather than growing the
+  unit to fit: that is a new decision, not a fix.
 
 ## Conventions
 
-- Discovery fans out by lens, not by file. The lenses find; you dedupe, re-run the
-  veto over the merged set, and rank. Never forward a lens's count without its search.
-- The veto outranks the dimensions. A dimension violation that fails the veto is not
-  reported as a finding.
-- Read the code before claiming anything; cite `path:line`. No reviewing from a diff
-  alone and no reviewing from memory.
-- The diff anchors the review; the app is the context. Every finding traces back to what
-  the branch did, and the ones that reach outside the diff say so and carry the search
-  that proves them.
-- Findings are ordered by importance in one flat list, so a reader who stops at three
-  has handled the three that mattered.
-- No em dash, emojis, arrows, or box-drawing characters anywhere in the report.
-- Discovery never edits. Fixes happen only in Step 5, only for findings the user
-  named.
+- One agent, phases in order, spawn nothing. The pair frame is what replaced the fan-out.
+- Discovery is read-only and writes only the report and specs under `artifacts/solidify/`.
+- Two altitudes, one mechanical test between them: a second home makes it structural.
+- The bar gates structural findings, the veto gates maintainability ones. A dimension
+  violation that fails the veto is not reported as a finding.
+- Read the code before claiming anything; cite `path:line`. No reviewing from a diff alone
+  and none from memory.
+- The diff anchors the review; the app is the context. A finding reaching outside the diff
+  says what the branch did to make it a finding now, and carries the search that proves it.
+- Say what the frame could not reach. An honest blind spot beats a claim of completeness.
+- No em dash, emojis, arrows or box-drawing characters anywhere in the report.

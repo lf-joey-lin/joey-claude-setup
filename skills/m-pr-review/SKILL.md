@@ -1,6 +1,6 @@
 ---
 name: m-pr-review
-description: Big-picture review of a momentum GitHub pull request. Checks the PR branch out into its own throwaway worktree, installs ui-app so the code can be read with real types, explains what the PR does at two altitudes (a plain summary, then a file-by-file walk so the shape of the change is clear), then runs the solidify2 structural pass over the diff. Deliberately narrow: no bug hunt, no security pass, no test or coverage review, no lint, no build, no a11y, no style nits, and no comments posted on the PR. REVIEW ONLY, never edits code. Invoke when the user types /m-pr-review, or hands over a momentum PR number or github.com/Laserfiche/momentum PR link and asks to "review this PR", "what does this PR do", "is this the right shape", or "give me the big picture on this PR".
+description: Big-picture review of a momentum GitHub pull request. Checks the PR branch out into its own throwaway worktree, installs ui-app so the code can be read with real types, explains what the PR does at two altitudes (a plain summary, then a file-by-file walk so the shape of the change is clear), then runs the solidify structural pass over the diff. Deliberately narrow: no bug hunt, no security pass, no test or coverage review, no lint, no build, no a11y, no style nits, and no comments posted on the PR. REVIEW ONLY, never edits code. Invoke when the user types /m-pr-review, or hands over a momentum PR number or github.com/Laserfiche/momentum PR link and asks to "review this PR", "what does this PR do", "is this the right shape", or "give me the big picture on this PR".
 ---
 
 # m-pr-review: big-picture review of a momentum PR
@@ -10,7 +10,7 @@ questions, in this order:
 
 1. **What does this change actually do?** First in a few lines, then in enough
    detail that the reader knows which files matter and why.
-2. **Is it the right shape?** Structural quality only, via `solidify2`.
+2. **Is it the right shape?** Structural quality only, via `solidify`.
 
 That is the whole skill. It is narrow on purpose - see the boundary below - and
 it produces a chat report. It **posts nothing on the PR and edits no code**.
@@ -18,7 +18,7 @@ it produces a chat report. It **posts nothing on the PR and edits no code**.
 ## Hard boundary
 
 **In scope:** what the PR does, which files carry the change, and the structural
-review `solidify2` performs.
+review `solidify` performs.
 
 **Out of scope, at any severity.** Do not run these passes, do not fan out
 subagents for them, and do not sneak them into the report as "while I was in
@@ -31,8 +31,8 @@ there":
   (accessibility is `loom-gate`'s storybook a11y run)
 - lint, build, typecheck, the CI gates -> `loom-gate`
 - file-level nits: naming, comments, duplication counting, dead code -> `solidify`
-  (note: `solidify2` already parks these under "Local defects noticed"; leave
-  them exactly there)
+  parks these in its **Low** table, one line each. Pass them through exactly as it
+  wrote them; never expand one into a finding here
 
 If something out of scope is genuinely alarming - a credential in the diff, a
 migration that looks destructive - say it in one line at the end under
@@ -209,9 +209,9 @@ Then, in a few lines:
   reach: an interface, a DTO, an endpoint, a proto message, an exported composable,
   a config key. This list is what step 7 needs most.
 
-## Step 7 - the solidify2 pass
+## Step 7 - the solidify pass
 
-Now invoke `solidify2` (`Skill(skill: "solidify2")`), which is the actual review.
+Now invoke `solidify` (`Skill(skill: "solidify")`), which is the actual review.
 It works on "the current branch", and inside `<root>/momentum-pr-<N>` that is the
 PR - so hand it the concrete context rather than letting it re-derive any of it:
 
@@ -225,16 +225,19 @@ PR - so hand it the concrete context rather than letting it re-derive any of it:
 - the `.vue` caveat: if the LSP answers "No LSP server available for file type" on
   a `.vue`, a `findReferences` on a composable is a floor and not the list, so grep
   the `.vue` files too before concluding nothing uses something
+- **structural only.** This skill answers "is it the right shape", so ask for its
+  structural half and for anything else as Low one-liners. Its Phase E maintainability
+  list is not this report's job
 
-Do not restate solidify2's rules here and do not pre-empt its findings. Its bar,
-its lenses and its over-engineering veto are its own, and they are why the output
-is short.
+Do not restate solidify's rules here and do not pre-empt its findings. Its bar, its
+phases and its over-engineering veto are its own, and they are why the output is
+short.
 
 **Take what it returns at face value only after a sanity check.** For each
 finding, confirm the `path:line` sites exist in this PR's tree and that the finding
 is caused by *this* PR rather than pre-existing. A pre-existing structural problem
 the PR merely sits next to belongs in one line under "pre-existing, not this PR",
-not in the ranked list. Everything else passes through as solidify2 wrote it.
+not in the ranked list. Everything else passes through as solidify wrote it.
 
 ## Step 8 - the report
 
@@ -245,8 +248,8 @@ restating the diff line by line, no closing summary.
    and the review worktree path.
 2. **What this PR does** - step 5.
 3. **The change, file by file** - step 6.
-4. **Structural review** - solidify2's findings, ranked as it ranked them, plus
-   its "Local defects noticed" list left as one flat line-per-item block.
+4. **Structural review** - solidify's structural findings, ranked as it ranked them,
+   plus its Low table left as one flat line-per-item block.
 5. **Pre-existing, not this PR** - one line each, or the heading omitted.
 6. **Noticed, out of scope** - one line each with the owning skill, or omitted.
 7. **Not covered** - say it plainly: no bug hunt, no security pass, no test
