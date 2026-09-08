@@ -1,6 +1,6 @@
 ---
 name: solidify2
-description: Structural review of the current branch - the pass that catches locally-clean code carrying two concepts in one unit, and is willing to recommend a large refactor when the evidence supports it. REVIEW AND PLAN ONLY, no edits unless separately asked. Language-agnostic across the momentum monorepo (C# services and ui-app alike). It changes the unit of review from the file to the concept - it asks what distinct ideas the code expresses and whether each has exactly one home - and it prices a refactor rather than rejecting it for being big. Every finding ships with a staged migration plan where each stage compiles and passes, the behaviors that must survive, an honest cost including the test bill, and the strongest argument against doing it. Invoke when the user types /solidify2, or asks "is this the right shape", "should this be split", "would a refactor pay here", "this code is clean but feels wrong", "what would this look like redesigned", or hands over a branch whose code reads well and still feels like it is doing two jobs.
+description: Structural review of the current branch - the pass that catches locally-clean code carrying two concepts in one unit, and is willing to recommend a large refactor when the evidence supports it. REVIEW AND PLAN ONLY - it changes no product code unless separately asked, and writes only its own report and specs under the gitignored `artifacts/solidify2/`, which a later run picks up from. Findings are sorted High (a concept with more than one home, so a change to it repeats across places) and Low (minor functions, comments, dead surface). Language-agnostic across the momentum monorepo (C# services and ui-app alike). It changes the unit of review from the file to the concept - it asks what distinct ideas the code expresses and whether each has exactly one home - and it prices a refactor rather than rejecting it for being big. Every finding ships with a staged migration plan where each stage compiles and passes, the behaviors that must survive, an honest cost including the test bill, and the strongest argument against doing it. Invoke when the user types /solidify2, or asks "is this the right shape", "should this be split", "would a refactor pay here", "this code is clean but feels wrong", "what would this look like redesigned", or hands over a branch whose code reads well and still feels like it is doing two jobs.
 ---
 
 # solidify2 Skill
@@ -23,12 +23,12 @@ touching the other?** Not "is this file tidy", and not "does this match a patter
 Structure only, and only at the level of the concept. That focus is the whole design of
 the skill, so hold it even when something smaller and easier is in front of you.
 
-**Not this skill's business, at any severity:** duplication counting, dead or superseded
-code, naming nits, comment quality, coupled constants, public-surface width, and every
-other defect whose evidence fits inside one file. Those are real and they are somebody
-else's pass. If you notice one, put it in a single line under "Local defects noticed" at
-the end of the report, with no analysis and no proposal, and move on. A report that
-drifts into file-level cleanup has stopped doing the one job nothing else does.
+**Never a High finding:** duplication counting, dead or superseded code, naming nits,
+comment quality, coupled constants, public-surface width, and every other defect whose
+evidence fits inside one file. Those are real and they are somebody else's pass. If you
+notice one, put it in a single row in the **Low** table at the end of the report, with no
+analysis and no proposal, and move on. A report whose High section drifts into
+file-level cleanup has stopped doing the one job nothing else does.
 
 The failure mode to guard against is not recommending too large a change. It is
 answering an easier question than the one asked.
@@ -142,6 +142,33 @@ generated clients) - a defect visible there is reported against its source.
 
 Do **not** drop test files here. See L4.
 
+### Pick up a prior run
+
+Every run writes its report and its specs under `artifacts/solidify2/` (gitignored - see
+Step 4). Before discovering anything, look for a previous run on this branch:
+
+```bash
+ls artifacts/solidify2/<branch>-report.md artifacts/solidify2/<branch>/specs/ 2>/dev/null
+```
+
+If a report is there, read it in full first, and treat it as a starting position rather
+than as truth:
+
+- Its **Structurally fine** and **Low** lists are the previous run's cleared work. Do not
+  re-litigate an item on either list unless the branch has changed the code it names.
+  Say in your own report that you inherited them.
+- Each **High** finding is either still open, now fixed, or now wrong. Check the
+  `path:line` sites it names before carrying it forward. A finding whose sites have moved
+  or whose code has been reworked is re-derived from scratch, not copied.
+- A finding recorded as **spec written** already has a file under
+  `artifacts/solidify2/<branch>/specs/`. Update that file rather than writing a second one.
+- New commits since the recorded merge base are what the lenses concentrate on. Seed each
+  lens with the prior report's finding titles and say what is already settled, so it
+  spends its reads on what changed.
+
+Never let an inherited claim through unverified. A `path:line` from a prior run is a lead,
+and bar rule 3 still applies to it.
+
 ## Step 1 - Ground truth
 
 - Read every changed and added file **in full**, and every file the subsystem's public
@@ -254,28 +281,52 @@ The lenses find; you decide.
    lenses is the report's headline.
 2. **Apply the bar to the assembled finding**, not to the fragments. Rules 4, 5, 6 and
    7 can only be answered once you know the whole shape.
-3. **Rank by the price of the next change**, from L5, not by textbook severity. The
-   finding that makes the most likely next edit cheapest goes first.
-4. **Cap the report at three structural findings.** A subsystem with four is a
-   subsystem you have misjudged, or one that needs a design conversation rather than a
-   review. Say which.
-5. **Never forward an unverified site list or file count.** It arrives pre-packaged and
+3. **Sort into High and Low.** There are two priorities and the test is mechanical.
+   **High** is a concept that repeats: it has more than one home, so the next change to
+   it is made in several places and nothing fails if you do only some of them. Every
+   High finding must clear all seven bar rules. **Low** is everything else you noticed
+   that is worth writing down - a single minor function, a comment, dead or unreachable
+   surface, a coupled constant, a member no caller can use. A Low item gets one line and
+   no proposal. If you cannot show a second home, it is not High, however much you
+   dislike the code.
+4. **Within High, rank by the price of the next change**, from L5, not by textbook
+   severity. The finding that makes the most likely next edit cheapest goes first.
+5. **Cap High at three.** A subsystem with four is a subsystem you have misjudged, or
+   one that needs a design conversation rather than a review. Say which. There is no cap
+   on Low.
+6. **Never forward an unverified site list or file count.** It arrives pre-packaged and
    reads as checked. Send it back or drop it.
 
 ## Step 4 - The report
 
-Markdown in the chat. No file is written unless the user asks.
+**Always write the report to a file, and print a short version in the chat.** The file
+is the durable artifact a later run picks up from (Step 0); the chat version is what the
+user reads now.
 
-Open with two or three sentences: what the branch did structurally, and whether the
-shape it landed in is the one to keep. Then the findings, ranked.
+```
+artifacts/solidify2/<branch>-report.md      # the report
+artifacts/solidify2/<branch>/specs/*.md     # any spec you are asked to write
+```
 
-Each finding carries:
+`artifacts/` is gitignored in momentum, so nothing here reaches a commit or a PR. Create
+the directories if they are not there. Name the report for the branch, not the date, so a
+second run on the same branch updates it in place rather than piling up files.
+
+The chat version is the summary, the findings index table, and the High findings' concept
+plus price lines. Point at the file for the rest rather than pasting it twice.
+
+The file opens with a header block - branch, merge base, date, scope, the subsystem
+boundary, specs written, and a status line saying review only and whether any code was
+changed - then two or three sentences on what the branch did structurally and whether the
+shape it landed in is the one to keep. Then a **findings index** table (id, priority,
+concept, number of homes, status), then the findings under two headings.
+
+### High
+
+Concepts that repeat. One heading per finding, ids `H1`, `H2`, `H3`, ranked by the price
+of the next change. Each carries:
 
 - **`concept`** - the idea, in one noun phrase (bar rule 2).
-- **`severity`** - **structural** (the concept is smeared and the next change to it
-  will be made in several places), **drifting** (one home today, but the branch put the
-  second tenant in and a third would go there too), **note** (real, but the fix is a
-  rewrite you could not stage - rule 5).
 - **`where it lives now`** - every site, `path:line`, complete (rule 3).
 - **`the tells`** - which of Step 2 fired, with the quoted comment or the empty
   rectangle or the site count as evidence.
@@ -290,18 +341,44 @@ Each finding carries:
   honest word on the test bill.
 - **`the case against`** - the strongest argument for leaving it alone (rule 7).
 
+A finding whose fix you could not stage (rule 5) still belongs here if the concept
+repeats - say plainly that it is a rewrite rather than a refactor, and where the
+stageable half of it is. A finding whose concept has one home does not: it is Low.
+
+### Low
+
+A single table, ids `L1`, `L2`, ... One row each, no analysis and no proposal: minor
+functions, comments, dead or unreachable surface, coupled constants, a member no caller
+can use, anything file-level that is outside this skill's altitude. Cite `path:line` and
+say in a clause whether it is pre-existing or the branch's. This is the list a later run
+inherits, so an item written vaguely costs someone a re-read.
+
 Then, in short lists:
 
-- **Structurally fine** - the central units you examined and cleared, one line each
-  with why. An empty findings list with a real cleared list is a good result.
-- **Local defects noticed** - file-level things outside this skill's altitude, one
-  line each, no analysis and no proposal.
+- **Structurally fine** - the central units you examined and cleared, one line each with
+  why. An empty High list with a real cleared list is a good result. Write it so a later
+  run does not re-litigate them.
 - **Out of scope** - correctness, security, tests, a11y, pointing at the owning skill.
 - **Subsystem checked** - the merged searched lists, including lenses that came back
-  empty, so the reader knows the coverage.
+  empty, any method caveat (an unavailable LSP, a grep-only reference list), and what you
+  re-verified yourself before forwarding it.
 
-Offer at the end to write the top finding up as a spec from `docs/spec-template.md`,
-or to implement stage 1. Do neither unless asked.
+Offer at the end to write a High finding up as a spec, or to implement its stage 1. Do
+neither unless asked.
+
+### Writing a spec when asked
+
+Build it from `docs/spec-template.md` and write it to
+`artifacts/solidify2/<branch>/specs/<kebab-slug>.md`. Not into `src/<component>/specs/`:
+that path is for specs that ship with the component, and a review's proposal is not one
+until someone decides to build it.
+
+Keep the spec to requirements. WHAT and WHY plus acceptance criteria, in the template's
+EARS phrasing; the target shape, the staged plan and the signatures stay in the report,
+because they are the HOW and the template says so. A refactor's requirements are mostly
+invariance requirements, so the finding's **must survive** list is what turns into
+acceptance criteria. Record the spec's path in the report's header block and set that
+finding's index status to **spec written**.
 
 ## Calibration: a worked catch
 
@@ -328,5 +405,7 @@ is for: a change whose every file reads well and whose shape is still wrong.
 - **What this skill adds.** The assembled finding across all four tells, the per-caller
   matrix as its evidence, and a staged plan that lands the split in five green stages.
 
-Use it to calibrate severity: that is a **structural** finding, not a note, because the
-next person adding a reading mode or changing one edits eight sites across three files.
+Use it to calibrate the split: that is **High**, not Low, because the concept has two
+homes and the next person adding a reading mode or changing one edits eight sites across
+three files. Contrast the leaf's `infinite?: boolean` prop taken on its own - one prop in
+one file, no second home to point at - which is a Low row.
