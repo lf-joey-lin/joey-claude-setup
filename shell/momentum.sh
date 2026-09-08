@@ -1,8 +1,8 @@
-# momentum workspace shortcuts: m-newwork, m-teardown, m-dev, m-cd.
+# momentum workspace shortcuts: m-newwork, m-teardown, m-dev, m-cd, m-doctor.
 #
 # m-newwork sets up the branch and worktree, then leaves the shell somewhere
-# useful. m-teardown, m-dev and m-cd are plain git/process wrappers. No Claude
-# in any of them.
+# useful. m-teardown, m-dev, m-cd and m-doctor are plain git/process wrappers.
+# No Claude in any of them.
 #
 # Source from ~/.bashrc. Bash only; the Windows side has no equivalent yet.
 
@@ -709,6 +709,250 @@ m-teardown() {
   return 0
 }
 
+# --- m-doctor: the toolchain every worktree shares ---------------------------
+#
+# A worktree isolates the source and bin/obj. It does not isolate the toolchain:
+# ~/.nuget/packages, NuGet's lock files, the MSBuild node pool and VBCSCompiler
+# are one set per user. Sharing them is fine. Two worktrees restoring and
+# building at the same time was measured clean.
+#
+# The exception is NuGet's lock, which has no timeout and no override. A process
+# that takes one and then stops (state T) blocks every dotnet restore on the box
+# until it is resumed or killed. `make dev` then hangs with no output, which
+# reads as a broken m-dev and looks cured by a reboot - the reboot only kills the
+# stopped process. Seen 2026-09-08: a suspended `aspire nuget search` held one
+# for an hour, and a one-package restore in an empty temp directory hung past
+# 100s, then finished in 1.1s once the lock was let go.
+#
+#   m-doctor         report
+#   m-doctor --fix   resume a suspended holder, delete dead MSBuild sockets
+#   m-doctor --sniff one line if it looks wedged, silence if not, for a timer
+#
+# m-dev runs the resume part itself before every start, so the hang cannot
+# happen behind the board, and d runs --fix into the pane.
+
+_m_doctor_lockdir() { printf '%s\n' "/tmp/NuGetScratch$(id -un)/lock"; }
+
+# The lock files something is really holding. flock takes the same exclusive lock
+# NuGet does, so one it cannot take is in use. Counting the directory tells you
+# nothing: NuGet never deletes these files, so nearly all of them are inert.
+_m_doctor_held() {
+  local f
+  for f in "$(_m_doctor_lockdir)"/*; do
+    [ -f "$f" ] || continue
+    flock -n -x "$f" true 2>/dev/null || printf '%s\n' "$f"
+  done
+}
+
+# The pid with a lock file open. One find, not a readlink per fd, which is
+# thousands of forks on a box with this many dotnet processes on it.
+_m_doctor_holder() {
+  local hit
+  hit="$(find /proc -maxdepth 3 -path '/proc/[0-9]*/fd/*' -lname "$1" -printf '%h\n' 2>/dev/null | head -1)"
+  hit="${hit#/proc/}"
+  printf '%s\n' "${hit%/fd}"
+}
+
+_m_doctor_state() { awk '{print $3}' "/proc/$1/stat" 2>/dev/null; }
+_m_doctor_cmd() { tr '\0' ' ' <"/proc/$1/cmdline" 2>/dev/null | cut -c1-88; }
+
+# Resume anything stopped while holding a nuget lock. Resume rather than kill:
+# the holder has usually finished its work already, so SIGCONT lets it exit on
+# its own. Returns 1 only if a stopped process still holds a lock afterwards,
+# which is the one state a caller must not start a build in.
+_m_doctor_unwedge() {
+  local f pid rc=0 acted=0
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    pid="$(_m_doctor_holder "$f")"
+    [ -n "$pid" ] || continue
+    case "$(_m_doctor_state "$pid")" in T*) ;; *) continue ;; esac
+    echo "m-doctor: pid $pid stopped while holding a nuget lock, resuming it"
+    echo "m-doctor:   $(_m_doctor_cmd "$pid")"
+    kill -CONT "$pid" 2>/dev/null
+    acted=1
+  done < <(_m_doctor_held)
+  [ "$acted" = 1 ] || return 0
+
+  sleep 5
+  local still=0
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    still=1
+    pid="$(_m_doctor_holder "$f")"
+    [ -n "$pid" ] || continue
+    case "$(_m_doctor_state "$pid")" in
+      T*) echo "m-doctor: pid $pid is still stopped and still holding it; kill $pid by hand" >&2
+          rc=1 ;;
+      *)  echo "m-doctor: pid $pid took the resume and still holds the lock, so it went back to"
+          echo "m-doctor:   work rather than exiting. It should finish on its own." ;;
+    esac
+  done < <(_m_doctor_held)
+  [ "$rc" = 0 ] && [ "$still" = 0 ] && echo "m-doctor: lock released"
+  return "$rc"
+}
+
+# MSBuild leaves its socket behind when a node is killed. Litter, not a stall -
+# but it is the pile that gets mistaken for the problem, so it is counted here
+# and swept by --fix. Prints how many were dead.
+_m_doctor_sockets() {
+  local f pid dead=0
+  for f in /tmp/MSBuild*; do
+    [ -S "$f" ] || continue
+    pid="${f#/tmp/MSBuild}"
+    [ -d "/proc/$pid" ] && continue
+    dead=$((dead + 1))
+    [ "${1:-}" = clean ] && rm -f "$f"
+  done
+  printf '%s\n' "$dead"
+}
+
+# Every stopped process, whatever it is. No forks: the whole point is that this
+# is cheap enough to run on a timer. The state field is read after the last ") "
+# rather than as field 3, because a comm with a space in it shifts them.
+#
+# Deliberately not filtered to dotnet and friends. The name would only save the
+# odd tier-2 sweep, and it costs the cases that matter: the holder of a nuget
+# lock is whatever process opened it, and guessing its name is how a real wedge
+# gets missed. Tier 2 proves ownership, which is the actual evidence.
+_m_doctor_stopped() {
+  local d pid line st
+  for d in /proc/[0-9]*; do
+    pid="${d#/proc/}"
+    # Silenced before it runs, not after: a process can exit between the glob and
+    # this read, and bash applies redirections left to right, so the other order
+    # still prints "No such file or directory" over whatever is on screen.
+    read -r line 2>/dev/null <"$d/stat" || continue
+    st="${line##*) }"
+    st="${st%% *}"
+    [ "$st" = T ] && printf '%s\n' "$pid"
+  done
+}
+
+# One line if the box looks wedged, nothing if it does not. Exit 0 means there is
+# something to say. Two tiers on purpose: the /proc pass above costs no forks and
+# rules out the wedge outright, so the 95-fork lock sweep only runs on the rare
+# occasion something is actually stopped. A stopped process holding no lock is
+# left unsaid - it is harmless, and a warning nobody needs is one they learn to
+# ignore.
+_m_doctor_sniff() {
+  local stopped f pid
+  stopped="$(_m_doctor_stopped)"
+  [ -n "$stopped" ] || return 1
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    pid="$(_m_doctor_holder "$f")"
+    [ -n "$pid" ] || continue
+    case $'\n'"$stopped"$'\n' in
+      *$'\n'"$pid"$'\n'*)
+        echo "nuget lock held by stopped pid $pid"
+        return 0 ;;
+    esac
+  done < <(_m_doctor_held)
+  return 1
+}
+
+# The sniff as a line for the top of the m-dev board. Always says something,
+# even when there is nothing wrong: a warning that only shows up when it is bad
+# tells you nothing on the day it is missing because the check itself broke.
+_m_dev_sniff_line() {
+  local r
+  r="$(_m_doctor_sniff)" && r="! $r" || r="no stuck lock"
+  printf 'm-doctor --sniff result: %s\n' "$r"
+}
+
+# Reused MSBuild nodes, one pool for the whole box. Counted off /proc rather
+# than with `pgrep -f`, which also matches any shell whose command line merely
+# mentions the pattern, this one included. argv[0] narrows it to dotnet first, so
+# only a handful of processes cost a fork.
+_m_doctor_nodes() {
+  local pid a0 cmd n=0
+  for pid in /proc/[0-9]*; do
+    pid="${pid#/proc/}"
+    a0=""
+    IFS= read -rd '' a0 2>/dev/null <"/proc/$pid/cmdline"
+    case "$a0" in */dotnet|*/MSBuild) ;; *) continue ;; esac
+    cmd="$(tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null)"
+    case "$cmd" in *MSBuild.dll*/nodemode:1*) n=$((n + 1)) ;; esac
+  done
+  printf '%s\n' "$n"
+}
+
+# A package directory with no .nupkg.metadata is a half-written extract: NuGet
+# writes that file last. A killed restore is how one would appear.
+_m_doctor_partial() {
+  local d
+  for d in "$HOME"/.nuget/packages/*/*/; do
+    [ -d "$d" ] || continue
+    [ -f "$d.nupkg.metadata" ] || printf '%s\n' "${d#"$HOME"/.nuget/packages/}"
+  done
+}
+
+# The host ports AppHost.cs hardcodes. It cannot move off them, so anything else
+# sitting on one fails `make dev` - the other way m-dev appears not to run.
+_M_DOCTOR_PORTS='3000|4242|5081|5082|11600|15672|17080|18888'
+
+m-doctor() {
+  local fix=0 sweep="" files held partial dead bound problems=""
+  [ "${1:-}" = --sniff ] && { _m_doctor_sniff; return $?; }
+  [ "${1:-}" = --fix ] && { fix=1; sweep=clean; }
+
+  files="$(ls "$(_m_doctor_lockdir)" 2>/dev/null | wc -l)"
+  partial="$(_m_doctor_partial)"
+  dead="$(_m_doctor_sockets $sweep)"
+  bound="$(ss -ltnH 2>/dev/null | awk '{print $4}' | grep -oE '[0-9]+$' |
+    grep -xE "$_M_DOCTOR_PORTS" | sort -un | tr '\n' ' ')"
+
+  echo "m-doctor"
+  printf '  %-14s %s versions, %s partial\n' 'package cache' \
+    "$(ls -d "$HOME"/.nuget/packages/*/*/ 2>/dev/null | wc -l)" \
+    "$(printf '%s' "$partial" | grep -c . )"
+  printf '  %-14s %s shared across every worktree, %s dead sockets%s\n' 'msbuild' \
+    "$(_m_doctor_nodes)" "$dead" \
+    "$([ "$fix" = 1 ] && [ "$dead" -gt 0 ] && echo ' (swept)')"
+  printf '  %-14s %s exited containers, %s localdev volumes\n' 'docker' \
+    "$(docker ps -aq -f status=exited 2>/dev/null | wc -l)" \
+    "$(docker volume ls -q 2>/dev/null | grep -c localdev.apphost)"
+
+  # Problems last, and the verdict last of all: m-dev's pane under the table
+  # shows only the final three lines of this.
+  [ -n "$partial" ] && problems+="  half-extracted packages, delete them and restore:"$'\n'"$(sed 's/^/    /' <<<"$partial")"$'\n'
+  if [ -n "$bound" ] && ! _m_dev_active_dir >/dev/null 2>&1; then
+    problems+="  ports $bound are taken and no momentum stack owns them; make dev will fail"$'\n'
+  fi
+
+  held="$(_m_doctor_held)"
+  if [ -z "$held" ]; then
+    printf '  %-14s %s files, none held\n' 'nuget locks' "$files"
+  else
+    printf '  %-14s %s files, %s held\n' 'nuget locks' "$files" "$(grep -c . <<<"$held")"
+    local f pid st
+    while IFS= read -r f; do
+      pid="$(_m_doctor_holder "$f")"
+      [ -n "$pid" ] || { problems+="  a lock is held by a process that has gone; nothing to do but wait"$'\n'; continue; }
+      st="$(_m_doctor_state "$pid")"
+      case "$st" in
+        T*) problems+="  WEDGED  pid $pid is stopped and holding a nuget lock"$'\n'
+            problems+="          $(_m_doctor_cmd "$pid")"$'\n'
+            problems+="          every dotnet restore on this box is blocked behind it"$'\n' ;;
+        *)  problems+="  pid $pid holds a nuget lock and is running ($st); a restore is in flight, this is normal"$'\n' ;;
+      esac
+    done <<<"$held"
+  fi
+
+  if [ -z "$problems" ]; then
+    echo "  ok"
+    return 0
+  fi
+  printf '%s' "$problems"
+  if [ "$fix" = 1 ]; then
+    _m_doctor_unwedge && echo "  fixed what it could" || return 1
+  else
+    echo "  m-doctor --fix resumes a stopped holder"
+  fi
+  return 0
+}
+
 # --- m-dev / m-cd: the momentum stack, one worktree at a time ----------------
 #
 # `make dev` can only ever run once: sso-auth, the BFFs, postgres and valkey sit
@@ -717,12 +961,14 @@ m-teardown() {
 # the new one. Every worktree therefore lands on the same URLs (ui-app on 3000,
 # the Aspire dashboard on 18888), so bookmarks never change.
 #
-#   m-dev              live table: up/down select, enter switch, s stop,
-#                      c clear the log panes, r refresh, q quit. The table never leaves the top of the
-#                      screen and the keys always act on the selected row;
-#                      actions run behind it, and the rest of the window is a
-#                      live tail of m-dev's own progress and of the stack's own
-#                      output - aspire, the services, errors and all.
+#   m-dev              the m-doctor --sniff result, then a live table:
+#                      up/down select, enter switch, s stop,
+#                      d doctor, c clear the log panes, r refresh, q quit.
+#                      The table never leaves the top of the screen and the keys
+#                      always act on the selected row; actions run behind it, and
+#                      the rest of the window is a live tail of m-dev's own
+#                      progress and of the stack's own output - aspire, the
+#                      services, errors and all.
 #   m-dev <name|N>     switch straight to that worktree, then show the table
 #   m-dev --stop       stop the running stack
 #   m-dev --logs       follow the stack log
@@ -1005,6 +1251,14 @@ _m_dev_start() {
   # shell is that group's leader, so its own $$ IS the pgid: recording it here
   # means stopping never has to guess, and works even mid-startup, before the
   # AppHost process itself exists.
+  # A stopped process holding a nuget lock makes the restore inside `make dev`
+  # wait forever, with nothing on screen to say why. Cheap to rule out here, and
+  # unfixable once the stack is 400s into a start that will never finish.
+  if ! _m_doctor_unwedge; then
+    echo "m-dev: not starting - a stopped process is holding a nuget lock (m-doctor)" >&2
+    return 1
+  fi
+
   local pgfile
   pgfile="$(_m_dev_pgfile)"
   rm -f "$pgfile"
@@ -1182,13 +1436,15 @@ m-dev() {
   _M_DEV_WT_CACHE=""                 # a worktree may have come or gone since last time
 
   case "$1" in
-    --stop) _m_dev_stop; echo; _m_dev_table; return 0 ;;
+    --stop) _m_dev_stop; echo; _m_dev_sniff_line; echo; _m_dev_table; return 0 ;;
     --logs) tail -f "$(_m_dev_log)"; return $? ;;
   esac
 
   if [ "$#" -gt 0 ]; then
     read -r label dir < <(_m_dev_resolve "$1") || return 1
     _m_dev_switch "$label" "$dir"
+    echo
+    _m_dev_sniff_line
     echo
     _m_dev_table
     return 0
@@ -1200,7 +1456,7 @@ m-dev() {
   # a start, a stop or a crash can be watched where it happens. Actions run
   # detached behind the frame, and enter or s interrupts one, so nothing ever
   # covers the list and there is never a screen to dismiss.
-  local frame last="" active stale=1 dirty=1 note="" ticks=0 waits=0 rc=0
+  local frame last="" active stale=1 dirty=1 note="" sniff="" ticks=0 waits=0 rc=0
   local job="" what="" busy_dir="" busy_text="" seq="" ch="" traps="" bail=""
   local alog slog atext ltext ltitle nl used avail alines llines wt_stale=1
   alog="$(_m_dev_action_log)"
@@ -1251,22 +1507,26 @@ m-dev() {
     # timer, which is how RUNNING appears without pressing anything.
     if [ "$stale" = 1 ]; then
       active="$(_m_dev_active_dir)" || active=""
+      # Same tick, because it is the same kind of thing: a fact about the box that
+      # only a walk can find.
+      sniff="$(_m_dev_sniff_line)"
       stale=0
     fi
 
     # The frame, top down: the table and the keys it answers to, then whatever is
     # left of the window given to the logs - m-dev's own progress first, if it has
     # anything to say, and the stack's output filling the rest.
-    frame="momentum stack - one worktree at a time"$'\n\n'
+    frame="momentum stack - one worktree at a time"$'\n'
+    frame+="  $sniff"$'\n\n'
     frame+="$(_m_dev_table "$sel" "$active" "$busy_dir" "$busy_text")"$'\n\n'
-    frame+="  up/down select   enter switch   s stop   c clear logs   r refresh   q quit"
+    frame+="  up/down select  enter switch  s stop  d doctor  c clear  r refresh  q quit"
     [ -n "$job" ] && frame+=$'\n'"  running: $what   (enter or s interrupts it)"
     [ -n "$note" ] && frame+=$'\n'"  $note"
 
-    # Title, blank, table header, its rows, blank, keys, and the two optional
-    # lines: what is left is the log's, and no pane may be a row taller than
-    # that or the table scrolls off the top.
-    used=$(( 5 + ${#rows[@]} ))
+    # Title, the sniff line, blank, table header, its rows, blank, keys, and the
+    # two optional lines: what is left is the log's, and no pane may be a row
+    # taller than that or the table scrolls off the top.
+    used=$(( 6 + ${#rows[@]} ))
     [ -n "$job" ] && used=$((used + 1))
     [ -n "$note" ] && used=$((used + 1))
     avail=$(( _M_DEV_ROWS - used ))
@@ -1360,6 +1620,15 @@ m-dev() {
         job="$(_m_dev_action_start _m_dev_stop)"
         [ -n "$job" ] || { note="could not start $what"; busy_dir="" busy_text=""; }
         stale=1
+        ;;
+      'd'|'D')
+        # Report and resume, not just report: the only reason to reach for this
+        # from the board is that something is already stuck, and --fix only sends
+        # SIGCONT and deletes dead socket files.
+        [ -n "$job" ] && { _m_dev_action_drop "$job"; note="dropped $what"; }
+        what="doctor" busy_dir="" busy_text=""
+        job="$(_m_dev_action_start m-doctor --fix)"
+        [ -n "$job" ] || note="could not start $what"
         ;;
       'c'|'C') _m_dev_clear_logs; dirty=1 ;;
       'r'|'R') stale=1 wt_stale=1 ;;

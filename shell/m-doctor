@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# m-doctor for anything that is not an interactive shell: a script, a cron line,
+# an agent's bash call. ~/.bashrc sources momentum.sh only when interactive, so
+# the function does not exist otherwise, and a wedged box is exactly when
+# something automated wants to ask.
+#
+# Interactively the shell function wins over this file. Same code either way.
+#
+# Symlink it onto PATH the way the herdr-teams commands are:
+#   ln -sf /mnt/c/code2/joey-claude-setup/shell/m-doctor ~/.local/bin/m-doctor
+
+here="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+. "$here/momentum.sh" || { echo "m-doctor: cannot source $here/momentum.sh" >&2; exit 1; }
+m-doctor "$@"

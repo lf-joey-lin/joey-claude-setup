@@ -97,7 +97,61 @@ function render(j) {
   const mem = memInfo();
   if (mem) parts.push(mem);
 
+  // 7) Wedged .NET toolchain (silent unless something really is stuck)
+  const wedge = buildWedge();
+  if (wedge) parts.push(wedge);
+
   return pack(parts, usableWidth());
+}
+
+// A stopped process holding a NuGet lock blocks every `dotnet restore` on the
+// box, in every worktree, and nothing anywhere says so - `make dev` just hangs.
+// `m-doctor` (shell/momentum.sh) diagnoses and clears it; this is the nudge to
+// run it, because otherwise you find out by waiting.
+//
+// Two tiers, so an idle box pays almost nothing. Tier 1 is a fork-free /proc
+// pass, about 2ms, and on a healthy machine finds no stopped process at all and
+// stops there. Only when something IS stopped does it shell out to confirm the
+// process actually holds a lock, and that answer is cached for 15s so a
+// long-suspended job (a Ctrl+Z'd editor, say) cannot make every redraw pay for
+// the sweep.
+function buildWedge() {
+  let entries;
+  try { entries = fs.readdirSync("/proc"); } catch { return null; } // not Linux
+
+  let stopped = false;
+  for (const e of entries) {
+    const c0 = e.charCodeAt(0);
+    if (c0 < 48 || c0 > 57) continue;
+    let stat;
+    try { stat = fs.readFileSync("/proc/" + e + "/stat", "utf8"); } catch { continue; }
+    // The state field sits after the comm, which is parenthesised and may itself
+    // contain spaces - so read past the last ") " rather than splitting on space.
+    const i = stat.lastIndexOf(") ");
+    if (i >= 0 && stat[i + 2] === "T") { stopped = true; break; }
+  }
+  if (!stopped) return null;
+
+  const cache = (process.env.TMPDIR || "/tmp") + "/m-doctor-sniff." + (process.getuid ? process.getuid() : "u");
+  let out = null;
+  try {
+    if (Date.now() - fs.statSync(cache).mtimeMs < 15000) out = fs.readFileSync(cache, "utf8").trim();
+  } catch { /* no cache yet, or unreadable */ }
+
+  if (out === null) {
+    // Non-zero exit is m-doctor saying there is nothing wrong, and is also what a
+    // box without m-doctor on PATH does. Both mean: say nothing.
+    try {
+      out = execSync("m-doctor --sniff", {
+        stdio: ["ignore", "pipe", "ignore"], encoding: "utf8", timeout: 3000,
+      }).trim();
+    } catch { out = ""; }
+    try { fs.writeFileSync(cache, out); } catch { /* the cache is an optimisation */ }
+  }
+
+  // The sniff reports the bare fact; the way out belongs to whoever shows it. On
+  // the m-dev board that is the d key, here it is the command to type.
+  return out ? red("! " + out + " - m-doctor --fix") : null;
 }
 
 // Under WSL this is the WSL2 VM's own budget (~50% of Windows RAM by default),

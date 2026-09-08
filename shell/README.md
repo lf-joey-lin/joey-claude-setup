@@ -3,13 +3,21 @@
 Bash helpers for the momentum worktree workflow. Three files, all sourced from
 `~/.bashrc`:
 
-- `momentum.sh` - `m-panel`, `m-newwork`, `m-teardown`, `m-dev`, `m-cd`. No herdr
-  needed.
+- `momentum.sh` - `m-panel`, `m-newwork`, `m-teardown`, `m-dev`, `m-cd`,
+  `m-doctor`. No herdr needed.
 - `mqueue.sh` - `mq`, the `m-board` panel and the `m-run` runner. Filing and
   editing need neither herdr nor momentum; running an item needs both.
 - `herdr-momentum.sh` - `m-work`, `m-space`, `m-agents`. Needs herdr on the box;
   every function no-ops with a message when it is missing. Calls `_m_root` and
   `_m_newworktree` out of `momentum.sh`, so that file has to be sourced too.
+
+Plus one standalone: `m-doctor`, the same function as an executable, for shells
+that never source the above. Symlink it onto PATH the way the herdr-teams
+commands are:
+
+```bash
+ln -sf /mnt/c/code2/joey-claude-setup/shell/m-doctor ~/.local/bin/m-doctor
+```
 
 Bash only. The Windows side has no equivalent yet.
 
@@ -41,6 +49,8 @@ Bash only. The Windows side has no equivalent yet.
 | `m-board`                | the work queues: one per worktree, and the runner controls   |
 | `m-run [start\|stop]`    | the runner: drain the queues N worktrees at a time           |
 | `m-dev [name\|N]`        | run the local stack, one worktree at a time                  |
+| `m-doctor [--fix]`       | the toolchain all the worktrees share, and what has wedged it |
+| `m-doctor --sniff`       | one line if it looks wedged, silence if not                  |
 | `m-cd [name]`            | jump a shell to a worktree                                   |
 | `m-teardown [desc]`      | the worktree table: what is safe to tear down, and d does it |
 
@@ -388,9 +398,28 @@ Keys in the table:
 | up/down, `j`/`k` | move the selection                |
 | enter      | switch the stack to the selected worktree |
 | `s`        | stop the stack                          |
+| `d`        | run `m-doctor --fix` into the pane      |
 | `c`        | clear both log panes                    |
 | `r`        | refresh the worktree list and stack state |
 | `q`        | quit                                    |
+
+The line under the title is `m-doctor --sniff`, re-run on the same few-second
+tick as the STACK column:
+
+```
+momentum stack - one worktree at a time
+  m-doctor --sniff result: no stuck lock
+```
+
+```
+momentum stack - one worktree at a time
+  m-doctor --sniff result: ! nuget lock held by stopped pid 1531629
+```
+
+It always says something, including when nothing is wrong. A warning that only
+appears when it is bad tells you nothing on the day it is missing because the
+check itself broke. A `!` means `d` has something to do. `m-dev <name>` and
+`m-dev --stop` print the same line above the table they leave behind.
 
 The table stays at the top of the screen and the keys always act on the selected
 row. Starting or stopping takes minutes, so an action runs detached behind the
@@ -425,6 +454,97 @@ stop that too.
 
 Jumps a shell to a worktree. No argument goes to `~/m-code/momentum`. Takes the
 same name, branch or number `m-dev` does.
+
+### `m-doctor [--fix]`
+
+A worktree isolates the source and `bin`/`obj`. It does not isolate the
+toolchain: `~/.nuget/packages`, NuGet's lock files, the MSBuild node pool and
+VBCSCompiler are one set per user. Nearly all of that is safe to share, and two
+worktrees restoring and building at once measured clean (1.1s each sequential,
+1.5s each concurrent, no errors).
+
+The exception is NuGet's cross-process lock. It has no timeout and no override,
+so a process that takes one and then stops (state `T`) blocks every
+`dotnet restore` on the box, in every worktree, until it is resumed or killed.
+`make dev` then hangs with no output, which reads as a broken `m-dev` and looks
+cured by a reboot, because the reboot kills the stopped process.
+
+Diagnosed 2026-09-08: a suspended `aspire nuget search` from one worktree held a
+lock for an hour. A one-package restore in an empty temp directory hung past
+100s, stalling at `Restoring packages for ...`, and finished in 1.1s the moment
+the lock was let go.
+
+```
+m-doctor
+  package cache  576 versions, 0 partial
+  msbuild        11 shared across every worktree, 45 dead sockets
+  docker         33 exited containers, 41 localdev volumes
+  nuget locks    95 files, 1 held
+  WEDGED  pid 144075 is stopped and holding a nuget lock
+          aspire-managed nuget search --query Aspire.ProjectTemplates ...
+          every dotnet restore on this box is blocked behind it
+  m-doctor --fix resumes a stopped holder
+```
+
+`--fix` sends `SIGCONT` to a stopped holder and deletes the socket files MSBuild
+left behind for nodes that are gone. It kills nothing and touches no live
+process, so it is safe to reach for blind. Resume rather than kill because the
+holder has usually finished its work already and just exits.
+
+Reading it:
+
+- **nuget locks** is the only line that can be a real problem. The file count is
+  noise on purpose: NuGet never deletes these files, so a full directory means
+  nothing and only `held` counts. A lock held by a *running* process is a restore
+  in flight and normal.
+- **package cache** counts package directories with no `.nupkg.metadata`, which
+  NuGet writes last. A killed restore is how a half-written one would appear.
+- **dead sockets** are litter, not a stall. They are counted because they are the
+  pile that gets mistaken for the problem.
+- **ports** only appears when one of the ports `AppHost.cs` hardcodes is taken
+  and no momentum stack owns it, which is the other way `make dev` fails.
+
+`m-dev` runs the resume part itself before every start, so the silent hang cannot
+happen behind the board, and `d` runs `--fix` into the pane. The pane shows the
+last three lines, which is why the verdict is printed last.
+
+### Knowing when to run it
+
+The wedge is silent by construction, so `m-doctor --sniff` is the form meant to
+be called on a timer: it prints one line when a stopped process is holding a
+lock and nothing at all otherwise, exit 0 when it has something to say. The line
+is the bare fact (`nuget lock held by stopped pid 1531629`) with no advice on the
+end, because the way out differs by caller: on the board it is the `d` key, in
+the status line it is `m-doctor --fix`. Each one appends its own.
+
+It is two tiers, so an idle box pays almost nothing. Tier one is a fork-free
+`/proc` pass, about 3ms, and on a healthy machine finds no stopped process and
+stops there. Only when something really is stopped does the 95-fork lock sweep
+run to confirm the stopped process is the one holding it. Deliberately *not*
+filtered by process name: the holder is whatever opened the lock, and guessing
+its name is how a real wedge gets missed. Tier two proves ownership, which is
+the actual evidence.
+
+Two things call it already:
+
+- **the `m-dev` board**, as the line under the title, on the same tick as the
+  STACK column
+- **the status line**, so it shows up in any Claude Code session without opening
+  the board. `statusline.js` does tier one natively in JS (about 2ms per redraw,
+  and nothing else on a healthy box) and only shells out to `m-doctor --sniff`
+  when it has found something stopped, caching that answer for 15s so a
+  long-suspended job cannot make every redraw pay for the sweep.
+
+What it does not catch: a lock held by a process that is running but hung, on a
+network call say. Nothing cheap distinguishes that from a restore doing its job.
+`m-doctor` itself reports it - a lock held by a running process shows on the
+`nuget locks` line - it just is not something worth warning about unprompted.
+
+`shell/m-doctor` is the same thing as an executable on PATH. `~/.bashrc` sources
+`momentum.sh` only for an interactive shell, so a script, a cron line or an
+agent's bash call would not otherwise have the function - and a wedged box is
+exactly when something automated wants to ask. Interactively the function wins
+over the file; same code either way.
 
 ## Finishing
 
