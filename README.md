@@ -17,7 +17,7 @@ Linked paths:
 | `skills/`              | `skills/`               |
 
 Two more links live outside `~/.claude` and are made by `herdr/setup.sh` rather than
-the bootstrap script: `~/.config/herdr/config.toml` and `~/.local/bin/cc`.
+the bootstrap script: `~/.config/herdr/config.toml` and `~/.local/bin/ccl`.
 
 ## Setting up a new machine
 

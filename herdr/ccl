@@ -1,0 +1,6 @@
+#!/bin/sh
+# short launcher for claude. argv[0] must read as "claude" or herdr's agent
+# detection ignores the pane, so call the real path instead of exec'ing "ccl".
+# Not named "cc": that is the C compiler's name, and shadowing it breaks any
+# build that links through it (rustc's linker call, autotools, cmake).
+exec env HERDR_AGENT=claude "$HOME/.local/bin/claude" "$@"

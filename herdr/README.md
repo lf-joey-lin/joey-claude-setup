@@ -20,7 +20,7 @@ Installs herdr's Claude integration and links two files:
 | local path                     | this repo            |
 | ------------------------------ | -------------------- |
 | `~/.config/herdr/config.toml`  | `herdr/config.toml`  |
-| `~/.local/bin/cc`              | `herdr/cc`           |
+| `~/.local/bin/ccl`             | `herdr/ccl`          |
 
 It also adds the `shell/herdr-momentum.sh` source line to `~/.bashrc`, which is a
 local file and stays out of the repo. Safe to re-run. Needs herdr installed first.
@@ -196,7 +196,7 @@ while Claude sat there working perfectly.
 
 The screen rules were never the problem. Detection is.
 
-`herdr/cc` execs the real path so `argv[0]` reads as `claude`, and also sets
+`herdr/ccl` execs the real path so `argv[0]` reads as `claude`, and also sets
 `HERDR_AGENT=claude`, which is herdr's documented hint for wrapper commands. Either
 one is enough on its own.
 

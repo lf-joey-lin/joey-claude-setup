@@ -29,10 +29,10 @@ link() {
 
 link "$REPO/herdr/config.toml" "$HOME/.config/herdr/config.toml"
 
-# cc is the short name for claude. It has to be this wrapper and not a symlink
-# to claude: a symlink puts "cc" in argv[0] and herdr's agent detection then
+# ccl is the short name for claude. It has to be this wrapper and not a symlink
+# to claude: a symlink puts "ccl" in argv[0] and herdr's agent detection then
 # never recognises the pane. See README.md.
-link "$REPO/herdr/cc" "$HOME/.local/bin/cc"
+link "$REPO/herdr/ccl" "$HOME/.local/bin/ccl"
 
 # The momentum helpers (m-work, m-space, m-agents) live in the repo and are
 # sourced, so there is nothing to link, only a line in the local .bashrc.
