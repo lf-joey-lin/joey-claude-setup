@@ -98,12 +98,27 @@ if [ -n "$bff" ]; then
       run "dotnet-build:$n" "$out/dotnet-build-$n.log" dotnet build "$b/$n.slnx" -c Release || break
     done
     # The .NET gate is the coverage-threshold target; `test` alone enforces
-    # nothing. Project names are resolved by nx, not guessed here.
-    projects="$(npx nx show projects 2>/dev/null | grep -E "$(printf '%s\n' $bff | sed 's|src/||' | paste -sd'|')" | grep -i test | paste -sd, - || true)"
+    # nothing. Two traps in resolving the project names, and getting it wrong
+    # HANGS this lane rather than failing it: `nx show projects` prints the whole
+    # list as one line of JSON, and .NET project names are PascalCase
+    # (Laserfiche.AppBff.Tests) and never contain the kebab-case folder name. So a
+    # line-wise grep for "app-bff" matches the entire JSON line and hands
+    # run-many almost every project in the monorepo, which takes about 20 minutes,
+    # fails on unrelated projects, and wedges the shared NuGet cache for every
+    # other worktree on the box. The timeout is the backstop: a future mis-scope
+    # fails this lane instead of blocking `wait` forever and eating the scorecard.
+    pat=""
+    for b in $bff; do
+      p="$(basename "$b" | sed -E 's/(^|-)([a-z])/\U\2/g')"   # app-bff -> AppBff
+      pat="${pat:+$pat|}Laserfiche\.$p(\..*)?\.Tests"
+    done
+    projects="$(npx nx show projects 2>/dev/null | tr ',' '\n' | tr -d '[]"' \
+      | grep -E "^($pat)$" | paste -sd, - || true)"
     if [ -n "$projects" ]; then
-      run "dotnet-coverage" "$out/dotnet-coverage.log" npx nx run-many -t test,coverage-threshold --projects="$projects"
+      run "dotnet-coverage" "$out/dotnet-coverage.log" \
+        timeout 1200 npx nx run-many -t test,coverage-threshold --projects="$projects"
     else
-      printf 'dotnet-coverage|2|0s|%s\n' "no test projects resolved by nx, run it by hand" >>"$out/.rows"
+      printf 'dotnet-coverage|2|0s|%s\n' "nx resolved no test project for [$bff], run it by hand" >>"$out/.rows"
     fi
   ) &
   laneD=$!
