@@ -1,6 +1,6 @@
 ---
 name: loom-probe-deep
-description: Adversarial verification of a whole loom branch, at deep depth. Everything the quick probes do plus state combinations, the shuffled suite run and targeted test attacks. Dispatched by a loom orchestrator, not for direct invocation.
+description: Adversarial verification of a whole loom branch, at deep depth. Everything the quick probes do plus the diff-scoped mutation sweep, state combinations, the shuffled suite run and targeted test attacks. Dispatched by a loom orchestrator, not for direct invocation.
 model: opus
 effort: xhigh
 color: red

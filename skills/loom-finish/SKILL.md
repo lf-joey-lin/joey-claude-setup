@@ -28,6 +28,7 @@ context-economy rules there are the law of the run.
 /loom-finish --from <ref>       # adopt a commit, a range, or `branch`
 /loom-finish --solo             # zero asks, never pushes
 /loom-finish --no-push          # land leaves the branch local
+/loom-finish --no-mutants       # skip probe deep's mutation sweep
 ```
 
 No request argument: the diff is the request. State the resolved shape in your
@@ -96,7 +97,11 @@ your own gate decision as the last line of that subsection (the contract's
 4. **Probe deep** (`loom-probe-deep`, over the whole branch, not just this
    round). Same fix-turn rule, same cap. On a later round the branch includes
    earlier rounds, which is the point: deep is branch-scoped and re-covers
-   them. It is a different agent type from the quick probes the crew ran.
+   them. It is a different agent type from the quick probes the crew ran. Gate
+   its `- Mutation:` row too - real counts or a SKIPPED reason, because a
+   missing row reads exactly like a clean one. The round reuses the branch's
+   incremental file, so re-covering an earlier round costs only the mutants
+   that moved.
 
 5. **Shape** (`loom-shape` over the whole branch). Gated, budgeted and followed
    by at most one `loom-slice` reshape turn exactly as `loom` describes it.

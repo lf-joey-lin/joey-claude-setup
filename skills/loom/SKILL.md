@@ -23,6 +23,7 @@ nesting rules there are the law of the run.
 /loom <request> --solo       # unattended: zero asks, never pushes
 /loom <request> --no-push    # attended, but land leaves the branch local
 /loom <request> --in <dir>   # run in a worktree the human already made
+/loom <request> --no-mutants # skip probe deep's mutation sweep
 ```
 
 `<request>` is required - a sentence or a short bullet list. State the
@@ -112,7 +113,11 @@ never read them (step 3).
 4. **Probe deep** (`loom-probe-deep`, over the whole branch). Same fix-turn
    rule, same cap. It is a different agent type from the quick probes the crew
    ran, because deep is a once-per-run read of everything and quick is a
-   per-slice run of a list the plan already wrote.
+   per-slice run of a list the plan already wrote. Gate its `- Mutation:` row
+   too: it must carry real counts or a SKIPPED reason. A missing row is a stage
+   that did not run its sweep, and an absent row reads identically to a clean
+   one, which is the whole reason it is gated. Pass `--no-mutants` through when
+   the human gave it.
 5. **Shape** (`loom-shape` over the whole branch). The concept-level read: does
    each idea the branch expresses have one home. It finds and prices; it never
    edits. Gate: a concept map exists, every finding carries its complete site

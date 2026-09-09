@@ -47,6 +47,7 @@ loom is a dev pipeline for momentum `ui-app` work. The roster:
   | build | `npm run build` |
   | a11y | `npm run build-storybook && npm run test:a11y` |
   | dev server | `npm run dev` |
+  | mutation, diff-scoped | `npx stryker run --mutate "$(node stryker.changed-ranges.mjs)"` - deep probe only, never in the gate: it is not a CI check and `thresholds.break` is null on purpose |
 
   For a BFF slice, from the repo root:
 
@@ -226,6 +227,8 @@ Template (stages append their own sections; keep this spine):
 - F1: <input -> observed vs expected> (must-fix | polish)
 - Promoted specs: <paths | none>
 ### P-deep - [ ]
+- Mutation: <n> files, <m> mutants, <k> survived, <t> timed out, <f> must-fix
+  (survivors: <sidecar path>) | SKIPPED - <why>
 
 ## Fixes
 ### Fix turn P1.1 - [ ]
@@ -340,10 +343,10 @@ for its wave's slices, the orchestrator for everything else. Nobody else
 writes a `- Gate:` line.
 
 Every stage seed carries: the absolute worktree path, the ledger path, the mode
-line (`attended` or `solo`), the round number where there is one, and the
-instruction to read this contract file plus its own skill file. It is spawned by
-the agent type named in the next section, never as a plain `general-purpose`
-agent.
+line (`attended` or `solo`), the round number where there is one, `--no-mutants`
+when the human gave it, and the instruction to read this contract file plus its
+own skill file. It is spawned by the agent type named in the next section, never
+as a plain `general-purpose` agent.
 
 ## Models
 

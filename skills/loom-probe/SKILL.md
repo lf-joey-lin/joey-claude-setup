@@ -18,8 +18,8 @@ earlier probes already covered. Two depths:
   code. Its planned attacks plus whatever the diff suggests. Minutes, not an
   audit.
 - **deep** (`loom-probe-deep`) - once, after the last slice, over the whole
-  branch. Everything below, plus the combination states and the shuffled suite
-  run.
+  branch. Everything below, plus the mutation sweep, the combination states and
+  the shuffled suite run.
 
 The two depths have separate agent types because they are different jobs: quick
 runs a list the plan already wrote, once per slice, and deep is an open-ended
@@ -100,6 +100,47 @@ it, expect red, restore. A test that stays green through its own mutation is a
 finding.
 Restore from a copy, verify `git status` afterward - a stray mutation left in
 production code is the worst thing this skill can ship.
+
+**Mutation sweep (deep only, unless `--no-mutants`).** The gate pins coverage at
+100 percent, so that number cannot tell you whether the suite would fail if the
+code were wrong. Stryker is the exhaustive form of the test attack above: it
+breaks the branch's own lines one at a time and reports which breaks no test
+noticed. Scope it to the diff, never the app:
+
+```bash
+cd src/ui-app
+value=$(node stryker.changed-ranges.mjs)
+[ -n "$value" ] && npx stryker run --mutate "$value" \
+  --incremental --incrementalFile <worktree>/artifacts/loom/<slug>/stryker-incremental.json \
+  > <worktree>/artifacts/loom/<slug>/mutation.txt 2>&1
+```
+
+An empty value means the branch changed no mutatable file: that is a SKIPPED row
+with the reason, never a pass. Keep the incremental file on the branch's own
+artifacts, so a later round and the ninja settle-up re-test only what moved.
+
+**Budget it before it commits you.** About 2 minutes fixed plus roughly 1.5
+seconds a mutant. Stryker prints `Instrumented N source file(s) with M mutant(s)`
+within seconds of starting, so read M first: over about 600, drop the `.vue`
+entries from the value and say in the ledger that you did. A run you killed on
+time is `not run`; it is never a clean sweep.
+
+**A timeout is not a survivor.** It was not measured, and at the 60 second
+`timeoutMS` each one eats a worker for a minute. Report the counts separately.
+
+Triage every survivor against the "Reading survivors" section of
+`src/ui-app/README.md`, which is the standing guide - it is not restated here.
+What that section leaves to you is severity:
+
+- a survivor on a line this branch wrote, where you can state the user-visible
+  consequence in one sentence, is must-fix
+- a survivor whose mutation cannot change what a user sees is dismissed with
+  that one sentence in the ledger, not carried as polish
+- a survivor in code the branch only brushed past is a follow-up, never a fix
+  turn
+
+The full list goes to the sidecar. The ledger carries the counts and the
+must-fix ones.
 
 **Deep only:** state combinations (two flags that can both be on are four
 cases - assert which wins), plus one shuffled full run to catch

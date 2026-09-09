@@ -42,6 +42,7 @@ accumulated delta. The review is deferred and amortized, not skipped.
 /loom-ninja <request> --solo       # zero asks, never pushes
 /loom-ninja <request> --no-push    # attended, land leaves the branch local
 /loom-ninja --settle               # pay the review debt now, then land
+/loom-ninja --settle --no-mutants  # settle up without the mutation sweep
 ```
 
 Runs in place, in the worktree the session is standing in. It creates no
@@ -278,7 +279,9 @@ subagent by agent type:
    the same narrowing `loom-tidy` already does off the plan's unit list, and
    it is what keeps the tail proportional to what changed instead of to the
    branch's age. Their comparison set is still the whole app; only their input
-   list is narrowed.
+   list is narrowed. The mutation sweep takes that reviewed base as its own
+   argument (`node stryker.changed-ranges.mjs <reviewed base>`), so it covers
+   the unreviewed rounds and nothing already swept.
 2. At most one `loom-slice` reshape turn, if shape priced a finding executable,
    under `loom`'s budget rules unchanged.
 3. Step 3's gate script, then step 4's land.
