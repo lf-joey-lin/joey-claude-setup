@@ -1,6 +1,6 @@
 ---
 name: paperwork
-description: File the paperwork for a finished momentum branch - find or create the TFS work item (story or bug) on Joey's Momentum board from what the branch actually did, then open the matching pull request and link the two together. Runs after loom (or loom-finish), which leaves the branch merged with origin/main, probed, gated, pushed, and explained in a report. paperwork reads that report, writes the description and the acceptance criteria from the work the branch really contains, searches the board for an item that already covers the work and uses that one when it finds it, otherwise creates the item in Active state assigned to Joey via create-tfs, then opens the PR from the repo's own template with the item linked in the body and adds the PR back as a Hyperlink relation on the item's Links tab, then hands the item's test plan to the draft-test-plan skill when that field is empty. Every run ends with one work item and one PR; the PR is a draft unless --pr asks for ready-for-review, and only a ready PR gets the to-be-translated label when the branch changed an en.json, and the dev-bot-laserfiche reviewer. Writes no code, runs no checks, and never creates a second item or a second PR. Invoke when the user types /paperwork, or asks to "do the paperwork", "file the paperwork", "create the item and the PR", "open the PR for this branch", or "wrap up the housekeeping" once loom has finished.
+description: File the paperwork for a finished momentum branch - find or create the TFS work item (story or bug) on Joey's Momentum board from what the branch actually did, then open the matching pull request and link the two together. Runs after loom (or loom-finish), which leaves the branch merged with origin/main, probed, gated, pushed, and explained in a report. paperwork reads that report, writes the description and the acceptance criteria from the work the branch really contains, searches the board for an item that already covers the work and uses that one when it finds it, otherwise creates the item in Active state assigned to Joey via create-tfs, then opens the PR from the repo's own template with the item linked in the body, then hands the item's test plan to the draft-test-plan skill when that field is empty. Every run ends with one work item and one PR; the PR is a draft unless --pr asks for ready-for-review, and only a ready PR gets the to-be-translated label when the branch changed an en.json, and the dev-bot-laserfiche reviewer. Writes no code, runs no checks, and never creates a second item or a second PR. Invoke when the user types /paperwork, or asks to "do the paperwork", "file the paperwork", "create the item and the PR", "open the PR for this branch", or "wrap up the housekeeping" once loom has finished.
 ---
 
 # paperwork: the work item and the PR for a finished branch
@@ -223,8 +223,6 @@ mcp__azure-devops__wit_get_work_item id=<id> project=Cloud expand=relations
 
 - Assigned to someone else, or outside `Cloud\Projects\Momentum`, is a signal, not
   a detail. Say so and confirm before linking. Never reassign it.
-- `expand=relations` also shows whether a hyperlink to this PR already exists,
-  which step 8 needs so it does not add a duplicate.
 - Do not rewrite a pre-existing item's description or acceptance criteria to match
   the branch. Someone else may be waiting on the version that is there. Step 6
   reports the mismatch instead.
@@ -353,8 +351,7 @@ gh pr view --json number,url,state,isDraft,body
 
 An open PR already carries the branch's commits. Do not open a second one. Add the
 work-item bullet to its body if it is missing (`gh pr edit <n> --body-file ...`),
-carry on to step 8 for the link back, and say in the report that the PR was
-already there.
+say in the report that the PR was already there, and carry on.
 
 **Read the template from the repo, do not write one from memory.**
 
@@ -439,32 +436,19 @@ that, not `dev-bot`. Request it on every ready PR, whatever the branch touched.
 
 Neither of these is a reason to stop. If `gh pr edit` fails on either - the label
 is missing from the repo, the bot has no access, the handle changed - report the
-real error with the command so Joey can run it himself, and carry on to step 8.
+real error with the command so Joey can run it himself, and carry on.
 The PR is open and correct; these are additions to it. Do not guess at another
 handle, and do not create the label.
 
-## Step 8 - link the work item back
+## Step 8 - the link back is automatic
 
-The PR body points at the item; the item has to point back, as a **Hyperlink
-relation on its Links tab**, not a comment. The `wit_*` MCP tools cannot add one
-for a GitHub PR: `wit_link_work_item_to_pull_request` only handles ADO-hosted PRs,
-and `wit_update_work_item` takes string field values, not relation objects. So it
-goes through the TFS REST API with Windows integrated auth.
+Nothing to do. `pr-metadata.yaml` adds the PR as a Hyperlink relation on every work
+item the PR body links, and keeps that relation's comment in step with the PR's
+state (open, draft, approved, merged). Do not patch one in by hand: the relation
+would be a duplicate the pipeline does not maintain.
 
-Skip it if the relation is already there - step 5's `expand=relations` read shows
-the existing hyperlinks, and re-running adds a duplicate.
-
-On WSL, integrated auth needs the Windows PowerShell interop (the WSL shell cannot
-do it, so do not translate this to `curl`):
-
-```bash
-powershell.exe -NoProfile -Command "Invoke-RestMethod -Uri 'https://v-dev-tfs.laserfiche.com/DefaultCollection/Cloud/_apis/wit/workitems/<id>?api-version=5.0' -Method Patch -ContentType 'application/json-patch+json' -UseDefaultCredentials -Body '[{\"op\":\"add\",\"path\":\"/relations/-\",\"value\":{\"rel\":\"Hyperlink\",\"url\":\"<pr-url>\",\"attributes\":{\"comment\":\"<short desc>\"}}}]'"
-```
-
-On Windows, run the `Invoke-RestMethod` directly.
-
-If it fails, say so with the real error and leave the PR open. The link back is
-bookkeeping; a failed patch is not a reason to close or redo anything.
+The PR body bullet from step 7 is what the pipeline reads, so that link is the one
+thing that has to be right.
 
 ## Step 9 - the test plan
 
@@ -525,7 +509,6 @@ Then:
 - **the AC check**: matched, or the gaps and which option was taken.
 - **the reviewer**: `dev-bot-laserfiche` requested, or not requested because the PR
   is a draft, or the real error.
-- **the link back**: added, already present, or the real error.
 - **the test plan**: drafted into the item by `draft-test-plan`, or left alone
   because one was already written or results were already recorded, or the real
   error.

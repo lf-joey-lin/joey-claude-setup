@@ -156,6 +156,6 @@ adjust anything you guessed. Do not claim it worked without the returned id.
   already done and a PR is about to go up, and it says so: create the item in
   `Active`, not `New`/`Open`. A direct `/create-tfs` for work not yet started
   keeps the first-state default above.
-- Linking a PR to the item is not this skill's job - `paperwork` does it, as a
-  Hyperlink relation via the TFS REST API (the MCP link tools cannot attach a
-  GitHub PR). See that skill, or the Momentum section of the global CLAUDE.md.
+- Linking a PR to the item is not this skill's job. `paperwork` puts the item in
+  the PR body, and `pr-metadata.yaml` adds the PR back onto the item as a
+  Hyperlink relation.

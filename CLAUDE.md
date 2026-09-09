@@ -24,14 +24,7 @@ Workflow for the `momentum` GitHub repo (org `Laserfiche`).
 - **Localized strings: edit `en.json` and nothing else.** `fr.json`, `es.json`, `en-XA.json` and the XLIFF memory are pipeline output. Never hand-edit them, never hand-prune keys a change removed, and never reach for `translate.ts --pseudo` to quiet a check — that writes fake accented text into real catalogs.
 - **`pr-i18n-parity` is cleared by a label, never by editing catalogs.** It fails on any branch that changed an `en.json`, which is the point: the **`to-be-translated`** label goes on the PR and the pipeline commits the regenerated catalogs back to the branch. It needs `MTRANS_*` credentials, so it cannot run locally anyway. Don't run `check-parity.ts` in a pre-push check, don't report it as a failure, and don't let it block a "ready to push" verdict.
   - The one place that label gets added for me is `paperwork --pr`, when it opens a ready-for-review PR and the branch changed an `en.json`. Everywhere else, including a draft PR, just remind me the label is still needed and give me the command. A pre-push check earns its keep on unit tests, the 100% coverage gates, lint, build and a11y.
-- **On creating a PR — link both directions:** (write the PR title/body per Writing below)
-  - PR -> work item: the PR body carries a `## Related` hyperlink to the TFS work item.
-  - work item -> PR: add the GitHub PR as a **Hyperlink relation in the work item's Links tab** — not a comment. The ADO `wit_link_work_item_to_pull_request` MCP tool only links ADO-hosted PRs, so it can't be used for a GitHub PR. The `wit_update_work_item` MCP tool can't add it either (it only accepts string field values, not a relation object). Add it via the TFS REST API with Windows integrated auth:
-    ```powershell
-    Invoke-RestMethod -Uri "https://v-dev-tfs.laserfiche.com/DefaultCollection/Cloud/_apis/wit/workitems/<id>?api-version=5.0" `
-      -Method Patch -ContentType "application/json-patch+json" -UseDefaultCredentials `
-      -Body '[{"op":"add","path":"/relations/-","value":{"rel":"Hyperlink","url":"<pr-url>","attributes":{"comment":"<desc>"}}}]'
-    ```
+- **On creating a PR, link it to the work item in the PR body**: a `## Related` hyperlink to the TFS work item, written per Writing below. The reverse link is automatic - `pr-metadata.yaml` adds the PR as a Hyperlink relation on each linked work item and keeps its comment in step with the PR's state, so don't add one by hand.
 
 # Coding
 
