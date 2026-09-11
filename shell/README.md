@@ -3,8 +3,8 @@
 Bash helpers for the momentum worktree workflow. Three files, all sourced from
 `~/.bashrc`:
 
-- `momentum.sh` - `m-panel`, `m-newwork`, `m-teardown`, `m-dev`, `m-cd`,
-  `m-doctor`. No herdr needed.
+- `momentum.sh` - `m-panel`, `m-newwork`, `m-teardown`, `m-purge`, `m-dev`,
+  `m-cd`, `m-doctor`. No herdr needed.
 - `mqueue.sh` - `mq`, the `m-board` panel and the `m-run` runner. Filing and
   editing need neither herdr nor momentum; running an item needs both.
 - `herdr-momentum.sh` - `m-work`, `m-space`, `m-agents`. Needs herdr on the box;
@@ -52,7 +52,8 @@ Bash only. The Windows side has no equivalent yet.
 | `m-doctor [--fix]`       | the toolchain all the worktrees share, and what has wedged it |
 | `m-doctor --sniff`       | one line if it looks wedged, silence if not                  |
 | `m-cd [name]`            | jump a shell to a worktree                                   |
-| `m-teardown [desc]`      | the worktree table: what is safe to tear down, and d does it |
+| `m-teardown [desc]`      | the worktree and branch table: what is spent, and d does it  |
+| `m-purge`                | remove every spent worktree and branch in one go             |
 
 ## Starting work
 
@@ -548,52 +549,136 @@ over the file; same code either way.
 
 ## Finishing
 
-### `m-teardown [shortdesc|this] [--force]`
+### `m-teardown [shortdesc|this] [--force]`, `m-purge`
 
-Every momentum worktree in a table, each with a verdict on whether it can go, and
-`d` removes the selected one after a `y`. Plain shell, no Claude in it.
+Every momentum worktree **and every local branch** in one table, split into the
+ones holding work `main` does not have and the ones that are spent. `d` removes
+the selected row after a `y`; `X` removes every spent row at once. Plain shell,
+no Claude in it.
 
 ```bash
 m-teardown                # the table
 m-teardown betterHeader   # gate that one and remove it after a y/n
 m-teardown this           # the worktree the shell is standing in
 m-teardown --force        # with a name: skip the gates for it
+m-teardown --purge        # list every spent one, then remove them after a y/n
+m-purge                   # the same thing, shorter
+m-purge --yes             # skip the question
 m-teardown --pull         # just land main and pull manta
 ```
 
 | Key        | Does                                                |
 | ---------- | --------------------------------------------------- |
 | up/down, `j`/`k` | select a row                                   |
-| `d`        | tear down the selected worktree, after a `y`         |
+| `d`        | tear down the selected row, after a `y`              |
 | `D`        | the same with no gates at all, after a `y`           |
+| `X`        | remove every spent row, after a `y`                  |
 | `r`        | rescan the verdicts                                  |
 | `p`        | land the default worktree on main, pull manta        |
 | `q`        | quit                                                 |
 
-The verdicts are the same gates `/teardown` applies:
+The question every row answers is whether it holds work `main` does not already
+have:
 
-| Verdict | Means                                                                    |
-| ------- | ------------------------------------------------------------------------ |
-| `SAFE`  | clean tree, nothing unpushed, and a merged PR or none at all              |
-| `KEEP`  | one of those stopped it, and the row says which                           |
-| `GONE`  | git already calls it prunable - the directory has been deleted from under |
-|         | it, so the record goes and the branch only follows if it is safe          |
-| `BASE`  | the default worktree, which is landed on main and never removed           |
+| Verdict | Means                                                                     |
+| ------- | ------------------------------------------------------------------------- |
+| `BASE`  | the default worktree, which is landed on main and never removed            |
+| `HOLD`  | it holds work and this clone is the only copy - uncommitted, or commits     |
+|         | GitHub has never seen - or gh could not answer, which is not the same as an |
+|         | answer. `d` refuses; only `D` forces                                        |
+| `KEEP`  | it holds work and it is also on GitHub. `d` removes it, a purge never does   |
+| `SPENT` | nothing here that `main` lacks, or nothing that did not land in a PR         |
+
+A branch with no worktree shows `-` in the WORKTREE column, and one whose
+directory has been deleted shows `gone`. Both are removed the same way; for a
+bare branch only the branch half runs.
+
+#### How spent is decided
+
+In order, first hit wins:
+
+1. **Commits that exist only in this clone** - on the branch and on no remote ref
+   at all, merges excluded. If there are none, skip to 2. If there are, ask GitHub
+   what it knows about the newest one:
+   - it belongs to a **merged** PR - `SPENT`. These are review checkouts of someone
+     else's work, not yours.
+   - **open** PR - `KEEP`. **closed** PR - `SPENT`.
+   - GitHub has **never seen the commit** - `HOLD`. This is the real thing: work
+     that exists nowhere else.
+   - GitHub **has the commit but no PR carries it** - not a risk, so fall through
+     to 2. This is what a rebased or force-pushed PR branch leaves behind.
+   - the lookup **failed** - `HOLD`.
+2. **PR merged** - `SPENT`, unless commits were pushed on top of the merged head,
+   which makes it `KEEP`. **PR open** - `KEEP`. **PR closed unmerged** - `SPENT`;
+   closing a PR is the decision that the work is dead.
+3. **No PR** - `git cherry origin/main` counts what main lacks by **patch-id**, so
+   a rebase or a cherry-pick does not read as new work. Zero is `SPENT`, anything
+   else is `KEEP`.
+4. **Dirty worktree** - `HOLD`, whatever the branch says.
+
+A scan starts with `git fetch --prune`, or the patch-id comparison is made against
+a stale `origin/main` and a branch merged five minutes ago still reads as novel.
+
+**Why step 1 asks GitHub rather than git.** A worktree you opened to review
+somebody else's PR and a branch of your own unpushed work are the same thing to
+git: commits no remote ref contains, on a branch with no upstream. GitHub can tell
+them apart, because the review checkout's commits were pushed once, as that PR.
+Without this, `pr495`, `pr515` and `pr786` all sat in the novel half holding 11, 7
+and 11 commits of somebody else's merged work.
+
+**Why it counts against the remotes rather than the upstream.** `branch@{upstream}..branch`
+counts main's commits too, once you have merged main in. `tableGrouping` read as
+"66 unpushed" when 65 of them were main's and the 66th was the merge; `rulesListing`
+read as 137 when 6 were real.
+
+**A merged PR is taken at its word.** GitHub deletes the head branch on merge and
+the prune takes the ref with it, so the merged head commit is usually not in this
+clone at all (8 of 9 merged branches here, measured 2026-09-11) and "was anything
+pushed since?" cannot be answered locally. Patch-id is no help either: this repo
+squash-merges, which puts one commit on main matching none of the branch's, so
+comparing a merged branch against main calls all of it novel. Step 1 is what makes
+this safe - work that exists only locally is caught before the PR is consulted.
+
+Commit answers are remembered in `commit-fate` under the state directory, keyed by
+SHA, so a rescan and a later purge do not pay for the same lookups. `OPEN` and a
+failed lookup are the two answers never written, being the two that can change.
+
+#### The purge
+
+`X` and `m-purge` remove every `SPENT` row in one pass. Both re-check each row
+from scratch first and skip anything that is no longer spent, because the verdict
+on screen may be minutes old and the removal is the destructive half. Neither
+ever touches a `HOLD` or a `KEEP` row, and `--force` does not combine with
+`--purge`.
+
+From the command line the list is printed in full before the `y`, so the question
+is answered with the real rows in front of you rather than a count. `--yes` skips
+it.
+
+#### The table
 
 A verdict costs a `gh pr list`, so the scan runs behind the table and writes to a
 cache the redraw reads back - the table is up immediately with the rows filling in
-as they resolve. `r` runs it again, and so does a removal, since one changes what
+as they resolve, and a row still being checked sits with the novel ones so nothing
+is offered to a purge before its verdict is in. The selection follows the row it
+is on rather than the position, since a verdict landing moves rows between the two
+halves. `r` runs the scan again, and so does a removal, since one changes what
 every other verdict was worked out against.
 
 Only `y` answers a confirmation. Every other key cancels it, so a stray keystroke
 can only ever call a removal off.
 
-Anything it cannot prove is safe stays. A branch is deleted with `-D` only after
-the check proved origin holds the commits, which is what makes a squash merge
-(where `-d` cannot see the merge) safe to delete through.
+A branch is deleted with `-D` only after the check proved origin holds the commits,
+which is what makes a squash merge (where `-d` cannot see the merge) safe to delete
+through.
 
 If you are standing in a worktree it is about to remove, it steps out first and
 tells you where you ended up.
+
+Row numbers are not accepted as an argument: the table regroups itself as verdicts
+land, so a number is only true until the next redraw. Name the worktree or the
+branch instead - case and dashes are ignored, and an exact match always beats a
+longer name that merely contains it.
 
 Under herdr the space outlives the checkout. Close it with
 `herdr worktree remove --workspace <id>`; a plain `workspace close` leaves the
@@ -632,7 +717,10 @@ holds the runner's: `n`, `cursor`, `runner.pid`, `runner.log` and one
 None left. Every function in these files is plain git and process handling.
 `m-newwork`/`m-work` used to run a `/new-work` skill headless and now run the
 git commands directly; `m-teardown` used to run `/teardown` the same way and now
-applies the same gates itself.
+does its own checks. The two have since diverged - `/teardown` still asks whether
+a removal is safe, while `m-teardown` asks whether the row holds work `main` does
+not have, covers bare branches as well as worktrees, and can purge every spent one
+at once.
 
 `mqueue.sh` runs no Claude of its own either. It types at the ones already
 sitting in the herdr spaces, through `herdr agent prompt`, so a queued run

@@ -1,8 +1,8 @@
-# momentum workspace shortcuts: m-newwork, m-teardown, m-dev, m-cd, m-doctor.
+# momentum workspace shortcuts: m-newwork, m-teardown, m-purge, m-dev, m-cd, m-doctor.
 #
 # m-newwork sets up the branch and worktree, then leaves the shell somewhere
-# useful. m-teardown, m-dev, m-cd and m-doctor are plain git/process wrappers.
-# No Claude in any of them.
+# useful. m-teardown, m-purge, m-dev, m-cd and m-doctor are plain git/process
+# wrappers. No Claude in any of them.
 #
 # Source from ~/.bashrc. Bash only; the Windows side has no equivalent yet.
 
@@ -21,6 +21,26 @@ _m_camel() {
     }
     print out
   }'
+}
+
+# _m_pick <rows> <want> - the whole rows whose first or second field matches a
+# name, one per line. Case and dashes are ignored: a worktree directory is
+# kebab-case (better-mobile-header) while the branch it holds is camelCase
+# (betterMobileHeader), and either is a reasonable thing to type. Exact beats a
+# prefix and a prefix beats a substring, and the first of those three that
+# matches anything is the answer, so a name that fully matches one row is never
+# ambiguous with a longer one that merely contains it.
+_m_pick() {
+  local want hit test
+  want="$(tr '[:upper:]' '[:lower:]' <<<"${2//-/}")"
+  for test in 'k == w' 'index(k, w) == 1 || index(b, w) == 1' 'index(k, w) || index(b, w)'; do
+    hit="$(awk -v w="$want" \
+      '{ k = tolower($1); gsub(/-/, "", k)
+         b = tolower($2); gsub(/-/, "", b)
+         if ('"$test"') print }' <<<"$1")"
+    [ -n "$hit" ] && { printf '%s\n' "$hit"; return 0; }
+  done
+  return 1
 }
 
 # _m_newworktree <short description>
@@ -85,26 +105,70 @@ m-newwork() {
   claude -n "$*"
 }
 
-# --- m-teardown: the worktree sweep, as a table ------------------------------
+# --- m-teardown: the worktree and branch sweep, as a table --------------------
 #
-# Plain shell, no Claude in it. The table lists every momentum worktree with a
-# verdict on whether it can go, and d removes the selected one after a y.
+# Plain shell, no Claude in it. The table lists every momentum worktree and every
+# local branch, split into what holds work main does not have and what is spent.
+# d removes the selected one after a y, X removes every spent one at once.
 #
 #   m-teardown           the table: up/down select, d tear down, D force,
-#                        r rescan, p land main, q quit
-#   m-teardown <name>    gate that one worktree and remove it after a y/n
+#                        X purge spent, r rescan, p land main, q quit
+#   m-teardown <name>    gate that one worktree or branch, remove it after a y/n
 #   m-teardown this      the worktree the shell is standing in
+#   m-teardown --purge   every spent one, listed, then removed after a y/n
+#                        (--yes skips the question; m-purge is the short name)
 #   m-teardown --pull    land momentum on a fresh main and pull manta
 #
-# The verdict is the same gate the teardown skill applies: a clean tree, nothing
-# unpushed, and a PR that is merged or absent. Working one out costs a `gh pr
-# list`, so a scan runs behind the table and writes its answers to a cache the
-# redraw reads back - the same split m-dev uses to keep slow work off the frame.
+# The question each row answers is whether it holds work main does not already
+# have. Four verdicts:
+#
+#   BASE   the default worktree. Nothing removes it; p lands it on main.
+#   HOLD   it holds work, and this is the only copy - or gh could not say, which
+#          is not the same as an answer. d refuses; only D forces.
+#   KEEP   it holds work, and origin has it too. d removes it, purge never does.
+#   SPENT  nothing here that main lacks. d and X both take it.
+#
+# Working a verdict out costs a `gh pr list`, so a scan runs behind the table and
+# writes its answers to a cache the redraw reads back - the same split m-dev uses
+# to keep slow work off the frame.
 
 _m_td_state() { printf '%s\n' "${XDG_CACHE_HOME:-$HOME/.cache}/m-teardown"; }
 _m_td_status_file() { printf '%s\n' "$(_m_td_state)/status"; }
 _m_td_action_log() { printf '%s\n' "$(_m_td_state)/action.log"; }
 _m_td_action_pid() { printf '%s\n' "$(_m_td_state)/action.pid"; }
+_m_td_fate_file() { printf '%s\n' "$(_m_td_state)/commit-fate"; }
+
+# One remembered answer per commit, in a file rather than a variable. Every caller
+# of the lookup below runs inside a command substitution, so a shell variable
+# written in one is thrown away with the subshell - a file is also what lets the
+# scan and a later purge share the work. The key is a SHA, so an answer cannot go
+# stale in a way that matters; OPEN and down are the two that can still change and
+# are the two never written.
+_m_td_fate_get() {
+  local line f
+  f="$(_m_td_fate_file)"
+  [ -f "$f" ] || return 1
+  while IFS= read -r line; do
+    case "$line" in "$1 "*) printf '%s\n' "${line#* }"; return 0 ;; esac
+  done <"$f"
+  return 1
+}
+_m_td_fate_put() {
+  case "$2" in OPEN*|down) return 0 ;; esac
+  mkdir -p "$(_m_td_state)" 2>/dev/null
+  printf '%s %s\n' "$1" "$2" >>"$(_m_td_fate_file)" 2>/dev/null
+  return 0
+}
+
+# What names a row in the status cache. A worktree is its directory; a branch
+# with no worktree has no directory to be named by, and every one of them carries
+# the same "-" placeholder, so they need a key of their own or they all collide.
+_m_td_key() {
+  case "$2" in
+    -) printf 'branch:%s\n' "$1" ;;
+    *) printf '%s\n' "$2" ;;
+  esac
+}
 
 # The worktrees this may act on: the default one, which is only ever landed on
 # main, and its direct momentum-<desc> siblings. Another tool may keep real momentum
@@ -122,12 +186,29 @@ _m_td_targets() {
   done
 }
 
+# Local branches no worktree is holding - what GitHub's merge leaves behind, and
+# what a worktree removed by hand leaves behind. Their rows carry "-" where a
+# worktree directory would be. main is skipped: it is the thing every other
+# verdict is measured against.
+_m_td_bare_branches() {
+  local main held b
+  main="$(_m_root)/momentum"
+  held="$(git -C "$main" worktree list --porcelain 2>/dev/null |
+            awk '/^branch refs\/heads\//{sub(/^branch refs\/heads\//, ""); print}')"
+  git -C "$main" for-each-ref --format='%(refname:short)' refs/heads 2>/dev/null |
+    while read -r b; do
+      [ -n "$b" ] && [ "$b" != main ] || continue
+      grep -qxF "$b" <<<"$held" && continue
+      printf '%s %s -\n' "$b" "$b"
+    done
+}
+
 _M_TD_WT_CACHE=""
 _m_td_rows() {
   local -n out="$1"
   local line
   if [ -z "$_M_TD_WT_CACHE" ] || [ "${2:-}" = fresh ]; then
-    _M_TD_WT_CACHE="$(_m_td_targets)"
+    _M_TD_WT_CACHE="$(_m_td_targets; _m_td_bare_branches)"
   fi
   out=()
   while IFS= read -r line; do
@@ -136,137 +217,281 @@ _m_td_rows() {
   [ "${#out[@]}" -gt 0 ]
 }
 
-_m_td_branch_of() {
-  local row label branch dir
-  local -a rows
-  _m_td_rows rows || return 1
-  for row in "${rows[@]}"; do
-    read -r label branch dir <<<"$row"
-    [ "$dir" = "$1" ] && { printf '%s\n' "$branch"; return 0; }
-  done
-  return 1
+# How many pull requests one read asks for. gh pages at 100 a request, so the
+# whole history costs about four seconds, while every branch the page does not
+# reach costs a lookup of its own at 0.8s each - measured 2026-09-11: a 200 page
+# left 25 branches to look up one at a time and turned a 9s scan into 29s.
+_M_TD_PR_LIMIT=1000
+
+# Every branch that has a pull request, as "<branch><tab><number> <state> <head-sha>",
+# newest first. It fails rather than printing nothing when gh cannot answer: no PR
+# is a normal end state for an abandoned branch, while a gh that cannot answer
+# proves nothing and must not read as one.
+_m_td_pr_map() {
+  ( cd "$(_m_root)/momentum" &&
+      gh pr list --state all --limit "$_M_TD_PR_LIMIT" \
+        --json number,state,headRefName,headRefOid \
+        --jq '.[] | [.headRefName, "\(.number) \(.state) \(.headRefOid)"] | @tsv' )
 }
 
-# The pull request for one branch, as "<number> <state>", or the word `none` when
-# the branch has none and `down` when gh could not answer. Those three are not
-# interchangeable: no PR is a normal end state for an abandoned worktree, while a
-# gh that cannot answer proves nothing and must not read as one.
+# _m_td_pr_load <map-name> <error-var-name> <mode-var-name> - fill the map from
+# one gh call. Everything is set by nameref rather than printed, because a caller
+# capturing the output would run this in a subshell and lose the map it built.
+#
+# The mode is what a branch missing from the map means:
+#
+#   full  the page reached the end of the history, so missing means no PR
+#   page  the page filled up, so missing may just be an older PR - look it up
+#   down  gh never answered, so nothing can be concluded from the map at all
+_m_td_pr_load() {
+  local -n map="$1"
+  local -n errout="$2"
+  local -n modeout="$3"
+  local out b rest n=0
+  map=() errout="" modeout=down
+  out="$(_m_td_pr_map 2>&1)" || { errout="$out"; return 1; }
+  while IFS=$'\t' read -r b rest; do
+    [ -n "$b" ] || continue
+    n=$((n + 1))
+    [ -n "${map[$b]}" ] && continue          # the list is newest first
+    map["$b"]="$rest"
+  done <<<"$out"
+  [ "$n" -lt "$_M_TD_PR_LIMIT" ] && modeout=full || modeout=page
+  return 0
+}
+
+# The pull request for one branch, as "<number> <state> <head-sha>", or the word
+# `none` when it has none and `down` when gh could not answer.
 _m_td_pr_of() {
   local out
   out="$( cd "$(_m_root)/momentum" && gh pr list --head "$1" --state all --limit 1 \
-            --json number,state --jq '.[] | "\(.number) \(.state)"' 2>/dev/null )" \
+            --json number,state,headRefOid \
+            --jq '.[] | "\(.number) \(.state) \(.headRefOid)"' 2>/dev/null )" \
     || { printf 'down\n'; return 0; }
   [ -n "$out" ] && printf '%s\n' "$out" || printf 'none\n'
 }
 
-# _m_td_branch_check <branch> <pr> -> "<SAFE|KEEP><tab><reason>".
-#
-# Is every commit on this branch somewhere other than this worktree? The refs
-# live in the default worktree, so this holds even for a worktree whose
-# directory has already gone.
-_m_td_branch_check() {
-  local branch="$1" pr="$2" main n ahead num state upstream_gone=""
-  main="$(_m_root)/momentum"
-
-  if git -C "$main" rev-parse --verify --quiet "$branch@{upstream}" >/dev/null 2>&1; then
-    n="$(git -C "$main" rev-list --count "$branch@{upstream}..$branch" 2>/dev/null)"
-    [ "${n:-0}" -gt 0 ] && { printf 'KEEP\t%s unpushed commit(s)\n' "$n"; return 0; }
-  elif [ -z "$(git -C "$main" config --get "branch.$branch.merge" 2>/dev/null)" ]; then
-    printf 'KEEP\tnever pushed, origin has no copy\n'
-    return 0
+# _m_td_pr_for <map-name> <mode> <branch> - the PR line for one branch, from the
+# bulk map when it is in there and from the mode when it is not.
+_m_td_pr_for() {
+  local -n m="$1"
+  if [ -n "${m[$3]}" ]; then
+    printf '%s\n' "${m[$3]}"
   else
-    # Pushed once, and origin/<branch> has since gone. That is exactly what
-    # GitHub does to a head branch on merge, so it is safe only when the PR
-    # really did merge; the case below is what decides that.
-    upstream_gone=1
-  fi
-
-  ahead="$(git -C "$main" rev-list --count "origin/main..$branch" 2>/dev/null)"
-  read -r num state <<<"$pr"
-  case "$state" in
-    MERGED) printf 'SAFE\tPR #%s merged\n' "$num"; return 0 ;;
-    OPEN)   printf 'KEEP\tPR #%s still open\n' "$num"; return 0 ;;
-    CLOSED) printf 'KEEP\tPR #%s closed unmerged\n' "$num"; return 0 ;;
-  esac
-  case "$pr" in
-    down) printf 'KEEP\tgh could not say whether a PR exists\n'; return 0 ;;
-  esac
-  [ -n "$upstream_gone" ] && { printf 'KEEP\tno PR and origin/%s is gone\n' "$branch"; return 0; }
-  if [ "${ahead:-0}" -gt 0 ]; then
-    printf 'SAFE\tno PR, %s commit(s) ahead of main, all pushed\n' "$ahead"
-  else
-    printf 'SAFE\tno PR, nothing ahead of main\n'
+    case "$2" in
+      full) printf 'none\n' ;;
+      page) _m_td_pr_of "$3" ;;
+      *)    printf 'down\n' ;;
+    esac
   fi
 }
 
-# _m_td_check <dir> <branch> <pr> -> "<VERDICT><tab><detail>".
+# How many commits exist only in this clone: on this branch and on no remote ref
+# at all. Merges are left out, because a merge of main into a branch carries no
+# work of its own and redoing it costs nothing.
 #
-# SAFE means every gate passed: nothing uncommitted, and the branch is on origin
-# with a merged PR or none at all. KEEP means one of them stopped it, and the
-# detail says which. GONE is a worktree git already calls prunable - its
-# directory has been deleted from under it - where the record goes either way and
-# only the branch is in question. Nothing here writes.
+# This replaces counting against the branch's own upstream, which counted main's
+# commits too once you had merged main in - tableGrouping read as "66 unpushed"
+# when 65 of them were main's and the 66th was the merge.
+_m_td_local_only() {
+  git -C "$(_m_root)/momentum" rev-list --count --no-merges "$1" --not --remotes 2>/dev/null || printf '0\n'
+}
+
+# The newest commit that exists only in this clone, or nothing.
+_m_td_local_tip() {
+  git -C "$(_m_root)/momentum" rev-list --no-merges -1 "$1" --not --remotes 2>/dev/null
+}
+
+# What GitHub knows about one commit. Four answers, and the difference between the
+# last two is the whole point:
+#
+#   <MERGED|OPEN|CLOSED> <n>  a pull request carries it
+#   nopr                      GitHub has the commit, but no pull request carries it
+#   local                     GitHub has never seen it - this clone is the only copy
+#   down                      the lookup itself failed
+#
+# This is what separates your own unpushed work from a worktree you made to review
+# somebody else's pull request. To git the two are identical: commits no remote ref
+# contains, on a branch with no upstream. GitHub can tell them apart, because a
+# review checkout's commits were pushed once while yours never left this machine.
+#
+# `nopr` is not a risk and must not read as one. It is what a rebased or
+# force-pushed PR branch leaves behind: the commits are still on GitHub, just no
+# longer attached to the PR. The caller lets these fall through to the ordinary
+# rules instead of holding the branch - inbox/697808-taskinfo answers this way for
+# four commits of someone else's, and its PR merged.
+_m_td_commit_pr() {
+  local out rc res
+  res="$(_m_td_fate_get "$1")" && { printf '%s\n' "$res"; return 0; }
+  out="$( cd "$(_m_root)/momentum" && gh api "repos/{owner}/{repo}/commits/$1/pulls" \
+            --jq '.[0] | if . == null then "" else "\(if .merged_at then "MERGED" else (.state | ascii_upcase) end) \(.number)" end' 2>&1 )"
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    case "$out" in
+      *"No commit found for SHA"*) res=local ;;
+      *)                           printf 'down\n'; return 0 ;;   # never cached, it may pass
+    esac
+  elif [ -n "$out" ]; then
+    res="$out"
+  else
+    res=nopr
+  fi
+  _m_td_fate_put "$1" "$res"
+  printf '%s\n' "$res"
+}
+
+# How many of this branch's commits main does not already have, compared by
+# patch-id rather than by SHA so a rebase or a cherry-pick does not read as new
+# work. -1 means there is no origin/main to compare against, which the caller
+# must treat as an unknown rather than as a zero.
+#
+# A squash merge defeats this - it puts one commit on main whose patch matches
+# none of the branch's - which is why a merged PR is settled by its own head SHA
+# in the check below and never reaches here.
+_m_td_novel_count() {
+  local main
+  main="$(_m_root)/momentum"
+  git -C "$main" rev-parse --verify --quiet origin/main >/dev/null 2>&1 || { printf '%s\n' -1; return 0; }
+  git -C "$main" cherry origin/main "$1" 2>/dev/null | grep -c '^+'
+  return 0                           # grep calls a count of zero a failure; here it is an answer
+}
+
+# _m_td_branch_check <branch> <pr> -> "<HOLD|KEEP|SPENT><tab><reason>".
+#
+# Does this branch hold work main does not have, and if it does, is this the only
+# copy? The refs live in the default worktree, so this holds even for a branch
+# whose worktree directory has already gone.
+_m_td_branch_check() {
+  local branch="$1" pr="$2" main n num state oid novel only tip fate upstream_gone=""
+  main="$(_m_root)/momentum"
+
+  # Anything no remote has is the first question, because it is the only case
+  # where removing the branch destroys something. Ask GitHub about the newest such
+  # commit rather than trusting git alone: a worktree opened to review someone
+  # else's PR looks exactly like unpushed work of your own, and this is what tells
+  # them apart.
+  only="$(_m_td_local_only "$branch")"
+  if [ "${only:-0}" -gt 0 ]; then
+    tip="$(_m_td_local_tip "$branch")"
+    fate="$(_m_td_commit_pr "$tip")"
+    read -r state num <<<"$fate"
+    case "$state" in
+      MERGED) printf 'SPENT\t%s commit(s) only here, newest merged in PR #%s\n' "$only" "$num"; return 0 ;;
+      OPEN)   printf 'KEEP\t%s commit(s) only here, newest in open PR #%s\n' "$only" "$num"; return 0 ;;
+      CLOSED) printf 'SPENT\t%s commit(s) only here, newest in closed PR #%s\n' "$only" "$num"; return 0 ;;
+      down)   printf 'HOLD\t%s commit(s) on no remote, and gh could not say more\n' "$only"; return 0 ;;
+      local)  printf 'HOLD\t%s commit(s) exist only here\n' "$only"; return 0 ;;
+    esac
+    # nopr: GitHub still holds them, so nothing is at risk and the ordinary rules
+    # below decide the branch.
+  fi
+
+  # Everything on the branch is on a remote somewhere. What is left is whether it
+  # reached main.
+  if ! git -C "$main" rev-parse --verify --quiet "$branch@{upstream}" >/dev/null 2>&1 \
+     && [ -n "$(git -C "$main" config --get "branch.$branch.merge" 2>/dev/null)" ]; then
+    # Pushed once, and origin/<branch> has since gone. That is what GitHub does
+    # to a head branch on merge, so with a merged PR below it is ordinary. With
+    # no PR to confirm it, the patch-id count is the only evidence either way.
+    upstream_gone=1
+  fi
+
+  case "$pr" in
+    down) printf 'HOLD\tgh could not say whether a PR exists\n'; return 0 ;;
+  esac
+
+  read -r num state oid <<<"$pr"
+  case "$state" in
+    MERGED)
+      # Commits pushed after the merge are work of their own, and the branch is
+      # not spent until they land too.
+      #
+      # The cat-file is the point of this arm. GitHub deletes the head branch on
+      # merge and the fetch above prunes the ref, so the merged head is usually
+      # not in this clone at all (8 of 9 merged branches here, measured
+      # 2026-09-11). rev-list on a commit it does not have fails and prints
+      # nothing, which reads exactly like "nothing pushed since" - so ask whether
+      # the commit is there before believing the count.
+      #
+      # With it missing, the PR is the whole answer and the branch is spent. Not
+      # ideal, but there is nothing better: this repo squash-merges, which puts
+      # one commit on main whose patch matches none of the branch's, so comparing
+      # the branch against main by patch-id calls every merged branch novel (42
+      # commits for bplisting2, whose PR merged). The one case where work really
+      # does exist only here - commits never pushed - is caught above, while
+      # origin still has the branch to be ahead of.
+      if [ -n "$oid" ] && git -C "$main" cat-file -e "$oid^{commit}" 2>/dev/null; then
+        n="$(git -C "$main" rev-list --count "$oid..$branch" 2>/dev/null)"
+        [ "${n:-0}" -gt 0 ] && { printf 'KEEP\tPR #%s merged, %s commit(s) pushed since\n' "$num" "$n"; return 0; }
+      fi
+      printf 'SPENT\tPR #%s merged\n' "$num"
+      return 0 ;;
+    OPEN)   printf 'KEEP\tPR #%s open\n' "$num"; return 0 ;;
+    CLOSED) printf 'SPENT\tPR #%s closed unmerged\n' "$num"; return 0 ;;
+  esac
+
+  novel="$(_m_td_novel_count "$branch")"
+  if [ "${novel:-0}" -lt 0 ]; then
+    printf 'HOLD\tno origin/main here to compare against\n'
+  elif [ "$novel" -eq 0 ]; then
+    printf 'SPENT\tno PR, nothing main lacks\n'
+  elif [ -n "$upstream_gone" ]; then
+    printf 'KEEP\tno PR, origin/%s gone, %s commit(s) main lacks\n' "$branch" "$novel"
+  else
+    printf 'KEEP\tno PR, %s commit(s) main lacks\n' "$novel"
+  fi
+}
+
+# _m_td_check <dir> <branch> <pr> -> "<VERDICT><tab><detail>". A dir of "-" is a
+# branch with no worktree: nothing to be dirty, nothing to prune, so the branch
+# check is the whole answer. Nothing here writes.
 _m_td_check() {
   local dir="$1" branch="$2" pr="$3" main n verdict reason
   main="$(_m_root)/momentum"
 
   [ "$dir" = "$main" ] && { printf 'BASE\tdefault worktree, never removed\n'; return 0; }
-  [ "$branch" = detached ] && { printf 'KEEP\tdetached head, no branch to check\n'; return 0; }
+  [ "$branch" = detached ] && { printf 'HOLD\tdetached head, no branch to check\n'; return 0; }
 
   IFS=$'\t' read -r verdict reason < <(_m_td_branch_check "$branch" "$pr")
 
-  if [ ! -d "$dir" ]; then
-    if [ "$verdict" = SAFE ]; then
-      printf 'GONE\tprunable, record and branch both go\n'
-    else
-      printf 'GONE\tprunable, branch stays: %s\n' "$reason"
-    fi
-    return 0
+  # Uncommitted work only exists in a directory that is still there, and the
+  # WORKTREE column already says which rows are not.
+  if [ "$dir" != "-" ] && [ -d "$dir" ]; then
+    n="$(git -C "$dir" status --porcelain 2>/dev/null | wc -l)"
+    [ "${n:-0}" -gt 0 ] && { printf 'HOLD\tdirty, %s uncommitted file(s)\n' "$n"; return 0; }
   fi
-
-  n="$(git -C "$dir" status --porcelain 2>/dev/null | wc -l)"
-  [ "${n:-0}" -gt 0 ] && { printf 'KEEP\tdirty, %s uncommitted file(s)\n' "$n"; return 0; }
 
   printf '%s\t%s\n' "$verdict" "$reason"
 }
 
-# Every verdict, written a line at a time so the table fills in as it goes.
-# One `gh pr list` covers every branch at once; only a branch older than that
-# page costs a lookup of its own.
+# Every verdict, written a line at a time so the table fills in as it goes. The
+# fetch first is what makes the patch-id comparison mean anything: without it a
+# branch merged five minutes ago is measured against a stale origin/main and
+# still reads as novel.
 _m_td_scan() {
-  local main label branch dir pr line b n s ok=1
-  local -A pr_num=() pr_state=()
+  local main label branch dir pr err="" mode=down
+  local -A prs=()
   main="$(_m_root)/momentum"
   mkdir -p "$(_m_td_state)"
   : >"$(_m_td_status_file)"
 
+  echo "fetching origin ..."
+  git -C "$main" fetch --prune --quiet origin || echo "fetch failed; deciding on the refs already here"
+
   echo "reading pull requests ..."
-  if line="$( cd "$main" && gh pr list --state all --limit 200 \
-                --json number,state,headRefName \
-                --jq '.[] | [.headRefName, .number, .state] | @tsv' 2>&1 )"; then
-    while IFS=$'\t' read -r b n s; do
-      [ -n "$b" ] || continue
-      [ -n "${pr_num[$b]}" ] && continue          # the list is newest first
-      pr_num["$b"]="$n" pr_state["$b"]="$s"
-    done <<<"$line"
-    echo "${#pr_num[@]} branches have a pull request"
+  if _m_td_pr_load prs err mode; then
+    echo "${#prs[@]} branches have a pull request"
   else
-    ok=""
     echo "gh pr list failed, so no verdict can rest on a PR:"
-    echo "$line"
+    echo "$err"
   fi
 
   while read -r label branch dir; do
     echo "checking $label ..."
-    if [ -n "${pr_state[$branch]}" ]; then
-      pr="${pr_num[$branch]} ${pr_state[$branch]}"
-    elif [ -n "$ok" ]; then
-      pr="$(_m_td_pr_of "$branch")"
-    else
-      pr=down
-    fi
-    printf '%s\t%s\n' "$dir" "$(_m_td_check "$dir" "$branch" "$pr")" >>"$(_m_td_status_file)"
-  done < <(_m_td_targets)
+    pr="$(_m_td_pr_for prs "$mode" "$branch")"
+    printf '%s\t%s\n' "$(_m_td_key "$branch" "$dir")" "$(_m_td_check "$dir" "$branch" "$pr")" \
+      >>"$(_m_td_status_file)"
+  done < <(_m_td_targets; _m_td_bare_branches)
   echo "scan finished"
 }
 
@@ -280,11 +505,11 @@ _m_td_status() {
     case "$line" in
       "$1"$'\t'*)
         rest="${line#*$'\t'}"
-        printf '%-4s %s' "${rest%%$'\t'*}" "${rest#*$'\t'}"
+        printf '%-5s %s' "${rest%%$'\t'*}" "${rest#*$'\t'}"
         return 0 ;;
     esac
   done <<<"$_M_TD_ST_CACHE"
-  printf '%-4s %s' '?' 'checking ...'
+  printf '%-5s %s' '?' 'checking ...'
 }
 
 _m_td_verdict() {
@@ -293,14 +518,58 @@ _m_td_verdict() {
   printf '%s\n' "${st%% *}"
 }
 
+# _m_td_group <dir> <verdict> - which half of the table a row belongs in. A row
+# still being checked sits with the novel ones, so nothing is ever offered to a
+# purge before its verdict is in. The default worktree is recognised by its path
+# rather than by its verdict, or it spends the first seconds of a scan sitting
+# under the novel heading.
+_m_td_group() {
+  [ "$1" = "$(_m_root)/momentum" ] && { printf 'base\n'; return 0; }
+  case "$2" in
+    BASE)  printf 'base\n' ;;
+    SPENT) printf 'spent\n' ;;
+    *)     printf 'novel\n' ;;
+  esac
+}
+
+# What the WORKTREE column says: the short name while the directory is there,
+# `gone` for a record git can prune, `-` for a branch that never had one.
+_m_td_wtcell() {
+  case "$2" in
+    -) printf '%s\n' '-' ;;
+    *) [ -d "$2" ] && printf '%s\n' "$1" || printf '%s\n' 'gone' ;;
+  esac
+}
+
+# _m_td_order <rows-name> <out-name> - display order: the default worktree, then
+# everything holding work main does not have, then everything spent. Inside a
+# group the order git gave them is kept, so the list only moves when a verdict
+# really changes.
+_m_td_order() {
+  local -n src="$1"
+  local -n dst="$2"
+  local row label branch dir
+  local -a b=() n=() s=()
+  for row in "${src[@]}"; do
+    read -r label branch dir <<<"$row"
+    case "$(_m_td_group "$dir" "$(_m_td_verdict "$(_m_td_key "$branch" "$dir")")")" in
+      base)  b+=("$row") ;;
+      spent) s+=("$row") ;;
+      *)     n+=("$row") ;;
+    esac
+  done
+  dst=("${b[@]}" "${n[@]}" "${s[@]}")
+}
+
 # Remove one worktree and its branch. Runs behind the table, so everything it
-# has to say goes to stdout and ends up in the pane.
+# has to say goes to stdout and ends up in the pane. A dir of "-" is a branch
+# with no worktree, and only the branch half runs.
 #
 # It re-decides the branch for itself rather than trusting the verdict on screen:
 # the removal is the destructive half, and by the time it runs the scan behind
 # that verdict may be minutes old.
 _m_td_remove() {
-  local label="$1" dir="$2" branch="$3" force="${4:-}" main out verdict="" reason=""
+  local label="$1" dir="$2" branch="$3" force="${4:-}" nofetch="${5:-}" main out verdict="" reason=""
   main="$(_m_root)/momentum"
 
   case "$branch" in
@@ -309,7 +578,9 @@ _m_td_remove() {
        echo "branch $branch: $verdict  $reason" ;;
   esac
 
-  if [ ! -d "$dir" ]; then
+  if [ "$dir" = "-" ]; then
+    :
+  elif [ ! -d "$dir" ]; then
     echo "$dir is already gone, pruning the record"
     git -C "$main" worktree prune
   elif [ -n "$force" ]; then
@@ -328,21 +599,100 @@ _m_td_remove() {
 
   if [ -z "$branch" ]; then
     :
-  elif [ "$verdict" != SAFE ] && [ -z "$force" ]; then
+  elif [ "$verdict" = HOLD ] && [ -z "$force" ]; then
     echo "keeping branch $branch: $reason"
   else
     if out="$(git -C "$main" branch -d "$branch" 2>&1)"; then
       echo "$out"
     else
       # -d only sees a merge when the SHAs match, which a squash or a rebase
-      # merge never does. The check above already proved origin holds the work.
-      echo "branch -d refused, deleting with -D (squash or rebase merge)"
+      # merge never does. The check above already proved origin holds the work,
+      # or a force said to go anyway.
+      if [ -n "$force" ]; then
+        echo "branch -d refused, deleting with -D (forced)"
+      else
+        echo "branch -d refused, deleting with -D (squash or rebase merge)"
+      fi
       git -C "$main" branch -D "$branch"
     fi
   fi
 
-  git -C "$main" fetch --prune --quiet origin && echo "pruned stale remote refs"
+  [ -n "$nofetch" ] || { git -C "$main" fetch --prune --quiet origin && echo "pruned stale remote refs"; }
   echo "done: $label"
+}
+
+# _m_td_purge [dry] - every spent worktree and branch in one pass, or in dry mode
+# just the verdicts. Runs behind the table like a single removal.
+#
+# It re-checks each row from scratch rather than trusting the verdicts on screen,
+# and skips anything that is no longer spent by the time its turn comes. One
+# fetch and one `gh pr list` cover the whole pass.
+_m_td_purge() {
+  local dry="${1:-}" main label branch dir pr verdict reason err="" mode=down gone=0 left=0
+  local -A prs=()
+  main="$(_m_root)/momentum"
+
+  echo "fetching origin ..."
+  git -C "$main" fetch --prune --quiet origin || echo "fetch failed; deciding on the refs already here"
+
+  if _m_td_pr_load prs err mode; then
+    echo "${#prs[@]} branches have a pull request"
+  else
+    echo "gh pr list failed, so nothing can be called spent:"
+    echo "$err"
+    return 1
+  fi
+
+  while read -r label branch dir; do
+    [ "$dir" = "$main" ] && continue
+    pr="$(_m_td_pr_for prs "$mode" "$branch")"
+    IFS=$'\t' read -r verdict reason < <(_m_td_check "$dir" "$branch" "$pr")
+    if [ "$verdict" != SPENT ]; then
+      echo "keeping $label: $verdict  $reason"
+      left=$((left + 1))
+      continue
+    fi
+    gone=$((gone + 1))
+    if [ -n "$dry" ]; then
+      echo "would remove $label: $reason"
+      continue
+    fi
+    echo
+    echo "== $label: $reason"
+    _m_td_remove "$label" "$dir" "$branch" "" nofetch
+  done < <(_m_td_targets; _m_td_bare_branches)
+
+  echo
+  if [ -n "$dry" ]; then
+    echo "$gone spent, $left left alone"
+  else
+    git -C "$main" fetch --prune --quiet origin && echo "pruned stale remote refs"
+    echo "purge finished: $gone removed, $left left alone"
+  fi
+  [ "$gone" -gt 0 ]
+}
+
+# The purge from the command line: list it, then ask, then do it. The list costs
+# a second pass over gh, which is the price of answering the y with the real list
+# in front of you rather than a count.
+_m_td_purge_cmd() {
+  local yes="$1" root main ans
+  root="$(_m_root)"
+  main="$root/momentum"
+
+  # Standing in something about to go would break every command after it.
+  case "$PWD/" in
+    "$main"/*) ;;
+    "$root"/momentum-*) cd "$main" && echo "stepped out of the worktree into $main" ;;
+  esac
+
+  if [ -z "$yes" ]; then
+    _m_td_purge dry || { echo "nothing to purge"; return 0; }
+    read -r -p "remove all of these? [y/N] " ans </dev/tty || return 1
+    case "$ans" in y|Y) ;; *) echo "nothing removed"; return 1 ;; esac
+    echo
+  fi
+  _m_td_purge
 }
 
 # Land the default worktree on a fresh main, and bring manta's main up to date.
@@ -371,31 +721,44 @@ _m_td_land() {
 
 # --- the table ---------------------------------------------------------------
 
-# _m_td_table <sel> [busy-dir] [busy-text]. The busy row is the one an action is
-# working on, and says so rather than showing a verdict the action is in the
-# middle of invalidating.
+# _m_td_table <ordered-name> <sel> <busy-key> <busy-text> <cols>. The busy row is
+# the one an action is working on, and says so rather than showing a verdict the
+# action is in the middle of invalidating.
 _m_td_table() {
-  local sel="$1" busy="$2" busytext="$3" i=0 row label branch dir lw=8 bw=6 st mark
-  local -a rows
-  _m_td_rows rows || { echo "  no momentum worktrees found"; return 1; }
+  local -n ord="$1"
+  local sel="$2" busy="$3" busytext="$4" cols="${5:-80}"
+  local i=0 row label branch dir bw=6 ww=8 st key grp last="" mark
 
-  for row in "${rows[@]}"; do
+  [ "${#ord[@]}" -gt 0 ] || { echo "  nothing to tear down"; return 1; }
+
+  for row in "${ord[@]}"; do
     read -r label branch dir <<<"$row"
-    [ "${#label}" -gt "$lw" ] && lw="${#label}"
     [ "${#branch}" -gt "$bw" ] && bw="${#branch}"
+    label="$(_m_td_wtcell "$label" "$dir")"
+    [ "${#label}" -gt "$ww" ] && ww="${#label}"
   done
 
-  printf '  %-3s %-*s %-*s %s\n' '#' "$lw" WORKTREE "$bw" BRANCH VERDICT
-  for row in "${rows[@]}"; do
+  printf '  %-*s %-*s %s\n' "$bw" BRANCH "$ww" WORKTREE VERDICT
+  for row in "${ord[@]}"; do
     i=$((i + 1))
     read -r label branch dir <<<"$row"
-    if [ -n "$busy" ] && [ "$dir" = "$busy" ]; then
+    key="$(_m_td_key "$branch" "$dir")"
+    if [ -n "$busy" ] && [ "$key" = "$busy" ]; then
       st="$busytext"
     else
-      st="$(_m_td_status "$dir")"
+      st="$(_m_td_status "$key")"
     fi
+    grp="$(_m_td_group "$dir" "${st%% *}")"
+    if [ "$grp" != "$last" ] && [ "$grp" != base ]; then
+      echo
+      case "$grp" in
+        novel) _m_dev_rule 'novel - work main does not have' "$cols"; echo ;;
+        spent) _m_dev_rule 'spent - nothing here that main lacks' "$cols"; echo ;;
+      esac
+    fi
+    last="$grp"
     [ "$i" = "$sel" ] && mark='>' || mark=' '
-    printf '%s %-3s %-*s %-*s %s\n' "$mark" "$i" "$lw" "$label" "$bw" "$branch" "$st"
+    printf '%s %-*s %-*s %s\n' "$mark" "$bw" "$branch" "$ww" "$(_m_td_wtcell "$label" "$dir")" "$st"
   done
 }
 
@@ -443,21 +806,41 @@ _m_teardown_this() {
   printf '%s\n' "${top#"$root"/momentum-}"
 }
 
-# One worktree, gated and removed in the foreground. The path a name on the
-# command line takes; the table uses the same two functions behind an action.
+# A name -> the "<label> <branch> <dir>" row it means. Row numbers are not
+# accepted: the table regroups itself as verdicts land, so a number is only true
+# until the next redraw.
+_m_td_resolve() {
+  local all hit
+  local -a rows
+  _m_td_rows rows fresh || { echo "m-teardown: nothing to tear down" >&2; return 1; }
+  all="$(printf '%s\n' "${rows[@]}")"
+
+  if [[ "$1" =~ ^[0-9]+$ ]]; then
+    echo "m-teardown: name the worktree or branch; the table reorders as it scans, so a row number means nothing" >&2
+    return 1
+  fi
+  if ! hit="$(_m_pick "$all" "$1")"; then
+    echo "m-teardown: nothing matching '$1'. Known: $(awk '{printf "%s ", $2}' <<<"$all")" >&2
+    return 1
+  fi
+  if [ "$(wc -l <<<"$hit")" -gt 1 ]; then
+    echo "m-teardown: '$1' matches more than one:" >&2
+    awk '{print "  " $2}' <<<"$hit" >&2
+    return 1
+  fi
+  printf '%s\n' "$hit"
+}
+
+# One worktree or branch, gated and removed in the foreground. The path a name on
+# the command line takes; the table uses the same two functions behind an action.
 _m_td_one() {
-  local name="$1" force="$2" root main label dir branch pr verdict detail ans out err
+  local name="$1" force="$2" root main label dir branch pr verdict detail ans
   root="$(_m_root)"
   main="$root/momentum"
 
-  # _m_dev_resolve does the name/branch/number matching for both tools, so its
-  # complaints have to be re-badged before they reach a m-teardown user.
-  if ! err="$( { out="$(_m_dev_resolve "$name")"; } 2>&1 )"; then
-    printf '%s\n' "${err//m-dev:/m-teardown:}" >&2
-    return 1
-  fi
-  read -r label dir <<<"$out"
+  read -r label branch dir < <(_m_td_resolve "$name") || return 1
   case "$dir" in
+    -) ;;
     "$root"/momentum-*/*|"$root"/momentum)
       echo "m-teardown: $dir is not a worktree this removes" >&2
       return 1 ;;
@@ -466,7 +849,6 @@ _m_td_one() {
       echo "m-teardown: $dir is not a $root/momentum-<desc> worktree" >&2
       return 1 ;;
   esac
-  branch="$(_m_td_branch_of "$dir")"
 
   if [ -n "$force" ]; then
     echo "$label ($branch): forced, no checks - uncommitted and unpushed work goes with it"
@@ -476,7 +858,7 @@ _m_td_one() {
     IFS=$'\t' read -r verdict detail < <(_m_td_check "$dir" "$branch" "$pr")
     echo "$label ($branch): $verdict  $detail"
     case "$verdict" in
-      SAFE|GONE) ;;
+      SPENT|KEEP) ;;
       *) echo "not removed. --force overrides."; return 1 ;;
     esac
   fi
@@ -485,12 +867,14 @@ _m_td_one() {
   case "$ans" in y|Y) ;; *) echo "left alone"; return 1 ;; esac
 
   # Standing in it would break every command after the removal.
-  case "$PWD/" in "$dir"/*) cd "$main" || return 1 ;; esac
+  [ "$dir" != "-" ] && case "$PWD/" in "$dir"/*) cd "$main" || return 1 ;; esac
   _m_td_remove "$label" "$dir" "$branch" "$force"
 }
 
+m-purge() { m-teardown --purge "$@"; }
+
 m-teardown() {
-  local root main a arg="" force="" pull="" sel=1 key
+  local root main a arg="" force="" pull="" purge="" yes="" sel=1 sel_key="" key
   root="$(_m_root)"
   main="$root/momentum"
   if [ ! -e "$main/.git" ]; then
@@ -498,30 +882,37 @@ m-teardown() {
     return 1
   fi
   mkdir -p "$(_m_td_state)" 2>/dev/null
-  _M_TD_WT_CACHE=""                  # a worktree may have come or gone since last time
+  _M_TD_WT_CACHE=""                  # a worktree or branch may have come or gone since last time
 
   for a in "$@"; do
     case "$a" in
       --force|-f) force=1 ;;
       --pull|-p)  pull=1 ;;
-      --yes|-y)   ;;                 # the y at the prompt is the confirmation now
+      --purge|-P) purge=1 ;;
+      --yes|-y)   yes=1 ;;
       this)       arg="$(_m_teardown_this)" || return 1 ;;
       -*)         echo "m-teardown: unknown option $a" >&2; return 1 ;;
       *)          arg="$a" ;;
     esac
   done
 
-  [ -n "$pull" ] && { _m_td_land; return $?; }
-  [ -n "$arg" ] && { _m_td_one "$arg" "$force"; return $?; }
+  if [ -n "$purge" ] && [ -n "$force" ]; then
+    echo "m-teardown: --force and --purge do not combine; a purge only ever removes what is spent" >&2
+    return 1
+  fi
+
+  [ -n "$pull" ]  && { _m_td_land; return $?; }
+  [ -n "$purge" ] && { _m_td_purge_cmd "$yes"; return $?; }
+  [ -n "$arg" ]   && { _m_td_one "$arg" "$force"; return $?; }
 
   # Interactive. The table owns the top of the screen and the keys always act on
   # the selected row; the scan and any removal run detached behind it, with their
   # output tailed into the pane underneath, so nothing ever covers the list.
   local frame last="" dirty=1 wt_stale=1 note="" excluded=0 rc=0 waits=0
-  local job="" what="" kind="" busy_dir="" busy_text="" seq="" ch="" traps="" bail=""
-  local cf_dir="" cf_label="" cf_branch="" cf_verdict="" cf_force=""
-  local label branch dir st atext used avail nl
-  local -a rows
+  local job="" what="" kind="" busy_key="" busy_text="" seq="" ch="" traps="" bail=""
+  local cf_kind="" cf_dir="" cf_label="" cf_branch="" cf_verdict="" cf_force="" cf_count=0
+  local label branch dir st tbl nl atext used avail i
+  local -a rows ordered
 
   job="$(cat "$(_m_td_action_pid)" 2>/dev/null)"
   if _m_dev_action_alive "$job"; then
@@ -547,10 +938,10 @@ m-teardown() {
 
     if [ -n "$job" ] && ! _m_dev_action_alive "$job"; then
       note="$what: done"
-      job="" busy_dir="" busy_text=""
+      job="" busy_key="" busy_text=""
       wt_stale=1 dirty=1
       # A removal changed what every other verdict was worked out against, and
-      # the row that just went has to leave the table, so the list is re-read
+      # the rows that just went have to leave the table, so the list is re-read
       # and the scan runs again on its own.
       if [ "$kind" = remove ]; then
         job="$(_m_td_action_start _m_td_scan)"
@@ -561,33 +952,57 @@ m-teardown() {
     fi
 
     if [ "$wt_stale" = 1 ]; then
-      _m_td_rows rows fresh || { bail="m-teardown: no momentum worktrees found"; break; }
-      excluded=$(( $(_m_dev_worktrees | wc -l) - ${#rows[@]} ))
+      _m_td_rows rows fresh || { bail="m-teardown: nothing to tear down"; break; }
+      excluded=$(( $(_m_dev_worktrees | wc -l) - $(_m_td_targets | wc -l) ))
       wt_stale=0
     fi
-    [ "$sel" -gt "${#rows[@]}" ] && sel="${#rows[@]}"
-    [ "$sel" -lt 1 ] && sel=1
 
     _m_td_status_load
+    _m_td_order rows ordered
 
-    frame="momentum worktrees - what is safe to tear down"$'\n\n'
-    frame+="$(_m_td_table "$sel" "$busy_dir" "$busy_text")"$'\n\n'
-    if [ -n "$cf_dir" ]; then
-      if [ -n "$cf_force" ]; then
-        frame+="  FORCE tear down $cf_label ($cf_branch)? uncommitted and unpushed work goes with it.  y / anything else"
-      elif [ "$cf_verdict" = GONE ]; then
-        frame+="  prune $cf_label ($cf_branch)? its directory is already deleted.  y / anything else"
+    # The selection follows the row it is on rather than the position: a verdict
+    # landing moves rows between the two halves under it.
+    if [ -n "$sel_key" ]; then
+      for i in "${!ordered[@]}"; do
+        read -r label branch dir <<<"${ordered[$i]}"
+        [ "$(_m_td_key "$branch" "$dir")" = "$sel_key" ] && { sel=$((i + 1)); break; }
+      done
+    fi
+    [ "$sel" -gt "${#ordered[@]}" ] && sel="${#ordered[@]}"
+    [ "$sel" -lt 1 ] && sel=1
+    read -r label branch dir <<<"${ordered[$((sel - 1))]}"
+    sel_key="$(_m_td_key "$branch" "$dir")"
+
+    tbl="$(_m_td_table ordered "$sel" "$busy_key" "$busy_text" "$_M_DEV_COLS")"
+
+    frame="momentum worktrees and branches - what is safe to tear down"$'\n\n'
+    frame+="$tbl"$'\n\n'
+    if [ -n "$cf_kind" ]; then
+      # The frame gives a confirmation one line and the fit clips it at the window
+      # width, so the answer it asks for comes before anything explaining it: at
+      # 80 columns a long name used to push "y / anything else" off the end. The
+      # selected row is directly above with its branch and verdict on it, so this
+      # does not repeat them.
+      if [ "$cf_kind" = purge ]; then
+        frame+="  purge $cf_count spent row(s)?  y / anything else  (each is re-checked first)"
+      elif [ -n "$cf_force" ]; then
+        frame+="  FORCE remove $cf_label?  y / anything else  (uncommitted and unpushed work goes too)"
+      elif [ "$cf_dir" = "-" ]; then
+        frame+="  delete branch $cf_branch?  y / anything else"
+      elif [ "$cf_verdict" = KEEP ]; then
+        frame+="  tear down $cf_label?  y / anything else  (it holds work main lacks)"
       else
-        frame+="  tear down $cf_label ($cf_branch) and delete its branch?  y / anything else"
+        frame+="  tear down $cf_label?  y / anything else"
       fi
     else
-      frame+="  up/down select   d tear down   D force   r rescan   p land main   q quit"
+      frame+="  up/down select   d tear down   D force   X purge spent   r rescan   p land main   q quit"
     fi
     [ "$excluded" -gt 0 ] && frame+=$'\n'"  $excluded other momentum worktree(s) elsewhere are never touched"
     [ -n "$job" ] && frame+=$'\n'"  running: $what"
     [ -n "$note" ] && frame+=$'\n'"  $note"
 
-    used=$(( 5 + ${#rows[@]} ))
+    nl="${tbl//[!$'\n']/}"
+    used=$(( ${#nl} + 5 ))
     [ "$excluded" -gt 0 ] && used=$((used + 1))
     [ -n "$job" ] && used=$((used + 1))
     [ -n "$note" ] && used=$((used + 1))
@@ -625,19 +1040,30 @@ m-teardown() {
     # A pending confirmation answers to y and nothing else. Every other key
     # cancels it rather than doing its own job, so a stray keystroke can only
     # ever call the removal off.
-    if [ -n "$cf_dir" ]; then
+    if [ -n "$cf_kind" ]; then
       if [ "$key" = y ] || [ "$key" = Y ]; then
-        case "$PWD/" in
-          "$cf_dir"/*) cd "$main" && note="stepped out of $cf_label into $main" ;;
-        esac
-        what="tear down $cf_label" kind=remove
-        busy_dir="$cf_dir" busy_text="removing ..."
-        job="$(_m_td_action_start _m_td_remove "$cf_label" "$cf_dir" "$cf_branch" "$cf_force")"
-        [ -n "$job" ] || { note="could not start $what"; busy_dir="" busy_text="" kind=""; }
+        if [ "$cf_kind" = purge ]; then
+          case "$PWD/" in
+            "$main"/*) ;;
+            "$root"/momentum-*) cd "$main" && note="stepped out of the worktree into $main" ;;
+          esac
+          what="purge" kind=remove
+          job="$(_m_td_action_start _m_td_purge)"
+        else
+          [ "$cf_dir" != "-" ] && case "$PWD/" in
+            "$cf_dir"/*) cd "$main" && note="stepped out of $cf_label into $main" ;;
+          esac
+          what="tear down $cf_label" kind=remove
+          busy_key="$(_m_td_key "$cf_branch" "$cf_dir")" busy_text="removing ..."
+          job="$(_m_td_action_start _m_td_remove "$cf_label" "$cf_dir" "$cf_branch" "$cf_force")"
+        fi
+        [ -n "$job" ] || { note="could not start $what"; busy_key="" busy_text="" kind=""; }
+      elif [ "$cf_kind" = purge ]; then
+        note="nothing purged"
       else
         note="left $cf_label alone"
       fi
-      cf_dir="" cf_label="" cf_branch="" cf_verdict="" cf_force=""
+      cf_kind="" cf_dir="" cf_label="" cf_branch="" cf_verdict="" cf_force="" cf_count=0
       dirty=1
       continue
     fi
@@ -658,24 +1084,41 @@ m-teardown() {
           'A') sel=$((sel - 1)) ;;
           'B') sel=$((sel + 1)) ;;
         esac
+        sel_key=""
         ;;
-      'k') sel=$((sel - 1)) ;;
-      'j') sel=$((sel + 1)) ;;
+      'k') sel=$((sel - 1)); sel_key="" ;;
+      'j') sel=$((sel + 1)); sel_key="" ;;
       'd'|'D')
-        read -r label branch dir <<<"${rows[$((sel - 1))]}"
-        st="$(_m_td_status "$dir")"
+        read -r label branch dir <<<"${ordered[$((sel - 1))]}"
+        st="$(_m_td_status "$(_m_td_key "$branch" "$dir")")"
         if [ -n "$job" ]; then
           note="wait for $what to finish"
         elif [ "$dir" = "$main" ]; then
           note="the default worktree is never removed; p lands it on main"
         elif [ "$key" = D ]; then
-          cf_dir="$dir" cf_label="$label" cf_branch="$branch" cf_verdict=FORCE cf_force=1
+          cf_kind=one cf_dir="$dir" cf_label="$label" cf_branch="$branch" cf_verdict=FORCE cf_force=1
         else
           case "${st%% *}" in
-            SAFE|GONE) cf_dir="$dir" cf_label="$label" cf_branch="$branch" \
-                         cf_verdict="${st%% *}" cf_force="" ;;
+            SPENT|KEEP) cf_kind=one cf_dir="$dir" cf_label="$label" cf_branch="$branch" \
+                          cf_verdict="${st%% *}" cf_force="" ;;
             *) note="$label: ${st#* } - D forces it" ;;
           esac
+        fi
+        ;;
+      'X')
+        if [ -n "$job" ]; then
+          note="wait for $what to finish"
+        else
+          cf_count=0
+          for i in "${!ordered[@]}"; do
+            read -r label branch dir <<<"${ordered[$i]}"
+            [ "$(_m_td_verdict "$(_m_td_key "$branch" "$dir")")" = SPENT ] && cf_count=$((cf_count + 1))
+          done
+          if [ "$cf_count" -eq 0 ]; then
+            note="nothing is spent, so there is nothing to purge"
+          else
+            cf_kind=purge
+          fi
         fi
         ;;
       'r'|'R')
@@ -697,6 +1140,7 @@ m-teardown() {
         ;;
       'q'|'Q') break ;;
     esac
+    dirty=1
   done 2>>"$(_m_td_action_log)"
 
   # One way out, so the terminal is always handed back the way it was found.
@@ -1083,7 +1527,7 @@ _m_dev_ui_up() { ss -ltnH 2>/dev/null | awk '{print $4}' | grep -qE '[:.]3000$';
 # the branch it holds is camelCase (betterMobileHeader), and either is a
 # reasonable thing to type.
 _m_dev_resolve() {
-  local want all hit row
+  local all hit row
   local -a rows
   _m_dev_rows rows fresh || { echo "m-dev: no momentum worktrees found" >&2; return 1; }
 
@@ -1097,24 +1541,17 @@ _m_dev_resolve() {
     return 0
   fi
 
-  want="$(tr '[:upper:]' '[:lower:]' <<<"${1//-/}")"
   all="$(printf '%s\n' "${rows[@]}")"
-  for test in 'k == w' 'index(k, w) == 1 || index(b, w) == 1' 'index(k, w) || index(b, w)'; do
-    hit="$(awk -v w="$want" \
-      '{ k = tolower($1); gsub(/-/, "", k)
-         b = tolower($2); gsub(/-/, "", b)
-         if ('"$test"') print $1, $3 }' <<<"$all")"
-    [ -n "$hit" ] || continue
-    if [ "$(wc -l <<<"$hit")" -eq 1 ]; then
-      printf '%s\n' "$hit"
-      return 0
-    fi
+  if ! hit="$(_m_pick "$all" "$1")"; then
+    echo "m-dev: no worktree matching '$1'. Known: $(awk '{printf "%s ", $1}' <<<"$all")" >&2
+    return 1
+  fi
+  if [ "$(wc -l <<<"$hit")" -gt 1 ]; then
     echo "m-dev: '$1' matches more than one worktree:" >&2
     awk '{print "  " $1}' <<<"$hit" >&2
     return 1
-  done
-  echo "m-dev: no worktree matching '$1'. Known: $(awk '{printf "%s ", $1}' <<<"$all")" >&2
-  return 1
+  fi
+  awk '{print $1, $3}' <<<"$hit"
 }
 
 # _m_dev_table [sel] [active-dir] [busy-dir] [busy-text]. Passing the active dir
