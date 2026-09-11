@@ -455,7 +455,7 @@ heartbeat the first card arrives when the run is already over.
 
 So every 15 minutes an agent that is still working gets a card, as a reply in its own
 thread. The body is its newest tool call, and there are two facts: `Running`, how long
-the turn has been going, and for a loom run `Loom`, read from the flight ledger.
+the turn has been going, and for a loom run `Loom`, read from the run ledger.
 
 ```
 momentum-virtualizeTable: still working

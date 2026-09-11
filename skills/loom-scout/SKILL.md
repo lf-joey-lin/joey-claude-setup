@@ -1,6 +1,6 @@
 ---
 name: loom-scout
-description: First stage of the loom pipeline - set up the workspace, recon the request against the app's precedent, size it into a lane (patch or feature), and write the brief that opens the flight ledger. Invoke via /loom normally; directly when the user asks to "scout", "size this", or "open a loom run" for a ui-app change.
+description: First stage of the loom pipeline - set up the workspace, recon the request against the app's precedent, size it into a lane (patch or feature), and write the brief that opens the run ledger. Invoke via /loom normally; directly when the user asks to "scout", "size this", or "open a loom run" for a ui-app change.
 ---
 
 # loom-scout: setup, recon, brief
@@ -55,10 +55,10 @@ it. **Create nothing, reset nothing, and never touch their uncommitted work.**
 1. **Guards, before anything else.** `<dir>` must be a momentum worktree, must
    not be `<root>/momentum` (the read-only reference checkout), and must not
    be on `main`. Any of the three stops the run with the reason - none of them
-   is worked around. These are the same guards `loom-adopt` applies, and they
+   is worked around. These are the same guards `loom-spec` applies, and they
    are the only workspace guards this mode needs.
 2. **`<slug>` is the branch name in kebab-case**, not derived from the
-   request, and a ledger that already names one wins. Same rule `loom-adopt`
+   request, and a ledger that already names one wins. Same rule `loom-spec`
    uses, and the reason is the contract's: one ledger per branch, however many
    requests land on it.
 3. **Rounds, not resumes** (contract, "Rounds"). Read

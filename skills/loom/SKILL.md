@@ -1,6 +1,6 @@
 ---
 name: loom
-description: Orchestrate a full loom run - a slice-based dev pipeline for momentum ui-app work (including the acs-bff/app-bff route a slice needs, built through api-integrator) that builds one verifiable increment at a time, checks-first, with an adversarial probe after every slice and a flight ledger recording every claim with its evidence. Attended by default with exactly two ask moments; --solo runs unattended end to end without pushing. Invoke when the user types /loom <request>, or asks to "loom this", "run loom on <feature>", or wants a ui-app change built through the loom pipeline.
+description: Orchestrate a full loom run - a slice-based dev pipeline for momentum ui-app work (including the acs-bff/app-bff route a slice needs, built through api-integrator) that builds one verifiable increment at a time, checks-first, with an adversarial probe after every slice and a run ledger recording every claim with its evidence. Attended by default with exactly two ask moments; --solo runs unattended end to end without pushing. Invoke when the user types /loom <request>, or asks to "loom this", "run loom on <feature>", or wants a ui-app change built through the loom pipeline.
 ---
 
 # loom: the orchestrator
@@ -9,7 +9,7 @@ Take a request for `ui-app` work and drive it to a finished branch: sliced,
 built checks-first, probed, tidied, gated, merged with main, and explained in
 a report generated from evidence. You are the **conductor, not a worker**: you
 spawn one subagent per stage, gate each on the evidence it wrote into the
-flight ledger, and never read source or write code in your own context. If you
+run ledger, and never read source or write code in your own context. If you
 catch yourself doing either, stop and delegate.
 
 Read [`../shared/loom-contract.md`](../shared/loom-contract.md) before
@@ -20,15 +20,19 @@ nesting rules there are the law of the run.
 
 ```
 /loom <request>              # attended: two ask moments, push confirmed
+/loom                        # no request: the branch's own changes are the spec
+/loom --retrofit             # the same, said explicitly
+/loom --retrofit --from <ref># adopt a commit, a range, or `branch`
 /loom <request> --solo       # unattended: zero asks, never pushes
 /loom <request> --no-push    # attended, but land leaves the branch local
 /loom <request> --in <dir>   # run in a worktree the human already made
 /loom <request> --no-mutants # skip probe deep's mutation sweep
 ```
 
-`<request>` is required - a sentence or a short bullet list. State the
-resolved shape in your first line of output, before any tool call:
-`Mode: attended | solo   Slug: <slug>   Round: <n>`.
+`<request>` is a sentence or a short bullet list. Omit it only to adopt the
+branch, which is the adopt lane below. State the resolved shape in your first
+line of output, before any tool call:
+`Mode: attended | solo   Lane: <lane>   Slug: <slug>   Round: <n>`.
 
 **Resume**: if `artifacts/loom/<slug>-ledger.md` already exists (check the
 default worktree and `<root>/momentum-<slug>`), read it and continue from the
@@ -43,14 +47,23 @@ already opened, one queue per worktree (`shell/mqueue.sh` in
 
 - **The run is a round.** Scout reports the round number. On a round after the
   first, every stage of this run nests under `## Round <n>` in the one ledger
-  the branch already has, exactly as `loom-finish` does, and every stage seed
-  carries the round number alongside the ledger path. Slice ids carry the
+  the branch already has, and every stage seed carries the round number
+  alongside the ledger path. Slice ids carry the
   round prefix (`R2.S1`). A finished round is history, never a resume point.
 - **Branch-scoped stages read the whole branch.** Probe deep, shape, tidy, gate
   and land cover every round on the branch, not just this one, so an earlier
   round's code is re-covered rather than assumed good. That is the point of
   them being branch-scoped. Shape especially: a concept splits across rounds,
   and the round that puts the second tenant in is the one that can see it.
+
+**The adopt lane**: `/loom` with no request, or `/loom --retrofit`, reads the
+branch's own changes as the spec instead of a sentence. `loom-spec` replaces
+scout as the opener, and `scripts/adopt.sh` takes the prototype out of the tree
+once the human has approved its bullets. Everything from plan rightward is the
+ordinary run, which is the point of doing it this way rather than as a pipeline
+of its own. `--from <ref>` names a committed source (a sha, an `<a>..<b>` range,
+or `branch`) instead of the uncommitted default. A clean tree with no `--from`
+has nothing to adopt: refuse rather than guess at one.
 
 ## The run
 
@@ -62,16 +75,26 @@ lines, never the subagent's prose - by reading **only that stage's section**
 of the ledger, per the contract's context-economy rules; never re-read the
 whole file mid-run. Record your own gate decision as the last line of that
 stage's section (the contract's `- Gate:` line) before moving on. The slice loop is the one
-exception: a crew holds those slices and writes their gate lines, and you
+exception: a wave holds those slices and writes their gate lines, and you
 never read them (step 3).
 
-1. **Scout** (`loom-scout`). Gate: ledger exists, Brief `[x]`, lane decided,
-   branch and worktree named, and under `--in` the round number reported.
+1. **Open** - `loom-scout` normally, `loom-spec` on the adopt lane. Scout's
+   gate: ledger exists, Brief `[x]`, lane decided, branch and worktree named,
+   and under `--in` the round number reported. Spec's gate: the patch exists
+   and its `git apply --check` passed, the base SHA is recorded, every spec
+   bullet names a channel, and every gap has an owner.
    - **Ask moment 1 (attended only)**: present the brief summary - lane,
      decisions taken, open questions - with one `AskUserQuestion`
-     (approve / adjust / abort). On adjust, re-seed scout with the feedback;
-     the workspace is kept. Solo: skip; scout already defaulted everything or
-     blocked.
+     (approve / adjust / abort). On adjust, re-seed the opener with the
+     feedback; the workspace is kept. Solo: skip; the opener already defaulted
+     everything or blocked.
+   - **On the adopt lane this ask carries the spec bullets and the gaps, and
+     approving it is what authorises the revert.** Only then run
+     `bash skills/loom/scripts/adopt.sh <patch> <slug> <round> [base]`, and
+     gate on its `ok=yes` line. Never before the approval: it is the one
+     irreversible step in the run and nobody has agreed to it yet. Solo reverts
+     unasked, which is safe only because the patch and the base SHA are both on
+     disk by then.
 2. **Plan** (`loom-plan`, feature lane only). Gate: every slice has Behavior,
    Platform, numbered Checks each naming a channel, Touches, Attack. A
    `Platform:` line that is missing, or that hand-rolls with no unit named as
@@ -86,38 +109,45 @@ never read them (step 3).
      it doubles as api-integrator's approval gate, so show the route, verb,
      DTO cuts, and status map, not just the slice name. This is the last
      planned pause before land.
-3. **The slice loop, one wave at a time** (`loom-crew`). You do not run this
-   loop - a crew does, in its own context, and hands you one line per slice.
-   Spawn a crew seeded per the contract plus a wave size, let it build, probe
+3. **The slice loop, one wave at a time** (`loom-wave`). You do not run this
+   loop - a wave does, in its own context, and hands you one line per slice.
+   Spawn a wave seeded per the contract plus a wave size, let it build, probe
    and fix its slices, then spawn the next one. Repeat until the plan has no
    slice left. This is what keeps your own context flat across a long run:
    you grow by a wave, not by a slice.
    - **Wave size**: four slices by default. Size down where the plan drew
      slices wide (a bff slice, one with many checks), up only for a plan of
-     small ui slices. A crew may return short and often will; it may never
+     small ui slices. A wave may return short and often will; it may never
      return long.
    - **Gate a wave on its return lines**, plus one cheap check: `git log
      --oneline` on the branch shows the green commits it named. A hash that is
-     not there is a fabricated claim and fails the wave. Everything the crew
+     not there is a fabricated claim and fails the wave. Everything the wave
      gated inside the wave (red-before-green per slice, probe reproductions,
-     the two-fix-turn cap) is the crew's own gate, recorded in the ledger, and
+     the two-fix-turn cap) is the wave's own gate, recorded in the ledger, and
      you do not re-verify it.
-   - **An early return is normal**, not a failure: spawn the next crew, which
-     picks up from the first slice not `[x]`. A crew returning BLOCKED stops
+   - **An early return is normal**, not a failure: spawn the next wave, which
+     picks up from the first slice not `[x]`. A wave returning BLOCKED stops
      the run, with the ledger heading its wave line names.
    - A patch-lane run has exactly one slice, defined in the brief. Spawn a
-     crew for it anyway - one line back is cheaper than the four calls it
+     wave for it anyway - one line back is cheaper than the four calls it
      replaces, and the patch lane then has no second code path.
    - You never see a slice seed, a stage return, or a slice's ledger section.
-     If you find yourself reading one mid-run, the crew boundary has leaked.
+     If you find yourself reading one mid-run, the wave boundary has leaked.
 4. **Probe deep** (`loom-probe-deep`, over the whole branch). Same fix-turn
-   rule, same cap. It is a different agent type from the quick probes the crew
+   rule, same cap. It is a different agent type from the quick probes the wave
    ran, because deep is a once-per-run read of everything and quick is a
    per-slice run of a list the plan already wrote. Gate its `- Mutation:` row
    too: it must carry real counts or a SKIPPED reason. A missing row is a stage
    that did not run its sweep, and an absent row reads identically to a clean
    one, which is the whole reason it is gated. Pass `--no-mutants` through when
    the human gave it.
+   - **On the adopt lane it reconciles first**, against the patch `loom-spec`
+     wrote: every prototype hunk present, rebuilt, dropped with a record, or
+     reported as a miss. Gate that row like the mutation row, and send each miss
+     back as a `loom-slice` fix turn under the usual cap. A behavior the human
+     clicked and liked, silently absent from the branch, is the one failure this
+     flow could otherwise ship, and closing it is what makes reverting their
+     work defensible in the first place.
 5. **Shape** (`loom-shape` over the whole branch). The concept-level read: does
    each idea the branch expresses have one home. It finds and prices; it never
    edits. Gate: a concept map exists, every finding carries its complete site
@@ -149,8 +179,9 @@ never read them (step 3).
 
 After land, point at `/paperwork` for the work item and PR - loom creates
 neither, ever. Cleanup after the merge is `/teardown`, on the human's ask.
-More work on the same branch afterwards is `/loom-finish`, which adopts the
-next round of changes in place rather than opening a second run.
+More work on the same branch afterwards is `/loom --in <dir>` with a written
+request, or `/loom --retrofit` to adopt whatever got prototyped next. Both
+append a round rather than opening a second run.
 
 ## Blockers and asks
 
@@ -177,8 +208,8 @@ resumable. Review each report in the main session, then push and run
 `/paperwork` per branch there.
 
 Note this adds a level above the orchestrator, so such a run is four deep:
-background agent, loom, crew, stage. If the runtime refuses to spawn that
-deep, the crew is the level to drop - tell the background agent to run the
+background agent, loom, wave, stage. If the runtime refuses to spawn that
+deep, the wave is the level to drop - tell the background agent to run the
 slice loop inline per the contract's no-subagents fallback. Do not drop a
 stage instead; the stages are where the work happens.
 
@@ -189,14 +220,14 @@ yourself - the contract's "Models" section is the table and the reasoning.
 ## Invariants
 
 - The orchestrator owns the gate decisions for the stages it runs itself; the
-  crew owns them for the slices in its wave. Every read of source and every
+  wave owns them for the slices in its wave. Every read of source and every
   edit happens in a stage subagent, below them both.
 - Gate on ledger evidence (commands, exit codes, red records), never on
   prose, and read it by stage section - the contract's context-economy rules
   are what keep a twenty-round run inside one context window.
 - One slice at a time; the pipeline is sequential by design and stages are
   never fanned out across each other. A wave is a context boundary, not a
-  parallelism boundary - one crew runs at a time, and its slices run in
+  parallelism boundary - one wave runs at a time, and its slices run in
   order.
 - The bar is identical attended and solo; attendance only changes who answers
   questions and whether land may push.

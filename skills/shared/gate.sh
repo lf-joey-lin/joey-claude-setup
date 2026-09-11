@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# loom-ninja's gate. Runs every check loom-gate runs, in three lanes instead of
+# The ui-app CI mirror. Runs every check loom-gate runs, in three lanes instead of
 # one queue, and prints a scorecard of real exit codes.
 #
 # Measured on momentum main, 2026-09-08, warm worktree, 20 cores:

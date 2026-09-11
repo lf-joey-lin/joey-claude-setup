@@ -1,6 +1,6 @@
 ---
 name: loom-probe
-description: Adversarial verification stage of the loom pipeline - actively try to break a slice or the whole branch with awkward data, hostile states, and static sweeps, and report findings as reproductions, not opinions. Runs quick after each slice and deep before the gate. Invoke via /loom normally; directly when the user asks to "probe this", "try to break it", or "attack the branch".
+description: Adversarial verification stage of the loom pipeline - actively try to break a slice or the whole branch with awkward data, hostile states, and static sweeps, and report findings as reproductions, not opinions. Runs quick after each slice and deep before the gate; the deep run also reconciles an adopt-lane branch against the prototype it was rebuilt from. Invoke via /loom normally; directly when the user asks to "probe this", "try to break it", or "attack the branch".
 ---
 
 # loom-probe: try to break it
@@ -19,7 +19,8 @@ earlier probes already covered. Two depths:
   audit.
 - **deep** (`loom-probe-deep`) - once, after the last slice, over the whole
   branch. Everything below, plus the mutation sweep, the combination states and
-  the shuffled suite run.
+  the shuffled suite run. On the adopt lane it reconciles the branch against
+  the prototype patch before it attacks anything.
 
 The two depths have separate agent types because they are different jobs: quick
 runs a list the plan already wrote, once per slice, and deep is an open-ended
@@ -117,7 +118,7 @@ value=$(node stryker.changed-ranges.mjs)
 
 An empty value means the branch changed no mutatable file: that is a SKIPPED row
 with the reason, never a pass. Keep the incremental file on the branch's own
-artifacts, so a later round and the ninja settle-up re-test only what moved.
+artifacts, so a later round and the tweak settle-up re-test only what moved.
 
 **Budget it before it commits you.** About 2 minutes fixed plus roughly 1.5
 seconds a mutant. Stryker prints `Instrumented N source file(s) with M mutant(s)`
@@ -149,6 +150,33 @@ order-dependent specs:
 ```bash
 cd src/ui-app && npx vitest run --project=unit --sequence.shuffle
 ```
+
+**Deep only, adopt lane only: reconcile, and do it first.** The run took a
+human's working prototype out of the tree to build it back born red. This is
+what proves the rebuild kept all of it. `loom-spec`'s ledger section names the
+patch and the base SHA.
+
+```bash
+git diff <base sha>..HEAD > /tmp/built.patch
+```
+
+Compare that against the round patch **by hunk, not by line count** - the
+rebuild is meant to differ in form. For every hunk the prototype had, find its
+counterpart on the branch. Three outcomes:
+
+- **Present** - rebuilt, possibly better. Only the count is recorded.
+- **Dropped with a record** - it was a gap marked out of scope, or a slice
+  recorded changing it. Confirm the ledger actually says so. A drop nobody
+  wrote down is a miss, not a drop.
+- **Missing** - the rebuild lost it. A `must-fix` finding, numbered `M1..Mn`,
+  naming the file and what it did.
+
+Record `- Reconcile: <n> hunks, <n> present, <n> dropped with a record, <n>
+missing` even when nothing is missing. An absent row reads exactly like a clean
+one, which is why the orchestrator gates it. A behavior the human clicked and
+liked, gone from the branch with nobody noticing, is the one failure this flow
+could otherwise ship, and catching it is what makes reverting their work
+defensible at all.
 
 ## What comes back
 

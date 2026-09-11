@@ -39,7 +39,7 @@ pipeline; it deliberately fixes the problems that review found.
    reading passes run once each at the end, when the shape has settled:
    `loom-shape` for the concepts and `loom-tidy` for the files.
 
-4. **Claims carry evidence.** Every stage appends to one flight ledger
+4. **Claims carry evidence.** Every stage appends to one run ledger
    (`artifacts/loom/<slug>-ledger.md`): what it claims, the command that
    proved it, and what would disprove it. The orchestrator gates on those
    evidence lines, not on a subagent saying "done", and the final report is
@@ -85,7 +85,7 @@ of cutting one).
 `--in` is what lets a second and third request land on one branch: scout adopts
 the worktree, the slug comes from the branch rather than the request, and each
 later request is a new `## Round <n>` in the ledger the branch already has, the
-way `loom-finish` rounds already work. It is how `m-board`'s per-worktree
+way adopt-lane rounds already work. It is how `m-board`'s per-worktree
 queues run (`shell/README.md`), and it works typed by hand too.
 
 ## What runs when
@@ -96,7 +96,7 @@ queues run (`shell/README.md`), and it works typed by hand too.
 | ask moment 1 | (attended) | yes | yes |
 | slice plan | loom-plan | skipped | yes |
 | ask moment 2 | (attended) | skipped | yes |
-| build + quick probe, per slice | loom-crew, driving loom-slice and loom-probe | one slice | 2 to 6 slices |
+| build + quick probe, per slice | loom-wave, driving loom-slice and loom-probe | one slice | 2 to 6 slices |
 | deep probe | loom-probe | yes | yes |
 | structural pass | loom-shape | yes | yes |
 | reshape turn, if one is priced | loom-slice | at most one | at most one |
@@ -104,7 +104,7 @@ queues run (`shell/README.md`), and it works typed by hand too.
 | CI mirror | loom-gate | yes | yes |
 | merge main, push, report | loom-land | yes | yes |
 
-A `loom-ninja` round is a third route through the same table: build and one
+A `loom-tweak` round is a third route through the same table: build and one
 quick probe as subagents, the CI mirror and the merge as scripts, and deep
 probe, shape and tidy deferred to its settle-up. See "Fast rounds on a finished
 branch" below.
@@ -189,48 +189,54 @@ The bff slice always comes first, the skeleton second. An upstream that
 belongs to neither realm is a blocker (api-integrator's "no new realm"
 boundary) - that is a spec-driven feature, not a loom run.
 
-## Finishing a prototype (loom-finish)
+## Finishing a prototype (the adopt lane)
 
-The other way in. `/loom` starts from a request; `/loom-finish` starts from
+The other way in. `/loom` starts from a request; `/loom --retrofit` starts from
 code that already works, which is what you have after a `/prototype` session.
 The difference from backfilling a suite over finished code is where the tests
 come from.
 
 ```
 /prototype ...          # rough it in, click it, iterate
-/loom-finish            # bake it in
+/loom --retrofit            # bake it in
 ```
 
-`loom-adopt` reads the uncommitted diff as the spec, separates the behavior it
+`loom-spec` reads the uncommitted diff as the spec, separates the behavior it
 demonstrates from the gaps it skipped, writes the patch to
-`artifacts/loom/<slug>/round-N.patch`, verifies the patch replays, and only then
-stashes the tree. With the code out of the way the specs go genuinely red, so
-the born-red proof survives intact rather than degrading to an after-the-fact
-mutation check. Then the normal stages run unchanged: slice, probe, shape,
-tidy, gate, land.
+`artifacts/loom/<slug>/round-N.patch`, and verifies it replays. It then hands
+you **bullet-point specs** at ask moment 1: one line per behavior with the
+channel that proves it, plus every gap it found and who owns it.
+
+Approving those bullets is what authorises the revert. Only then does the
+orchestrator run `scripts/adopt.sh`, which stashes the tree and checks it came
+out clean. With the code out of the way the specs go genuinely red, so the
+born-red proof survives intact rather than degrading to an after-the-fact
+mutation check. From there the ordinary stages run unchanged: plan, slice,
+probe, shape, tidy, gate, land.
 
 Three things it does differently:
 
 - **No worktree.** It runs in place, on the branch you are standing on, so a
   prototype round after a finished loom run does not need a second workspace.
-  `loom-adopt` still refuses the read-only default checkout and `main`.
+  `loom-spec` still refuses the read-only default checkout and `main`.
 - **Rounds.** Run it again after the next round of prototyping and it appends
-  `## Round 2` to the same ledger. Probe deep, tidy and gate are branch-scoped,
+  `## Round 2 (adopt)` to the same ledger. Probe deep, tidy and gate are branch-scoped,
   so a later round re-covers the earlier ones. Land regenerates one report over
   the whole branch.
-- **Reconcile.** After the slice loop, adopt runs again and diffs the stash
-  against the rebuilt branch. Every prototype hunk is present, deliberately
-  dropped with a record, or a miss that goes back as a fix turn. Without it,
+- **Reconcile.** `loom-probe-deep` opens by diffing the captured patch against
+  the rebuilt branch. Every prototype hunk is present, deliberately dropped
+  with a record, or a miss that goes back as a fix turn. Without it,
   "the rebuild quietly lost a behavior you liked" is invisible until you click
   the app again, and that is the one thing that would make handing your working
   prototype to a pipeline unwise.
 
-The ceremony it cuts, against a normal patch-lane run: scout's workspace setup
-and recon (the diff and its neighbors are the recon), `loom-plan` (the diff
-supplies each slice's Touches for free), and both ask moments (you approved the
-shape by clicking it). The only planned pause is when the diff touches a realm
-BFF, because a browser contract is a design decision a diff cannot approve for
-itself. Probe deep and shape both stay: they are the review stages and both
+The ceremony it cuts, against a normal run: scout's workspace setup and recon,
+because the diff and its neighbors are the recon. What it keeps is ask moment
+1, now approving what was read out of your diff rather than a brief written
+from a sentence - the step straight after it destroys your working tree, and
+nobody should approve that implicitly. Ask moment 2 still fires when the diff
+touches a realm BFF, because a browser contract is a design decision a diff
+cannot approve for itself. Probe deep and shape both stay: they are the review stages and both
 read the whole branch. Shape earns its slot here more than anywhere, because
 `prototype` is told to reuse and forbidden to refactor, so a second idea moving
 into a unit that had one is exactly what a prototype leaves behind.
@@ -246,58 +252,45 @@ already settled by clicking it.
 the ledger, and no skill drops either. If a round blocks, the blocker message
 carries both.
 
-## Fast rounds on a finished branch (loom-ninja)
+## One change, no pipeline (loom-tweak)
 
-The third way in. `/loom` starts from a request, `/loom-finish` from a working
-prototype, and `/loom-ninja` from a branch that already landed a full round and
-now needs one more small thing.
+`/loom-tweak` is the small end. Not an orchestrator: it spawns nothing and
+runs in the session's own context. Four steps, then a commit.
 
 ```
-/loom-ninja make the empty state read "No rules yet"
-/loom-ninja --refactor          # no behavior change; reshape discipline
-/loom-ninja                     # a dirty tree is the request
-/loom-ninja --settle            # pay the accumulated review debt, then land
+/loom-tweak make the empty state read "No rules yet"
+/loom-tweak --refactor         # no behavior change
+/loom-tweak                    # a dirty tree is the request
+/loom-tweak --gate             # plus the full CI mirror before the commit
 ```
 
-It exists because of a measurement. The six ui-app CI checks cost 4:47
-sequential and 3:24 in three parallel lanes, while a finished patch-lane round
-on a two-file tweak took 54:52 with the gate only 5:37 of it. **The checks are
-cheap and the stages are expensive**, so ninja keeps every check and removes
-stages: two subagents where loom runs nine, the gate run as a script rather
-than delegated, and the merge scripted with an agent only where a conflict
-needs semantics. About twenty minutes instead of about fifty-five.
+Red, green, probe, fix. It keeps the two things that carry loom's evidence -
+a spec seen failing for the right reason, and an executed attack on the diff
+afterwards - and drops everything built to move work between agents: rounds,
+stage seeding, the generated report, the merge and the push. Its ledger entry
+is eight lines written once at the end, headed `## Tweak <n>` so it never reads
+as a loom round that stopped halfway, and it is skipped entirely on a branch
+with no ledger.
 
-The one thing it defers is the three branch-scoped review passes - probe deep,
-shape and tidy - which on a fourth tweak re-read code nothing has touched since
-they last cleared it. Ninja records that as **review debt** in the ledger
-header and `--settle` pays it in one pass scoped to the accumulated delta, so
-the review is amortized rather than skipped. The debt line is reported every
-round, in the ledger, the appended report and the closing message. It warns and
-never blocks, which makes reporting it loudly the whole mitigation.
+What it gives up, stated plainly: with one agent the finder is the fixer, so
+the adversarial separation loom pays a separate probe agent for is gone. The
+mitigation is that the probe step is a fixed list to execute rather than a
+judgment about whether the code looks fine, and the list is short enough to
+finish. On a two-file change that is a fair trade. On anything that adds shared
+state, a route or a BFF contract it is not, and the guard in step 0 stops
+there rather than stretching.
 
-Its licence is one fact, checked by script and not by judgment: **the branch's
-last loom round landed.** Land is only marked `[x]` after a gate was accepted,
-so it is the single line proving the review tail really ran over this branch.
-No ledger, or a round still open, and ninja declines and points at `/loom --in`
-or `/loom-finish`.
-
-What it will not take: a new BFF route (a browser contract is loom's ask moment
-2), a new page or route, new shared state, or more than about three production
-files. Its build stage runs that guard before writing anything and bounces in
-about two minutes, because building the wrong shape costs a round and a revert.
-
-Born red still holds in the two modes that add behavior. In adopt mode, where
-the human hand-tweaked the tree, ninja does not revert: specs are written
-against the diff and proved by a targeted mutation instead. That is the one
-place its proof is weaker than loom's, and it buys back `loom-adopt`'s patch,
-stash, gap sweep and reconcile, about eleven minutes that exist only to make
-reverting somebody's working code safe.
+The gate is not on by default. It is 3:24 of checks against a change that took
+ten minutes, so the habit it asks for is one `--gate` before pushing rather
+than one per tweak. The two things the cheap pair cannot see are a new
+component with no story and a new branch of code no spec reaches, and both fail
+CI rather than anything local.
 
 ## Context economics (why a long run does not drown)
 
 Every stage runs in a fresh subagent, so the expensive noise - file reads,
 test output, diffs, upstream source reading - dies with the stage that made
-it. What survives is the flight ledger, and the ledger is state, not a log:
+it. What survives is the run ledger, and the ledger is state, not a log:
 evidence lines are one line each, and anything longer (a failing suite, a
 conflict listing) goes to a sidecar file under `artifacts/loom/<slug>/` with the
 path in the ledger. A return has a fixed shape - one line per unit of work
@@ -306,13 +299,13 @@ reading only that stage's ledger section, never the whole file. Only land
 reads the full ledger, once, in its own fresh context, to write the report.
 
 The slice loop gets one more layer, because it is the part that repeats.
-`loom-crew` runs a wave of slices - four by default - and returns one line
+`loom-wave` runs a wave of slices - four by default - and returns one line
 each, so the orchestrator grows per wave rather than per slice: it never sees
 a slice seed, a stage return, or a slice's ledger section. On a 2-to-6-slice
 feature that is one or two waves and the saving is small. It is there for the
-long branch - a `loom-finish` run on its fourth round, a plan that sliced into
+long branch - an adopt-lane run on its fourth round, a plan that sliced into
 double figures - where growing per slice is what eventually fills a window.
-A crew can also return early and hand the rest to a fresh one, so a wave that
+A wave can also return early and hand the rest to a fresh one, so a wave that
 turns out heavy costs one extra line instead of a summarized orchestrator. If a very long run gets its orchestrator context summarized anyway,
 nothing is lost: the ledger on disk is the authoritative state and the run
 re-grounds from it, which is the same mechanism that makes a killed run
@@ -327,7 +320,7 @@ table is in `skills/shared/loom-contract.md`; the rule behind it is one line:
 
 A stage that runs four to twelve times per run and executes a list somebody else
 already wrote is where efficiency lives. So the per-slice quick probe is on
-sonnet - it runs the Attack line the plan wrote for it - and so is `loom-crew`,
+sonnet - it runs the Attack line the plan wrote for it - and so is `loom-wave`,
 which reads no source and gates against an enumerated checklist. A stage that
 runs once and produces a claim nobody can check from outside is the opposite
 case, and gets more rather than less: `loom-shape` is the most expensive agent
@@ -342,7 +335,7 @@ at the same desk and one of them runs per slice while the other runs once.
 merge around it is mechanical and the resolution inside it is not.
 
 The reason this is agent types and not a `model` argument: a spawn that names
-neither inherits the model of whoever spawned it. `loom-crew` and `loom-land`
+neither inherits the model of whoever spawned it. `loom-wave` and `loom-land`
 both sit below the stages they spawn, so a bare spawn from either would quietly
 drop the code-writing or conflict-resolving stage a tier - green checks, nothing
 in the ledger, no way to tell afterwards. Pinning the model in the agent file
@@ -363,14 +356,14 @@ Each stage is a normal skill and useful alone:
   checks-first.
 - `/loom-land` - merge main, push, and write the report for a finished
   branch.
-- `/loom-adopt` - turn working changes into a slice list and get them out of
+- `/loom-spec` - read working changes as bullet-point specs and get them out of
   the tree, without running the rest of a round.
 
-`loom-ninja` adds two scripts that are useful on their own:
-`skills/loom-ninja/scripts/gate.sh <slug> origin/main <round base>` is the
-whole ui-app CI mirror in three parallel lanes with a scorecard, and
-`skills/loom-ninja/scripts/debt.sh` reports a branch's loom state and how much
-of it no review pass has covered.
+Two scripts are useful on their own:
+`skills/shared/gate.sh <slug> origin/main <base>` is the whole ui-app CI
+mirror in three parallel lanes with a scorecard, and
+`skills/loom/scripts/adopt.sh <patch> <slug> <round>` is the adopt lane's
+revert, which refuses to run unless the captured patch replays first.
 
 Standalone runs still read `skills/shared/loom-contract.md`, which is the
 single place the repo facts (commands, coverage gate, translation rules, git
@@ -383,7 +376,7 @@ never creates a work item, never opens a PR, never deletes a worktree:
 
 - `/paperwork` reads the loom report and files the TFS item and the PR.
 - `/teardown` sweeps the worktree after the merge.
-- `/loom-finish` picks the branch back up for the next round of changes,
+- `/loom --retrofit` picks the branch back up for the next round of changes,
   in place, without opening a second run.
 
 loom assumes the request is roughly right and optimizes how it gets built, so

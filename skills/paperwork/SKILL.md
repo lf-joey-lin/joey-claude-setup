@@ -1,6 +1,6 @@
 ---
 name: paperwork
-description: File the paperwork for a finished momentum branch - find or create the TFS work item (story or bug) on Joey's Momentum board from what the branch actually did, then open the matching pull request and link the two together. Runs after loom (or loom-finish), which leaves the branch merged with origin/main, probed, gated, pushed, and explained in a report. paperwork reads that report, writes the description and the acceptance criteria from the work the branch really contains, searches the board for an item that already covers the work and uses that one when it finds it, otherwise creates the item in Active state assigned to Joey via create-tfs, then opens the PR from the repo's own template with the item linked in the body, then hands the item's test plan to the draft-test-plan skill when that field is empty. Every run ends with one work item and one PR; the PR is a draft unless --pr asks for ready-for-review, and only a ready PR gets the to-be-translated label when the branch changed an en.json, and the dev-bot-laserfiche reviewer. Writes no code, runs no checks, and never creates a second item or a second PR. Invoke when the user types /paperwork, or asks to "do the paperwork", "file the paperwork", "create the item and the PR", "open the PR for this branch", or "wrap up the housekeeping" once loom has finished.
+description: File the paperwork for a finished momentum branch - find or create the TFS work item (story or bug) on Joey's Momentum board from what the branch actually did, then open the matching pull request and link the two together. Runs after loom, which leaves the branch merged with origin/main, probed, gated, pushed, and explained in a report. paperwork reads that report, writes the description and the acceptance criteria from the work the branch really contains, searches the board for an item that already covers the work and uses that one when it finds it, otherwise creates the item in Active state assigned to Joey via create-tfs, then opens the PR from the repo's own template with the item linked in the body, then hands the item's test plan to the draft-test-plan skill when that field is empty. Every run ends with one work item and one PR; the PR is a draft unless --pr asks for ready-for-review, and only a ready PR gets the to-be-translated label when the branch changed an en.json, and the dev-bot-laserfiche reviewer. Writes no code, runs no checks, and never creates a second item or a second PR. Invoke when the user types /paperwork, or asks to "do the paperwork", "file the paperwork", "create the item and the PR", "open the PR for this branch", or "wrap up the housekeeping" once loom has finished.
 ---
 
 # paperwork: the work item and the PR for a finished branch
@@ -9,7 +9,7 @@ The last skill in a session. The code is written, reviewed, tested, gated, and
 pushed. What is left is the bookkeeping two other people need: a work item on the
 board saying what this was, and a pull request pointing at it.
 
-Joey's workflow is `/loom <request>` -> `/paperwork`, and `/loom-finish` ->
+Joey's workflow is `/loom <request>` -> `/paperwork`, and `/loom --retrofit` ->
 `/paperwork` for a branch picked back up for another round. loom deliberately
 stops at a pushed branch plus its report - it creates no item and opens no PR -
 so this is the only place that does either. That matters because both are
@@ -108,7 +108,7 @@ In priority order:
    its title. "What this branch does" and "The slices, in order" are exactly the
    material this skill reformats; "Needs human eyes" is the gotcha line for the
    PR body, and "Decisions taken" is what step 10 reports as assumed.
-2. **The branch's other handoffs**: the flight ledger
+2. **The branch's other handoffs**: the run ledger
    `artifacts/loom/<slug>-ledger.md` and its sidecars under
    `artifacts/loom/<slug>/`, which carry the gate scorecard, the probe
    findings and the tidy vetoes in more detail than the report; a

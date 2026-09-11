@@ -1,6 +1,6 @@
 ---
 name: loom-land
-description: Final stage of the loom pipeline - merge the latest origin/main into the branch, re-gate if the merge changed anything, push when allowed, and generate the human-facing report from the flight ledger. Invoke via /loom normally; directly to "land" a finished loom branch.
+description: Final stage of the loom pipeline - merge the latest origin/main into the branch, re-gate if the merge changed anything, push when allowed, and generate the human-facing report from the run ledger. Invoke via /loom normally; directly to "land" a finished loom branch.
 ---
 
 # loom-land: merge, push, report

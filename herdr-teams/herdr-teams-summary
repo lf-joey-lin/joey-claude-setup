@@ -4,7 +4,7 @@
 #   --took  how long the last turn ran, e.g. "2m 44s"
 #   --now   what the agent is doing right now, e.g. "Bash: npm run test"
 #   --since epoch seconds of when the current turn started
-#   --loom  progress through a loom run's flight ledger, e.g. "S2 (4/11 done)"
+#   --loom  progress through a loom run's run ledger, e.g. "S2 (4/11 done)"
 # Prints nothing (exit 0) when there is no transcript to read, so the caller can
 # fall back to the terminal title.
 set -uo pipefail
@@ -18,7 +18,7 @@ SESSION="${1:-}"
 CWD="${2:-}"
 [ -n "$SESSION" ] || { echo "usage: herdr-teams-summary [--took|--now|--loom|--since] <session-id> [cwd]" >&2; exit 2; }
 
-# A loom run's progress is in its flight ledger, not in the transcript. Walk up
+# A loom run's progress is in its run ledger, not in the transcript. Walk up
 # from the agent's cwd because the ledger sits at the worktree root while the
 # agent often runs a few directories inside it.
 if [ "$MODE" = loom ]; then

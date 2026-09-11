@@ -128,7 +128,7 @@ which you walk before committing. Two loom-specific overrides:
   composable rode along - it is one contract).
 
 api-integrator's own step 7/8 hand-back points do not apply; you return to
-whoever spawned you, the crew running your wave or the orchestrator directly.
+whoever spawned you, the wave running your slice or the orchestrator directly.
 Its "ask before the client slice" question defaults to yes here - the
 composable is what makes the slice vertical, and the next slice consumes it.
 

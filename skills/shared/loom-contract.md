@@ -1,6 +1,6 @@
 # loom contract (shared)
 
-The one file every loom skill reads. It holds the repo facts, the flight ledger
+The one file every loom skill reads. It holds the repo facts, the run ledger
 format, and the attendance contract, so no loom skill carries its own copy of
 any of them. When a fact here changes, it changes once.
 
@@ -9,12 +9,11 @@ loom is a dev pipeline for momentum `ui-app` work. The roster:
 | Skill | Job |
 | --- | --- |
 | `loom` | the orchestrator: drives a whole run, delegates every stage |
-| `loom-finish` | the orchestrator for baking a prototype in, in place |
-| `loom-ninja` | the orchestrator for a fast round on a branch that already landed one |
+| `loom-tweak` | one small change, red first and probed, in the session's own context |
 | `loom-scout` | workspace setup, recon, the brief, lane routing |
-| `loom-adopt` | read a prototype diff as the spec, revert it, size the round |
+| `loom-spec` | read the branch's own changes as the spec: the adopt lane's opener |
 | `loom-plan` | slice plan (feature lane only) |
-| `loom-crew` | the foreman: runs the slice loop for one wave of slices |
+| `loom-wave` | runs the slice loop for one wave of slices |
 | `loom-slice` | build one slice, checks first (born red) |
 | `loom-probe` | adversarial verification: attack, reproduce, report |
 | `loom-shape` | one concept-level read of the branch, and the reshape it prices |
@@ -119,7 +118,7 @@ loom is a dev pipeline for momentum `ui-app` work. The roster:
   `[<component>] Imperative summary` (`[ui-app]`, `[acs-bff]`, `[app-bff]`),
   no trailers; merge main, never rebase; never commit to `main`, never
   force-push, never stash review state. The one stash this pipeline makes is
-  `loom-adopt`'s, which is the opposite of hiding state: it is announced, its
+  `loom-spec`'s, which is the opposite of hiding state: it is announced, its
   ref goes in the ledger, the same content is written to a patch file first,
   and no skill ever drops it.
 - **Hard stops, every skill, every mode**: anything that looks like a secret;
@@ -130,7 +129,7 @@ loom is a dev pipeline for momentum `ui-app` work. The roster:
   LSP server available", the reference list is a floor - grep the `.vue` files
   too before any count. Cite `path:line`.
 
-## The flight ledger
+## The run ledger
 
 One markdown file per run at `artifacts/loom/<slug>-ledger.md` (`artifacts/`
 is gitignored repo-wide, so it works for a branch that never touches
@@ -149,23 +148,19 @@ the resume point, and the source the final report is generated from. Rules:
   carries the path. The ledger is state, not a log.
 - **Resume**: a ledger already existing for the slug means continue from the
   first stage not marked done. Never restart a stage marked `[x]`.
-- **Rounds**: a `loom-finish` round appends `## Round <n>` with every stage
-  nested under it, rather than reopening a finished section. One ledger per
+- **Rounds**: a round appends `## Round <n>` with every stage nested under it, rather than reopening a finished section. One ledger per
   branch however many rounds it takes; slice ids carry the round prefix
   (`R2.S1`) so they stay unique. A round whose stages are all `[x]` is history,
   not a resume point - the next round is `<n>+1`. Branch-scoped stages (probe
   deep, shape, tidy, gate, land) still read the whole branch, so a later round
-  re-covers the earlier ones; that is intended, not waste.
-- **Ninja rounds**: a `loom-ninja` round is numbered the same way and heads
-  itself `## Round <n> (ninja)`. The tag is load-bearing: it is how a later
-  settle-up finds the rounds no branch-scoped review pass has covered. Such a
-  branch also carries one extra header line, which ninja writes on its first
-  round and rewrites on every round after:
-  `- Ninja debt: <n> rounds since <sha> (last full review: round <k>, <iso>)`.
-  `<sha>` is the commit `loom-probe-deep`, `loom-shape` and `loom-tidy` last
-  covered; every skill other than a ninja settle-up carries it forward
-  untouched. A full `loom` or `loom-finish` round landing on the branch clears
-  it to zero at its own HEAD, because its review tail covered everything.
+  re-covers the earlier ones; that is intended, not waste. An adopt-lane round
+  heads itself `## Round <n> (adopt)`, because the deep probe has to know
+  whether a prototype patch is waiting to be reconciled.
+- **Tweaks**: a `loom-tweak` entry is one `## Tweak <n>` section, written once
+  at the end of the change, sitting above `## Needs human eyes`. It has no
+  stages and is not a round. The heading matters: a round heading with no
+  `### Land - [x]` under it makes the branch look like it has a loom round that
+  never finished.
 - **Decisions are logged where they are made**: the choice, the alternative,
   one line of why, and whether it was asked or defaulted.
 - **The spine is the state, so nothing is appended below it.** The
@@ -253,12 +248,12 @@ Template (stages append their own sections; keep this spine):
 ## Blockers
 ```
 
-A `loom-finish` round nests the same stages one level down, under its own
+A round nests the same stages one level down, under its own
 heading, and adds two things scout's brief does not have - where the spec came
 from, and what the prototype skipped:
 
 ```markdown
-## Round <n> (loom-finish) - [ ]
+## Round <n> (adopt) - [ ]
 ### Adopt - [ ]
 - Timing: started <iso>, finished <iso>, took <hh:mm:ss>
 - Source: <uncommitted | --from ...>    Patch: <path>    Stash: <ref>
@@ -330,15 +325,15 @@ invoked as that subagent runs its work inline and spawns no further subagents.
 
 Two skills sit between the orchestrator and a stage, and only these two:
 
-- **`loom-crew`** holds the slice loop for a wave of slices. It spawns
+- **`loom-wave`** holds the slice loop for a wave of slices. It spawns
   `loom-slice` and `loom-probe`, gates them, and writes the `- Gate:` line for
   the slices in its wave. It reads no source and edits no code, same as the
   orchestrator.
 - **`loom-land`** may fan out one subagent per conflicted file during the
   merge.
 
-So depth never exceeds three: orchestrator, then crew or land, then stage or
-conflict-file. Gate decisions are owned by whoever ran the stage - the crew
+So depth never exceeds three: orchestrator, then wave or land, then stage or
+conflict-file. Gate decisions are owned by whoever ran the stage - the wave
 for its wave's slices, the orchestrator for everything else. Nobody else
 writes a `- Gate:` line.
 
@@ -360,8 +355,8 @@ was.
 | --- | --- | --- | --- | --- |
 | `loom-scout` | `loom-scout` | sonnet | medium | 1 |
 | `loom-plan` | `loom-plan` | opus | xhigh | 1 |
-| `loom-adopt` | `loom-adopt` | opus | xhigh | 1 to 2 |
-| `loom-crew` | `loom-crew` | sonnet | low | 1 to 2 |
+| `loom-spec` | `loom-spec` | opus | xhigh | 1, adopt lane only |
+| `loom-wave` | `loom-wave` | sonnet | low | 1 to 2 |
 | `loom-slice` | `loom-slice` | opus | xhigh | 4, plus fix and reshape turns |
 | `loom-probe` quick | `loom-probe-quick` | sonnet | medium | 4, plus re-checks |
 | `loom-probe` deep | `loom-probe-deep` | opus | xhigh | 1 |
@@ -371,9 +366,10 @@ was.
 | `loom-land` | `loom-land` | sonnet | medium | 1 |
 | land's conflict fan-out | `loom-merge-conflict` | opus | high | one per conflicted file |
 
-The orchestrators (`loom`, `loom-finish`, `loom-ninja`) run on the session's own model. They
-gate rather than think, but a rubber-stamped gate is the one failure this
-pipeline cannot absorb, so they are not somewhere to save.
+The orchestrator (`loom`) runs on the session's own model. It gates rather than
+thinks, but a rubber-stamped gate is the one failure this pipeline cannot
+absorb, so it is not somewhere to save. `loom-tweak` runs there too and spawns
+nothing at all.
 
 **The rule behind the table: downgrade by frequency, never by stakes.** A stage
 that runs four to twelve times per run and executes a list somebody else already
@@ -392,7 +388,7 @@ conflicted file to `loom-merge-conflict` because the merge around it is
 mechanical and the resolution inside it is not.
 
 **The trap this exists to close.** A spawn with no agent type and no `model`
-inherits the model of whoever spawned it. `loom-crew` and `loom-land` both sit
+inherits the model of whoever spawned it. `loom-wave` and `loom-land` both sit
 on a cheaper tier than the stages they spawn, so a bare `general-purpose` spawn
 from either one silently drops the code-writing or conflict-resolving stage a
 tier, with nothing in the ledger to show it happened and green checks either
@@ -400,7 +396,7 @@ way. Both skills carry the rule at their spawn sites; the agent type is what
 makes it hold.
 
 **Haiku is not used anywhere here.** It is 200K context against everything
-else's 1M, and `loom-crew`, `loom-shape` and `loom-land` are precisely the
+else's 1M, and `loom-wave`, `loom-shape` and `loom-land` are precisely the
 context-absorbing roles.
 
 **If agent types are unavailable** (the runtime does not resolve them, or the
@@ -414,14 +410,14 @@ call, so it goes back to the session default until the agent types are back.
 A long run must not drown the orchestrator. Three rules keep it flat:
 
 - **A return has a fixed shape, so it cannot grow.** Mid-run, a stage or a
-  crew returns one line per unit of work plus one verdict line, and nothing
+  wave returns one line per unit of work plus one verdict line, and nothing
   else - no prose, no recap, no tool output:
 
   ```
   <id> <ACCEPT | BLOCKED> | <one evidence line> | ledger:<heading>
   ```
 
-  The unit is whatever that stage produced one of: a slice for `loom-crew`, a
+  The unit is whatever that stage produced one of: a slice for `loom-wave`, a
   finding for `loom-probe` or `loom-shape`, a decision for `loom-scout`, a
   slice entry for `loom-plan`, a scorecard row for `loom-gate`. Scout's and plan's records are
   the lines a human is about to be asked about, so they carry the choice
@@ -433,10 +429,10 @@ A long run must not drown the orchestrator. Three rules keep it flat:
 
   The cap is on mid-run returns. `loom-land`'s report is the run's output, not
   a return, and is not capped.
-- **The orchestrator and the crew read ledger sections, not the ledger.**
+- **The orchestrator and the wave read ledger sections, not the ledger.**
   Mid-run either verifies a stage by reading only that stage's section
   (search for the stage's heading and read from there). The orchestrator
-  reads the whole file exactly once, at resume; a crew reads the Plan section
+  reads the whole file exactly once, at resume; a wave reads the Plan section
   and its own slices' sections and never the whole file. Land reads it in
   full inside its own fresh context to write the report.
 - **Re-ground from the file, not from memory.** If the orchestrator's
@@ -446,7 +442,7 @@ A long run must not drown the orchestrator. Three rules keep it flat:
 If the runtime cannot spawn subagents at all, run the stages inline and
 sequentially, in strict order, finishing each stage's ledger section before
 starting the next - slower and heavier, but the ledger discipline still
-bounds what later stages need to re-read. There is no crew in that mode:
+bounds what later stages need to re-read. There is no wave in that mode:
 waves exist to partition context across agents, and with one agent there is
 nothing to partition.
 

@@ -1,6 +1,6 @@
 ---
 name: loom-slice
-description: Build stage of the loom pipeline. Implements one slice checks-first, born red, or runs in fix mode over probe findings or reshape mode over a shape finding. Dispatched by loom-crew or a loom orchestrator, not for direct invocation.
+description: Build stage of the loom pipeline. Implements one slice checks-first, born red, or runs in fix mode over probe findings or reshape mode over a shape finding. Dispatched by loom-wave or a loom orchestrator, not for direct invocation.
 model: opus
 effort: xhigh
 color: green

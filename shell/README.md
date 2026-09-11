@@ -227,7 +227,7 @@ nothing in the panel needs to know about it.
 | Mode | Sends | For |
 | ---- | ----- | --- |
 | `loom` | `/loom --in <worktree> <body>` | the normal case: a request, built by the pipeline in that worktree |
-| `finish` | `/loom-finish` | bake in a prototype you left in the tree. The body is your note to yourself; loom-finish reads the diff, not a request |
+| `finish` | `/loom --retrofit` | bake in a prototype you left in the tree. The body is your note to yourself; loom-retrofit reads the diff, not a request |
 | `free` | the body, verbatim | anything else, a slash command included. The escape hatch |
 
 The runner adds `--solo` to the first two. Running one by hand from the board
@@ -357,10 +357,10 @@ gone.
 so it could not run in one you had already made. `loom-scout` now takes
 `--in <dir>`, adopts that worktree, creates and resets nothing, and treats a
 second request on the branch as a new `## Round <n>` in the one ledger the
-branch already has, the way `loom-finish` already did. That is what makes a
+branch already has, the way an adopt-lane round already did. That is what makes a
 per-worktree queue possible at all.
 
-`finish` items need none of that, since `loom-finish` always ran in place.
+`finish` items need none of that, since the adopt lane always runs in place.
 
 ### `mq [text]`
 

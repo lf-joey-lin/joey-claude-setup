@@ -133,7 +133,7 @@ Until I ask for it by name, don't:
 - chase coverage gates or run the a11y suite
 - refactor or tidy code the request didn't ask about
 
-`loom-finish` is where all of that lands. It runs once at the end, after I've verified the
+`/loom --retrofit` is where all of that lands. It runs once at the end, after I've verified the
 behavior, and it covers the whole session. Leaving that gap is correct, not sloppy. Say
 what's still outstanding if it's worth knowing, but don't fill it in.
 
@@ -141,7 +141,7 @@ what's still outstanding if it's worth knowing, but don't fill it in.
 
 Testing is its own phase, not part of every edit (see Ad-hoc implementation above). Start
 the pass when I ask for it ("add tests", "cover this", "run the tests"), when I say I'm
-ready to commit or open a PR, or as part of `loom-finish`. Cover everything the session
+ready to commit or open a PR, or as part of `/loom --retrofit`. Cover everything the session
 changed in one pass at that point.
 
 When the testing pass does run, match verification to risk and say which level you chose

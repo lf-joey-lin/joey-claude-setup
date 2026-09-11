@@ -332,7 +332,7 @@ _mqu_prompt() {
   [ "$trigger" = runner ] && solo=" --solo"
   case "$mode" in
     loom)   printf '/loom --in %s%s %s\n' "$dir" "$solo" "$(_mqu_body "$id")" ;;
-    finish) printf '/loom-finish%s\n' "$solo" ;;
+    finish) printf '/loom --retrofit%s\n' "$solo" ;;
     *)      _mqu_body "$id" ;;
   esac
 }

@@ -1,6 +1,6 @@
 ---
 name: loom-land
-description: Final stage of the loom pipeline. Merges origin/main, re-gates if the merge brought anything, pushes when allowed, and writes the human-facing report from the flight ledger. Dispatched by a loom orchestrator, not for direct invocation.
+description: Final stage of the loom pipeline. Merges origin/main, re-gates if the merge brought anything, pushes when allowed, and writes the human-facing report from the run ledger. Dispatched by a loom orchestrator, not for direct invocation.
 model: sonnet
 effort: medium
 color: blue
@@ -16,7 +16,7 @@ Read these two, in order, before you act:
 
 The seed you were spawned with carries the run's parameters: the absolute
 worktree path, the ledger path, the round number where there is one, the mode
-line, whether the push is confirmed, and on a loom-finish round whether the
+line, whether the push is confirmed, and on an adopt-lane round whether the
 branch already has an upstream. Follow it together with the two files above.
 
 **You may spawn one thing only**: `subagent_type: "loom-merge-conflict"`, one

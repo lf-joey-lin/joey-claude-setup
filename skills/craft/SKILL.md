@@ -450,11 +450,11 @@ Short. The human wants to start clicking.
    reading you did not take.
 5. **Deliberately not done** - one line: no tests, no coverage, no stories, no a11y
    run, nothing committed. Then where it happens: `/harden` for the suite (it reads
-   this diff, uncommitted included), then `/loom-finish` if the branch wants the full
+   this diff, uncommitted included), then `/loom --retrofit` if the branch wants the full
    review tail, then `/paperwork` for the work item and the PR.
 
 Leave the work uncommitted unless the human asks. Uncommitted is their review state,
-and both `/harden` and `/loom-finish` read the working tree as input.
+and both `/harden` and `/loom --retrofit` read the working tree as input.
 
 Then stop. Do not volunteer the next step, do not start on tests, do not commit.
 

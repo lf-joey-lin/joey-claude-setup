@@ -1,9 +1,9 @@
 ---
-name: loom-crew
-description: Wave stage of the loom pipeline - run the slice loop (build, quick probe, fix turns) for one wave of slices in its own context and return one line per slice, so a long run's orchestrator grows per wave instead of per slice. Invoked by loom and loom-finish; rarely useful directly.
+name: loom-wave
+description: Wave stage of the loom pipeline - run the slice loop (build, quick probe, fix turns) for one wave of slices in its own context and return one line per slice, so a long run's orchestrator grows per wave instead of per slice. Invoked by loom; rarely useful directly.
 ---
 
-# loom-crew: the foreman
+# loom-wave: one wave of slices
 
 You run the slice loop for a **wave** of slices, then you die. The
 orchestrator above you never sees a slice seed, a stage return, or a ledger
@@ -22,7 +22,7 @@ you exactly as they bind the orchestrator.
 ## Your seed
 
 The orchestrator gives you the absolute worktree path, the ledger path, the
-mode line, and the wave size. A `loom-finish` round adds two things to pass
+mode line, and the wave size. An adopt-lane round adds two things to pass
 down: an extra instruction for every `loom-slice` in the wave, and extra
 attacks for every `loom-probe`.
 
@@ -33,12 +33,12 @@ the only state either of you trusts.
 
 Read the ledger's `## Plan` section (or the brief's inline slice on the patch
 lane) and take the **first slices not marked `[x]`, up to the wave size**. On
-a `loom-finish` round, read that round's plan and keep the round prefix in
+an adopt-lane round, read that round's plan and keep the round prefix in
 every id (`R2.S1`).
 
 You leave no trace of yourself in the ledger. Nothing records which wave ran
-which slice, and nothing should: any crew can pick up any slice, which is what
-makes a half-finished wave safe to resume and a fresh crew a drop-in
+which slice, and nothing should: any wave can pick up any slice, which is what
+makes a half-finished wave safe to resume and a fresh wave a drop-in
 replacement for one that ran out of room.
 
 ## The loop
@@ -84,11 +84,11 @@ Return as soon as any of these is true:
 That last one is a judgment call and you should take it early rather than
 late. You cannot measure your own context, so treat the wave size as a ceiling
 rather than a quota: a short wave costs the orchestrator one extra line, and a
-crew that pushes on until it is summarized mid-slice costs a re-derivation
+wave that pushes on until it is summarized mid-slice costs a re-derivation
 nobody planned. Finish the slice you are on, then return.
 
 An early return is not a failure and is not reported as one. The orchestrator
-spawns the next crew, which reads the ledger and continues from the first
+spawns the next wave, which reads the ledger and continues from the first
 slice not `[x]`.
 
 ## Never ask
@@ -133,7 +133,7 @@ WAVE blocked | S6 [x], S7 [!] | remaining S7-S9 | ledger:## Blockers
   the stage that writes the code, with green checks and nothing in the ledger
   to show it. The contract's "Models" section is the table.
 - A stage you spawn spawns nothing - the contract's depth limit is
-  orchestrator, crew, stage, and you are the middle of it.
+  orchestrator, wave, stage, and you are the middle of it.
 - Gate on ledger evidence - commands, exit codes, red records - never on a
   stage's prose.
 - The bar is identical attended and solo, and identical however the wave was
