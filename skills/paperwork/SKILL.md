@@ -1,6 +1,6 @@
 ---
 name: paperwork
-description: File the paperwork for a finished momentum branch - find or create the TFS work item (story or bug) on Joey's Momentum board from what the branch actually did, then open the matching pull request and link the two together. Runs after loom, which leaves the branch merged with origin/main, probed, gated, pushed, and explained in a report. paperwork reads that report, writes the description and the acceptance criteria from the work the branch really contains, searches the board for an item that already covers the work and uses that one when it finds it, otherwise creates the item in Active state assigned to Joey via create-tfs, then opens the PR from the repo's own template with the item linked in the body, then hands the item's test plan to the draft-test-plan skill when that field is empty. Every run ends with one work item and one PR; the PR is a draft unless --pr asks for ready-for-review, and only a ready PR gets the to-be-translated label when the branch changed an en.json, and the dev-bot-laserfiche reviewer. Writes no code, runs no checks, and never creates a second item or a second PR. Invoke when the user types /paperwork, or asks to "do the paperwork", "file the paperwork", "create the item and the PR", "open the PR for this branch", or "wrap up the housekeeping" once loom has finished.
+description: File the paperwork for a finished momentum branch - find or create the TFS work item (story or bug) on Joey's Momentum board from what the branch actually did, then open the matching pull request and link the two together. Runs after loom, which leaves the branch merged with origin/main, probed, gated, pushed, and explained in a report. paperwork reads that report, writes the description and the acceptance criteria from the work the branch really contains, searches the board for an item that already covers the work and uses that one when it finds it, otherwise creates the item in Active state assigned to Joey via create-tfs, then opens the PR from the repo's own template with the item linked in the body, then hands the item's test plan to the draft-test-plan skill. The branch is the golden standard by default: an adopted item's description, acceptance criteria and test plan are synced to what the branch's specs say, and where the two disagree about the same work the branch wins. The one exception is a criterion or note on the item that the branch does not deliver - that is never reconciled silently: the run stops, warns with the gap concretely, and asks whether to stop so the work can be finished or to remove it from the item. `--no-sync` keeps the old behaviour of filling only empty fields. Every run ends with one work item and one PR, unless that gap question is answered by stopping; the PR is a draft unless --pr asks for ready-for-review, and only a ready PR gets the to-be-translated label when the branch changed an en.json, and the dev-bot-laserfiche reviewer. Writes no code, runs no checks, and never creates a second item or a second PR. Invoke when the user types /paperwork, or asks to "do the paperwork", "file the paperwork", "create the item and the PR", "open the PR for this branch", or "wrap up the housekeeping" once loom has finished.
 ---
 
 # paperwork: the work item and the PR for a finished branch
@@ -31,15 +31,33 @@ skill (see Preconditions).
 /paperwork --pr [hint]                   # ... but the PR opens ready for review
 /paperwork --item 698997                 # use this existing item, create nothing
 /paperwork bug --pr                      # force the type instead of inferring it
+/paperwork --no-sync [hint]              # fill only empty item fields, do not sync
 ```
 
 - **Both halves always happen.** Every run ends with a work item, found or
   created, and an open PR. There is no item-only mode: a branch that is finished
-  enough to file paperwork for is finished enough to have a PR sitting on it.
+  enough to file paperwork for is finished enough to have a PR sitting on it. The
+  single exception is step 6's gap question, and only if Joey answers it by
+  stopping: an item asking for work the branch does not contain is a question for
+  him before anything goes on a shared system.
 - **The work item comes first**, so the PR body can carry the link `pr-metadata`
   needs. With `--item <id>` the given item is used as-is. Without one, step 5
   searches the board before it creates anything: the work usually has an item
   already, and a duplicate is worse than no item at all.
+- **The branch is the golden standard.** What the branch's specs say the work is
+  wins over what the item currently says it is. So step 6 syncs the item's
+  description, acceptance criteria and test plan to the branch rather than
+  reporting a difference and leaving it. The board is where the work gets read
+  after the fact, and an item still describing the plan rather than the thing
+  that shipped is worse than no item. Two limits on that, both in step 6: the
+  branch never decides on its own **whether a requirement exists** (an item asking
+  for something the branch does not deliver stops and asks, rather than being
+  quietly rewritten or trimmed), and an item **assigned to someone else** is never
+  synced without asking.
+- **`--no-sync`** turns that off: empty fields still get filled, anything already
+  written is left alone, and divergence is reported instead of applied. Reach for
+  it when the item is somebody else's planning artifact, or when the branch is
+  deliberately a partial delivery of it.
 - **The only real choice is draft or ready**, and the default is draft. A draft PR
   is cheap: CI runs, the diff is linkable, and nobody has been asked to look at it
   yet. `--draft-pr` is a synonym for the default, kept so the intent can be written
@@ -54,8 +72,8 @@ skill (see Preconditions).
   | `dev-bot-laserfiche` requested as reviewer | yes | no |
 
   `--pr` is the only thing that opens a ready PR. Every other path that reaches
-  step 7 - the bare default, `--draft-pr`, step 6's mismatch fallback, headless
-  mode - opens a draft and adds neither. A draft is not asking anyone for anything
+  step 7 - the bare default, `--draft-pr`, headless mode - opens a draft and adds
+  neither. A draft is not asking anyone for anything
   yet, so requesting review on one is noise, and a label on a PR nobody has been
   asked to look at is a translation run nobody wanted.
 - A leading `story` or `bug` token forces the type. Otherwise step 3 infers it.
@@ -63,7 +81,7 @@ skill (see Preconditions).
   "the config bit is a follow-up"). It never changes what the branch contains.
 
 Say the resolved shape in your first line of output, before any tool call:
-`PR: draft | ready for review   Branch: <branch>   Type: story | bug   Item: new | <id>`.
+`PR: draft | ready for review   Branch: <branch>   Type: story | bug   Item: new | <id>   Sync: branch-is-golden | off`.
 
 ## Preconditions, checked not assumed
 
@@ -100,21 +118,32 @@ The description, the acceptance criteria and the PR bullets all come from the sa
 place: what the branch actually contains. Get that from the paper trail first,
 because it was written by something that read the whole diff.
 
-In priority order:
+**"The branch's specs" means this material**, and it is what step 6 syncs the item
+to. A committed spec file is the strongest form of it, because it was written as
+requirements rather than reverse-engineered from a diff:
 
-1. **The loom report**, `artifacts/loom/<slug>-report.md`. This is the
+1. **A spec the branch added or changed**, `src/<component>/specs/spec.md` and its
+   `design.md` sibling. Find them with
+   `git diff --name-only origin/main...HEAD | grep -E 'specs/.*\.md$'`, and read
+   the file at HEAD, not the diff. A spec-driven feature (see the repo
+   `CLAUDE.md`) already carries the WHAT, the WHY and the acceptance criteria in
+   the form the item wants, so the item's fields come from here nearly verbatim,
+   with the two filters in step 4 still applied. A spec that exists on `main`
+   untouched by this branch is context, not the branch's spec - the item can
+   describe more than one branch's worth of work, and this branch only speaks for
+   what it changed.
+2. **The loom report**, `artifacts/loom/<slug>-report.md`. This is the
    intended input. The slug is the run's, not always the branch name, so find it
    with `ls artifacts/loom/*-report.md` and match on the branch line under
    its title. "What this branch does" and "The slices, in order" are exactly the
    material this skill reformats; "Needs human eyes" is the gotcha line for the
    PR body, and "Decisions taken" is what step 10 reports as assumed.
-2. **The branch's other handoffs**: the run ledger
+3. **The branch's other handoffs**: the run ledger
    `artifacts/loom/<slug>-ledger.md` and its sidecars under
    `artifacts/loom/<slug>/`, which carry the gate scorecard, the probe
    findings and the tidy vetoes in more detail than the report; a
-   `src/ui-app/logs/*` spec or design handoff; a spec under
-   `src/<component>/specs/`.
-3. **The diff itself**, when there is no report:
+   `src/ui-app/logs/*` spec or design handoff.
+4. **The diff itself**, when there is neither:
 
    ```bash
    git log --oneline origin/main..HEAD
@@ -174,7 +203,14 @@ wrong costs a field edit; stopping to ask costs Joey a turn.
 
 ## Step 4 - write the description and the acceptance criteria
 
-Both are HTML fields on the item. The rules live in the "TFS work items" section
+Both are HTML fields on the item. **Write them on every run, including a run that
+adopted an item with both fields already full** - this is the branch's version of
+those fields, and step 6 is what decides how much of it lands. Where the branch
+carries a spec (step 1's first source), its requirements and acceptance criteria
+are the wording to keep, not a starting point to paraphrase; the diff and the loom
+report only fill in what the spec does not say.
+
+The rules live in the "TFS work items" section
 of `joey-writing-style.md` - **read it before writing these**, do not work from
 memory. The short version:
 
@@ -222,10 +258,13 @@ mcp__azure-devops__wit_get_work_item id=<id> project=Cloud expand=relations
 ```
 
 - Assigned to someone else, or outside `Cloud\Projects\Momentum`, is a signal, not
-  a detail. Say so and confirm before linking. Never reassign it.
-- Do not rewrite a pre-existing item's description or acceptance criteria to match
-  the branch. Someone else may be waiting on the version that is there. Step 6
-  reports the mismatch instead.
+  a detail. Say so and confirm before linking. Never reassign it. **An item
+  assigned to someone else is also not synced**: ask first, and treat a no as
+  `--no-sync` for that run. Somebody may be waiting on the version that is there,
+  and a sync overwrites it.
+- An item assigned to Joey and inside `Cloud\Projects\Momentum` goes through
+  step 6's sync like any adopted item. Its current text is the plan; the branch is
+  what shipped.
 
 ### No id given: search the board before creating anything
 
@@ -262,15 +301,20 @@ branch is only one part of is not a match on its own.
   `expand=relations` as above, then go on to step 6, which is a real comparison
   for it rather than a read-back.
 
-**Updating an adopted item means filling gaps, not rewriting.**
+**Updating an adopted item: decided here, written after step 6 clears.**
 
 - **State**: `New` or `Open` goes to `Active` (`wit_update_work_item` on
   `System.State`), same reason a created item goes in Active - the work is done.
+  **Hold this until step 6 clears.** If the gap question ends in a stop, the board
+  is meant to look untouched, and a state bump is the one write that would
+  otherwise have got there first.
 - **An empty description or empty acceptance criteria**: write step 4's into it,
-  and say in the report that you filled them.
-- **Anything already written stays.** Do not replace someone's description or
-  criteria with your own version of the same thing. Step 6 reports a real
-  mismatch and asks; that is where it gets settled.
+  and say in the report that you filled them. Same hold: after step 6, not before.
+  This happens under `--no-sync` too; filling an empty field is not a sync.
+- **Text that is already there is step 6's business, not this step's.** Do not
+  write over it here, and do not read it and move on either - step 6 needs both
+  versions side by side to tell a divergence from a gap, and those two get
+  opposite treatment.
 - Never reassign it, never move its area path, never change its type.
 
 **Nothing on the board covers it - create it** with the `create-tfs` skill,
@@ -298,48 +342,126 @@ Report the id and the board link before going near the PR:
 https://v-dev-tfs/DefaultCollection/Cloud/_workitems/edit/<id>
 ```
 
-## Step 6 - check the bullets against the acceptance criteria
+## Step 6 - sync the item to the branch
 
-For a **freshly created** item this is a read-back, not a comparison: both sides
-came from the same branch a moment ago. Read the two lists next to each other once
-anyway, and fix the item if step 4 wrote a criterion the branch does not actually
-deliver. That is a bad criterion, not a gap.
+**The branch is the golden standard.** The item's description, acceptance criteria
+and test plan get brought into line with what the branch's specs say, not the
+other way round. Nobody re-reads a story to find out what was planned; they read
+it to find out what the software does.
 
-For an item that **already existed** - given as `--item <id>`, or adopted from
-the search - it is the real check. Line the step 2 bullets up against the item's
-acceptance criteria one to one:
+One thing does not work that way, and it is the reason this step is not a blind
+overwrite: the branch never decides **whether a requirement exists**. An item
+asking for something the branch does not deliver is a stop, not a line to delete.
+So the whole step is one classification, applied line by line, with three
+outcomes.
 
-- **A criterion with no bullet delivering it** - the branch does not finish the
-  item. This is the mismatch that matters.
-- **A bullet no criterion asks for** - the branch does more than the item says.
-  Worth reporting; it does not block on its own unless it is a whole feature.
-- A bug with no acceptance criteria: compare against its repro /
-  observed-versus-expected description instead, and say that is what you compared.
+For a **freshly created** item there is nothing to classify: both sides came from
+the same branch a moment ago. Read the two lists next to each other once anyway,
+and fix the item if step 4 wrote a criterion the branch does not actually deliver.
+That is a bad criterion, not a gap.
 
-Judge on substance. Different wording for the same behavior is a match; a
-criterion the branch half-does is not. A bullet about tests, coverage, lint, build,
-or an error path like a 403 message is **not** a missing criterion - it is
-deliberately not AC. Drop it from the comparison rather than pushing it onto the
-board.
+For an item that **already existed** - given as `--item <id>`, or adopted from the
+search - read everything it records before comparing anything:
 
-**Everything lines up** - say so in one line and carry on.
+```
+mcp__azure-devops__wit_get_work_item id=<id> project=Cloud
+    fields=["System.Description","Microsoft.VSTS.Common.AcceptanceCriteria",
+            "Laserfiche.BacklogItem.TestPlan","Microsoft.VSTS.TCM.ReproSteps"]
+mcp__azure-devops__wit_list_work_item_comments workItemId=<id> project=Cloud
+```
 
-**Mismatch** - stop and ask with `AskUserQuestion`, the gaps listed concretely
-(which criterion, which bullet). Two options:
+The comments matter. A requirement added after the item was written usually lives
+in one, so a comment asking for behavior the branch does not have is a gap like
+any other. **Comments are never rewritten or answered by this skill** - they are
+somebody's conversation, and they are read here only to find gaps.
 
-1. **Open it as a draft and note the gap** - the PR body carries a short line
-   saying which criteria are not delivered yet. Nothing on the board changes. Being
-   a draft, it gets no label and no reviewer, so say in the report that both are
-   waiting on it going ready.
-2. **Trim the item to match** - remove the undelivered criteria
-   (`wit_update_work_item` on the acceptance-criteria field) and open a normal PR.
-   Show the exact criteria you would remove before touching the board, and say
-   that anything still wanted needs its own item. Do not create that follow-up
-   here.
+### The classification
 
-Other direction (a bullet no criterion covers), same question, with option 2
-reading "add it to the item's criteria". Only offer that for a real feature a
-person can check in front of the app.
+Line up the step 2 bullets and step 4's fields against what the item currently
+says. Each line on the item's side is one of:
+
+- **Divergence** - the item and the branch describe the same work, differently.
+  The item says a filter is a dropdown and the branch built a typeahead; the item
+  describes the endpoint that got renamed on the way; the wording is just older.
+  **The branch wins.** No question, no gate.
+- **Gap** - the item asks for something no bullet delivers at all. Not a different
+  shape of the same thing, an absence. **This is the question**, below - the only
+  thing in this step that is not the skill's call.
+- **Extra** - the branch delivers something the item never asked for. **The branch
+  wins**: it goes into the description, and into the acceptance criteria if it is a
+  feature a person can check in front of the app.
+
+Divergence versus gap is the only judgement that matters here, and it is a
+judgement about behavior rather than wording. Ask what a person sitting in front
+of the feature would find: something different from what the item said (divergence)
+or nothing at all (gap). A criterion the branch **half** delivers is a gap for the
+half that is missing - say which half.
+
+Two things are out of the comparison entirely, same as they were out of step 4:
+anything a PR gate already blocks on (tests, coverage, lint, build, a11y), and
+error paths and implementation detail that were never AC. A bullet about test
+coverage is not an extra, and a criterion about a 403 message body is not a gap.
+Drop them from the comparison rather than pushing them onto the board.
+
+A **bug with no acceptance criteria**: classify against its repro and its
+observed-versus-expected description instead, and say in the report that is what
+you compared.
+
+### Applying it - divergence and extra
+
+Write step 4's description and acceptance criteria over the item's
+(`wit_update_work_item` on `System.Description` and
+`Microsoft.VSTS.Common.AcceptanceCriteria`). Run this **after** the gap question
+below has been settled, and honour its answer: an undelivered criterion Joey chose
+to keep does not exist any more (he stopped the run), and one he chose to remove
+comes out here as part of the same single write. Nothing gets dropped as a side
+effect of the sync itself.
+
+- Do this in **one** update per field. Do not patch line by line.
+- **Quote what you replaced in the report**, both fields, so the old text is in
+  front of Joey rather than only in the item's history. TFS keeps the revision
+  either way (`wit_list_work_item_revisions`), and that is the undo path - say so
+  if the change is large.
+- The **title** is left alone unless it now describes different work than shipped.
+  If it does, say what you would rename it to and let Joey do it; a title change
+  moves what other people see on the board.
+- `--no-sync` skips this whole subsection: report the divergences and change
+  nothing. Empty fields still get filled per step 5.
+
+### The gap question - the item asks for something the branch does not deliver
+
+**Stop before writing anything** - no fields, no state bump, no PR - and put the
+gap to Joey. This is the one case where the item knows something the branch does
+not, and it has two legitimate answers that only he can pick between: the work is
+still coming, or the item should never have asked for it. Reconciling it either way
+without asking is how a requirement gets lost between a board and a merge.
+
+Warn first, concrete enough to act on: the criterion, note or comment verbatim,
+where it came from (acceptance criteria, description, comment and its author), and
+one line on what the branch does instead or that it does nothing.
+
+Then ask with `AskUserQuestion`, one question per gap when they are independent,
+one question when they are the same missing feature:
+
+1. **Stop here, the work is still coming** - nothing has been written and no PR is
+   open. The gap gets built, or the item gets split, and `/paperwork` runs again
+   after. Recommend this one when the criterion reads like real scope rather than
+   an artifact of planning.
+2. **Remove it from the work item** - the undelivered criteria come off the item,
+   the sync then runs as normal, and the PR opens as normal. **Show the exact lines
+   you would remove before touching the board**, and quote them again in the
+   report, because once they are off the item that report is the only place they
+   still exist. Say that anything still wanted needs its own item, and do not
+   create that follow-up here.
+
+Two gaps cannot be answered with option 2, so do not offer it for them. One on an
+item **not assigned to Joey**: removing a criterion is a board edit somebody else
+may be reading. And one that lives only in a **comment**: there is no field to trim,
+and this skill does not edit or answer comments. Both are stop-only, with the gap
+named in the report so Joey can settle it on the board himself.
+
+**Everything lines up, or divergence only** - say so in one line, apply it, and
+carry on.
 
 ## Step 7 - open the PR
 
@@ -392,7 +514,7 @@ gh pr create --base main --head "$(git branch --show-current)" \
   --title "<title>" --body-file <scratchpad>/pr-body.md [--draft]
 ```
 
-`--draft` for `--draft-pr`, and for step 6's mismatch default. Report the URL `gh`
+`--draft` for `--draft-pr`. Report the URL `gh`
 returns; do not claim it opened without one. If `gh pr create` fails, the item
 still exists and is correct - report the real error and stop. Do not retry into a
 second PR.
@@ -470,16 +592,24 @@ Hand it, in the invocation: the item id, the branch, the components from step 1,
 PR url, the preview namespace if the branch has one up, and the path to the loom
 report from step 1. It does not go looking for that report itself.
 
+**A plan already in the field is refreshed, not left.** Same reason as step 6: a
+plan written against the plan tests something nobody shipped, and a tester
+following it either fails a step that was never built or passes one that no longer
+means what it says. Say so in the invocation - that a plan is already there, that
+the branch is the golden standard, and that it should be brought into line with
+what the branch delivers - and quote the plan you replaced in the report. Under
+`--no-sync`, an existing plan is left alone and the report says
+`/draft-test-plan <id>` refines it.
+
 **Leave the field alone in three cases:**
 
-- **A plan is already there.** Same rule as the description and the acceptance
-  criteria: filling an empty field is not a rewrite, replacing what somebody wrote
-  is. Report that one is already there and that `/draft-test-plan <id>` refines it.
 - **Test Results are already recorded on the item.** Somebody has run the plan.
   Renumbering it under their results is `draft-test-plan`'s own step 5 and needs a
-  person, not a run that is really about a PR.
-- **The item is assigned to someone else** - step 5 already flagged that. Do not
-  write to their field.
+  person, not a run that is really about a PR. This one outranks the sync: a
+  rewritten plan under somebody's recorded pass makes their result unreadable.
+- **The item is assigned to someone else** - step 5 already flagged that, and a no
+  there covers this field too. Do not write to their field.
+- **`--no-sync` and a plan is already there**, per above.
 
 Two things that are not stops. `draft-test-plan` is a repo skill
 (`.claude/skills/draft-test-plan/`), so an older checkout may not carry it: say so
@@ -500,18 +630,24 @@ Short. No praise for the change, no summary of what the code does.
 - **what you guessed**, so Joey can fix it in one pass: the type inference if it
   was ambiguous, the story points, the area tag when the branch touched more than
   one component.
-- **where the prose came from**: the loom report, or the diff because there was
-  no report.
+- **where the prose came from**: the branch's spec file, the loom report, or the
+  diff because there was neither.
 
 Then:
 
 - **the PR**: URL, draft or ready and why, or that one was already open.
-- **the AC check**: matched, or the gaps and which option was taken.
+- **the sync**: which fields were written over and which were already right, with
+  the replaced description, acceptance criteria and test plan quoted so the old
+  text is readable here and not only in the item's revision history. Say
+  `wit_list_work_item_revisions` is the undo path. Under `--no-sync`, the
+  divergences you found and did not apply.
+- **the gap check**: nothing on the item that the branch does not deliver, or the
+  gap concretely, which answer Joey gave, and - if criteria were removed - those
+  lines quoted in full, since the report is now the only place they exist.
 - **the reviewer**: `dev-bot-laserfiche` requested, or not requested because the PR
   is a draft, or the real error.
-- **the test plan**: drafted into the item by `draft-test-plan`, or left alone
-  because one was already written or results were already recorded, or the real
-  error.
+- **the test plan**: drafted or refreshed into the item by `draft-test-plan`, or
+  left alone because results were already recorded, or the real error.
 - **the translation label**, if any `en.json` changed:
   - ready PR - say the **`to-be-translated`** label was added, and that the
     pipeline will commit the regenerated catalogs back to the branch.
@@ -534,9 +670,12 @@ Each of this skill's questions gets a default:
 |---|---|
 | Step 5 search turned up candidates | adopt one only if it is assigned to Joey, sits in `Cloud\Projects\Momentum`, and its criteria clearly describe this branch. Anything else: **create a new item** and name the candidates in the report |
 | Step 5 item assigned to someone else | **stop.** Do not link a shared item to work nobody asked this run to do |
-| Step 6 mismatch question | open as a **draft** with the gap noted in the body; never edit a shared item's acceptance criteria unattended |
+| Step 6 divergence | **sync it**, same as attended. This is the default posture, not a question, so headless needs no softening - but quote the replaced text in the report, because nobody watched it happen |
+| Step 6 gap question | **stop.** No fields written, no PR. Removing a criterion is the one answer that destroys information, so it is never the unattended choice; name the gap in the report and let Joey pick |
+| Step 6 sync on an item assigned to someone else | **stop**, per the row above on linking one at all |
+| Step 9 test plan already written | refresh it, same as attended, unless Test Results are recorded |
+| Step 9 recorded Test Results | leave the plan as it is and name it in the report |
 | draft versus ready | **draft**, unless the invocation carried `--pr`. A headless run does not decide to ping reviewers, so it adds no label and no reviewer either |
-| Step 9 test plan on an adopted item | draft one only into an **empty** field. A plan already written, or any recorded Test Results, is left as it is and named in the report |
 
 Nothing else softens. Every precondition is still a stop, and a stop is reported
 rather than worked around.
@@ -556,19 +695,32 @@ thing in this pipeline nobody can un-see.
 - **One item and one PR per branch, ever.** Search the board before creating an
   item, and prefer the one that is already there; check for an existing PR before
   creating one; check with `search_workitem` before retrying a failed creation.
+  Step 6's gap question is the only path that can end with neither, and when it
+  does it creates nothing on the way out.
 - **The item is settled - found or created - before the PR**, so the body can
   carry the link `pr-metadata` requires.
-- **Ready for review is opt-in; the PR itself is not.** Every run opens a PR, and
-  it is a draft unless the invocation carried `--pr`. The `to-be-translated` label
+- **Ready for review is opt-in; the PR itself is not.** Every run that gets past
+  step 6's gap question opens a PR, and it is a draft unless the invocation carried `--pr`. The `to-be-translated` label
   and the `dev-bot-laserfiche` reviewer go on ready PRs only, and are added after
   creation, never as `gh pr create` flags.
 - **A created item goes in as `Active`.** The work is done; a backlog column would
   be a lie.
-- **Never rewrite a pre-existing item's description or acceptance criteria** to
-  make the branch look finished. Filling a field that is empty is not a rewrite;
-  replacing prose somebody wrote is. Report the gap and let a human decide.
+- **The branch is the golden standard for how the work is described; never for
+  whether a requirement exists.** Description, acceptance criteria and test plan
+  are synced to what the branch delivers, and a divergence is applied without
+  asking. A criterion, note or comment the branch does not deliver stops the run
+  and asks: it is never reworded into something the branch does do, never dropped
+  as a side effect of the sync, and only ever removed because Joey said to remove
+  it. That asymmetry is the whole design: rewriting the description of shipped
+  work costs nothing, and losing a requirement between a board and a merge costs a
+  release.
+- **Every field written over is quoted in the report.** A sync is silent on the
+  board otherwise, and the item's revision history is not where somebody looks.
 - **Never invent a work item link.** No id in the body that step 5 did not return
   or read.
+- **An item that is not Joey's is not synced without asking**, and neither is its
+  test plan. Adopting somebody's item is already a question in step 5; writing
+  over their text is a second one.
 - Only `en.json` is ever hand-edited in this repo, and not by this skill.
 - No em dash, emojis, arrows, or box-drawing characters in anything written. The
   board and the PR are read by other people.
