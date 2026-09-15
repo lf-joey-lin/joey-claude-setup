@@ -4,6 +4,14 @@ The one file every loom skill reads. It holds the repo facts, the run ledger
 format, and the attendance contract, so no loom skill carries its own copy of
 any of them. When a fact here changes, it changes once.
 
+**This copy serves `craft` and `forge` only.** The loom pipeline itself moved
+into the momentum repo and reads its own copy at
+`.claude/skills/shared/loom-contract.md`. `loom-tweak` and `gate.sh` moved
+there too, so `/loom-tweak` is a project skill now and only resolves inside a
+momentum checkout, which is where it was always meant to run. A change meant
+for loom belongs in that other copy; a change to a repo fact both care about
+has to be made in both until `craft` and `forge` follow it over.
+
 loom is a dev pipeline for momentum `ui-app` work. The roster:
 
 | Skill | Job |
